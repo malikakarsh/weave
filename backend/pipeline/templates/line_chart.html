@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #chart {
+      position: relative;
+      width: 860px;
+      padding: 32px;
+      background: #1a1d27;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+    }
+
+    .chart-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .chart-actions button {
+      background: #252836;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .chart-actions button:hover {
+      background: #2d3148;
+      color: #e2e8f0;
+    }
+
+    .chart-actions button.success {
+      color: #4ade80;
+      border-color: #4ade80;
+    }
+
+    .axis path,
+    .axis line {
+      stroke: #2d3148;
+    }
+
+    .axis text {
+      fill: #64748b;
+      font-size: 12px;
+    }
+
+    .grid line {
+      stroke: #1e2235;
+      stroke-dasharray: 4 4;
+    }
+
+    .grid path { stroke: none; }
+
+    .line-path {
+      fill: none;
+      stroke-width: 2.5;
+    }
+
+    .area-path {
+      fill: url(#area-gradient);
+    }
+
+    .hover-line {
+      stroke-width: 1;
+      stroke-dasharray: 4 4;
+      opacity: 0;
+    }
+
+    .hover-dot {
+      stroke: #1a1d27;
+      stroke-width: 2.5;
+      opacity: 0;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+
+    .tooltip .label { color: #64748b; font-size: 11px; margin-bottom: 2px; }
+    .tooltip .value { color: #e2e8f0; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="chart">
+    <div class="chart-actions">
+      <button id="btn-copy">Copy SVG</button>
+      <button id="btn-download">Download SVG</button>
+    </div>
+  </div>
+  <div class="tooltip" id="tooltip">
+    <div class="label" id="tooltip-x"></div>
+    <div class="value" id="tooltip-y"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    const raw    = __DATA__;
+    const config = __CONFIG__;
+
+    // Try parsing x as a date; fall back to treating it as a string category
+    const parsers = [
+      d3.timeParse("%Y-%m-%d"),
+      d3.timeParse("%d/%m/%Y"),
+      d3.timeParse("%m/%d/%Y"),
+      d3.timeParse("%Y-%m-%dT%H:%M:%S"),
+      d3.timeParse("%Y-%m-%d %H:%M:%S"),
+    ];
+
+    function parseDate(str) {
+      for (const p of parsers) {
+        const d = p(str);
+        if (d) return d;
+      }
+      return null;
+    }
+
+    const firstParsed = parseDate(raw[0].x);
+    const isTemporal = firstParsed !== null;
+
+    const data = raw.map(d => ({
+      x: isTemporal ? parseDate(d.x) : d.x,
+      y: d.y,
+    }));
+
+    // Dimensions
+    const margin = { top: 24, right: 32, bottom: 48, left: 72 };
+    const totalWidth  = 796;
+    const totalHeight = 420;
+    const width  = totalWidth  - margin.left - margin.right;
+    const height = totalHeight - margin.top  - margin.bottom;
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
+      .attr("width", "100%");
+
+    // Gradient def
+    const defs = svg.append("defs");
+
+    const grad = defs.append("linearGradient")
+      .attr("id", "area-gradient")
+      .attr("x1", "0").attr("y1", "0")
+      .attr("x2", "0").attr("y2", "1");
+
+    grad.append("stop").attr("offset", "0%")
+      .attr("stop-color", config.color).attr("stop-opacity", 0.25);
+    grad.append("stop").attr("offset", "100%")
+      .attr("stop-color", config.color).attr("stop-opacity", 0);
+
+    const g = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    const xScale = isTemporal
+      ? d3.scaleTime().domain(d3.extent(data, d => d.x)).range([0, width])
+      : d3.scalePoint().domain(data.map(d => d.x)).range([0, width]).padding(0.5);
+
+    const yScale = d3.scaleLinear()
+      .domain([0, d3.max(data, d => d.y) * 1.1])
+      .range([height, 0]);
+
+    // Grid
+    g.append("g")
+      .attr("class", "grid")
+      .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
+
+    // Axes
+    g.append("g")
+      .attr("class", "axis")
+      .attr("transform", `translate(0,${height})`)
+      .call(
+        isTemporal
+          ? d3.axisBottom(xScale).ticks(6).tickFormat(d3.timeFormat("%b %Y"))
+          : d3.axisBottom(xScale)
+      )
+      .selectAll("text")
+      .attr("dy", "1.2em");
+
+    g.append("g")
+      .attr("class", "axis")
+      .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+
+    if (config.title) {
+      svg.append("text")
+        .attr("x", totalWidth / 2).attr("y", 16)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
+        .text(config.title);
+    }
+
+    if (config.x_label) {
+      svg.append("text")
+        .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#64748b").attr("font-size", "12px")
+        .text(config.x_label);
+    }
+
+    if (config.y_label) {
+      svg.append("text")
+        .attr("transform", `rotate(-90)`)
+        .attr("x", -(margin.top + height / 2)).attr("y", 14)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#64748b").attr("font-size", "12px")
+        .text(config.y_label);
+    }
+
+    const CURVES = {
+      monotoneX: d3.curveMonotoneX,
+      linear: d3.curveLinear,
+      step: d3.curveStep,
+      natural: d3.curveNatural,
+      cardinal: d3.curveCardinal,
+    };
+    const curve = CURVES[config.curve] ?? d3.curveMonotoneX;
+
+    // Area
+    const area = d3.area()
+      .defined(d => d.y !== null)
+      .x(d => xScale(d.x))
+      .y0(height)
+      .y1(d => yScale(d.y))
+      .curve(curve);
+
+    if (config.show_area) {
+      g.append("path")
+        .datum(data)
+        .attr("class", "area-path")
+        .attr("d", area);
+    }
+
+    // Line
+    const line = d3.line()
+      .defined(d => d.y !== null)
+      .x(d => xScale(d.x))
+      .y(d => yScale(d.y))
+      .curve(curve);
+
+    g.append("path")
+      .datum(data)
+      .attr("class", "line-path")
+      .attr("stroke", config.color)
+      .attr("d", line);
+
+    // Hover elements
+    const hoverLine = g.append("line")
+      .attr("class", "hover-line")
+      .attr("stroke", config.color)
+      .attr("y1", 0)
+      .attr("y2", height);
+
+    const hoverDot = g.append("circle")
+      .attr("class", "hover-dot")
+      .attr("fill", config.color)
+      .attr("r", 5);
+
+    // Invisible overlay for mouse tracking
+    const bisect = d3.bisector(d => d.x).center;
+    const tooltip  = document.getElementById("tooltip");
+    const tipX     = document.getElementById("tooltip-x");
+    const tipY     = document.getElementById("tooltip-y");
+    const formatY  = d3.format(",.2f");
+    const formatX  = isTemporal ? d3.timeFormat("%b %d, %Y") : d => d;
+
+    g.append("rect")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("fill", "none")
+      .attr("pointer-events", "all")
+      .on("mousemove", function(event) {
+        const [mx] = d3.pointer(event);
+        const xVal = isTemporal ? xScale.invert(mx) : null;
+        const idx  = isTemporal
+          ? bisect(data, xVal)
+          : Math.round((mx / width) * (data.length - 1));
+        const d = data[Math.max(0, Math.min(idx, data.length - 1))];
+
+        const cx = xScale(d.x);
+        const cy = yScale(d.y);
+
+        hoverLine.attr("x1", cx).attr("x2", cx).attr("opacity", 1);
+        hoverDot.attr("cx", cx).attr("cy", cy).attr("opacity", 1);
+
+        tipX.textContent = formatX(d.x);
+        tipY.textContent = formatY(d.y);
+
+        const rect = document.getElementById("chart").getBoundingClientRect();
+        tooltip.style.left  = `${rect.left + margin.left + cx + 12}px`;
+        tooltip.style.top   = `${rect.top  + margin.top  + cy - 20}px`;
+        tooltip.style.opacity = 1;
+      })
+      .on("mouseleave", () => {
+        hoverLine.attr("opacity", 0);
+        hoverDot.attr("opacity", 0);
+        tooltip.style.opacity = 0;
+      });
+
+    // --- SVG export ---
+
+    // CSS class styles don't travel with a copied SVG — inline them first.
+    const SVG_PROPS = [
+      "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
+      "stroke-opacity", "fill-opacity", "opacity", "font-size", "font-family",
+      "font-weight", "text-anchor", "dominant-baseline",
+    ];
+
+    function buildExportSVG() {
+      const svgEl = document.querySelector("svg");
+      const clone = svgEl.cloneNode(true);
+
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", totalWidth);
+      clone.setAttribute("height", totalHeight);
+
+      // Background rect so the dark card travels with the SVG
+      const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("width", "100%");
+      bg.setAttribute("height", "100%");
+      bg.setAttribute("fill", "#1a1d27");
+      clone.insertBefore(bg, clone.firstChild);
+
+      // Inline computed styles from the live elements onto the clone
+      const srcEls = [...svgEl.querySelectorAll("*")];
+      const dstEls = [...clone.querySelectorAll("*")];
+      srcEls.forEach((el, i) => {
+        const computed = window.getComputedStyle(el);
+        SVG_PROPS.forEach(prop => {
+          const val = computed.getPropertyValue(prop);
+          if (val) dstEls[i].style.setProperty(prop, val);
+        });
+      });
+
+      // Strip hover elements — they're invisible in the chart anyway
+      clone.querySelectorAll(".hover-line, .hover-dot").forEach(el => el.remove());
+
+      return new XMLSerializer().serializeToString(clone);
+    }
+
+    async function copySVG() {
+      const svgStr = buildExportSVG();
+      const btn = document.getElementById("btn-copy");
+      try {
+        const blob = new Blob([svgStr], { type: "image/svg+xml" });
+        await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
+      } catch {
+        // ClipboardItem not supported — fall back to plain text
+        await navigator.clipboard.writeText(svgStr);
+      }
+      btn.textContent = "Copied!";
+      btn.classList.add("success");
+      setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
+    }
+
+    function downloadSVG() {
+      const svgStr = buildExportSVG();
+      const blob = new Blob([svgStr], { type: "image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url;
+      a.download = "chart.svg";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("btn-copy").addEventListener("click", copySVG);
+    document.getElementById("btn-download").addEventListener("click", downloadSVG);
+  </script>
+</body>
+</html>

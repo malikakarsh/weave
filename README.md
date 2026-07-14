@@ -126,7 +126,22 @@ backend/
 
 ## What's next (V2)
 
+**Chart types**
 - Bar and scatter chart templates
-- Orchestrator that decomposes a single prompt into multiple simultaneous plots
-- Parallel plot rendering via `asyncio.gather()`
-- Frontend UI — upload CSV, type prompt, see chart
+
+**API + UI**
+- FastAPI backend — `POST /chart`, `GET /health`
+- Frontend — file upload + prompt input + rendered chart in browser
+- Deployed with a live URL (Railway / Render / Fly.io)
+
+**Test suite**
+- pytest coverage for DataLoader, Transformer, and LLMMapper
+
+**Multi-plot**
+- Orchestrator that decomposes a single prompt into N plot specs
+- Parallel rendering via `asyncio.gather()`
+
+**Data storytelling**
+- Intelligent peer selection — when a user focuses on one entity (e.g. "compare Microsoft"), the LLM picks 4-5 structurally similar peers based on revenue scale, sector, and growth trajectory rather than requiring the user to name them
+- Two-tier visual hierarchy — focus group gets distinct colors and full opacity; the rest render in a single muted color at low opacity so they provide context without cluttering the chart
+- Pre-aggregation stage (`Summarizer`) that computes per-group stats (mean, CAGR, magnitude) before the LLM call, keeping token usage manageable even on large datasets like Fortune 500

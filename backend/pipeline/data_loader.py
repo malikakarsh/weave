@@ -63,7 +63,5 @@ class DataLoader:
 
     def _validate(self, schema: Schema) -> None:
         types = {col.type for col in schema.columns}
-        if ColumnType.DATE not in types:
-            raise ValueError("Dataset must contain at least one temporal column.")
         if ColumnType.FLOAT not in types:
             raise ValueError("Dataset must contain at least one numeric column.")

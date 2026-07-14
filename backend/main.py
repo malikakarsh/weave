@@ -22,11 +22,13 @@ def run(csv_path: str, prompt: str, output: str, config: ChartConfig) -> None:
 
     print(f"\nMapping axes for: {prompt!r}")
     mapping = LLMMapper().map(schema, prompt)
-    print(f"  x={mapping.x_column!r}  y={mapping.y_column!r}")
+    print(f"  chart={mapping.chart_type!r}  x={mapping.x_column!r}  y={mapping.y_column!r}")
 
     data = Transformer().transform(rows, mapping)
     print(f"  {len(data)} data points")
 
+    # LLM chart type decision overrides default; explicit --curve/--color etc. still apply
+    config = config.model_copy(update={"chart_type": mapping.chart_type})
     html = Templater().render(data, config)
     Path(output).write_text(html)
     print(f"\nChart written to {output!r}")
@@ -50,6 +52,8 @@ def main() -> None:
     parser.add_argument("--title",    default="",        help="Chart title")
     parser.add_argument("--x-label",  default="",        help="X-axis label")
     parser.add_argument("--y-label",  default="",        help="Y-axis label")
+    parser.add_argument("--width",    type=int, default=836, help="Chart width in px (default: 836)")
+    parser.add_argument("--height",   type=int, default=420, help="Chart height in px (default: 420)")
     parser.add_argument("--color",    default="#6366f1",
                         help="Line color for single-series charts (hex or named)")
     parser.add_argument("--palette",  nargs="+", metavar="COLOR",
@@ -67,6 +71,8 @@ def main() -> None:
         title=args.title,
         x_label=args.x_label,
         y_label=args.y_label,
+        width=args.width,
+        height=args.height,
         color=args.color,
         palette=args.palette,
         y_format=args.y_format,

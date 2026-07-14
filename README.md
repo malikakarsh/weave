@@ -14,20 +14,22 @@ Weave runs a four-stage pipeline:
 DataLoader → LLMMapper → Transformer → Templater
 ```
 
-1. **DataLoader** — reads the CSV, auto-detects delimiter, infers column types (Date, Float, String), and validates that the dataset has at least one temporal and one numeric column.
+1. **DataLoader** — reads the CSV, auto-detects delimiter, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column.
 
-2. **LLMMapper** — sends the schema and your prompt to Claude Haiku, which picks the best x-axis (Date), y-axis (Float), an optional group column for multi-line charts, and an optional filter if the user names specific groups.
+2. **LLMMapper** — sends the schema and your prompt to Claude Haiku, which decides the chart type (line, bar, scatter) and picks the x-axis, y-axis, an optional group column for multi-series charts, and an optional filter if the user names specific groups.
 
-3. **Transformer** — strips rows down to `{x, y}` pairs (single line) or `{group, values}` objects (multi-line). Missing values are kept as `null` so gaps are visible rather than silently dropped.
+3. **Transformer** — strips rows down to `{x, y}` pairs (single series) or `{group, values}` objects (multi-series). Missing values are kept as `null` so gaps are visible rather than silently dropped.
 
-4. **Templater** — injects the data and a `ChartConfig` into a D3.js HTML template, producing a self-contained interactive chart.
+4. **Templater** — injects the data and a `ChartConfig` into the matching D3.js template. Falls back to the line chart if the decided chart type doesn't have a template yet.
 
 ## Output
 
 A single `.html` file with:
-- Single or multi-line chart with per-group colors and a legend
+- Single or multi-series chart with per-group colors and a legend
+- LLM-decided chart type — line for trends, bar for categories, scatter for numeric relationships
 - Interactive hover — vertical line, dots on each series, tooltip showing all group values at that point
 - Visible gaps where data is missing (no silent drops)
+- **− Size / + Size** — resize the chart in the browser; the SVG scales proportionally by changing the container width while keeping the viewBox fixed
 - **Copy SVG** — copies a static vector snapshot to clipboard (paste into Figma, web apps, PowerPoint on supported versions)
 - **Download SVG** — saves an `.svg` file with all styles inlined; use Insert > Picture in PowerPoint for guaranteed vector quality
 
@@ -47,6 +49,8 @@ python main.py <csv> "<prompt>" [options]
 | `--title` | — | Chart title |
 | `--x-label` | — | X-axis label |
 | `--y-label` | — | Y-axis label |
+| `--width` | `836` | Initial chart width in px |
+| `--height` | `420` | Initial chart height in px |
 | `--color` | `#6366f1` | Line color for single-series charts (hex or named) |
 | `--palette` | — | Space-separated colors for grouped charts (one per group) |
 | `--y-format` | `,.0f` | D3 format string for y-axis ticks |
@@ -80,6 +84,11 @@ python main.py samples/sample.csv "show Acme and Globex revenue over time" \
   --open
 ```
 
+Non-temporal x-axis:
+```bash
+python main.py samples/numeric_x.csv "show how income changes with age" --open
+```
+
 ## Configuration
 
 Copy `env.example` to `.env` and fill in your key:
@@ -110,13 +119,14 @@ backend/
 │   └── templates/
 │       └── line_chart.html        # D3.js line chart template
 ├── samples/
-│   └── sample.csv                 # Example dataset
+│   ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
+│   └── numeric_x.csv              # Age vs income dataset (Float x-axis)
 └── test_pipeline.py               # Manual end-to-end test
 ```
 
 ## What's next (V2)
 
+- Bar and scatter chart templates
 - Orchestrator that decomposes a single prompt into multiple simultaneous plots
 - Parallel plot rendering via `asyncio.gather()`
-- More chart types (bar, scatter, area)
 - Frontend UI — upload CSV, type prompt, see chart

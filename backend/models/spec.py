@@ -7,6 +7,7 @@ class PlotSpec(BaseModel):
 
 
 class AxisMapping(BaseModel):
+    chart_type: str = "line"
     x_column: str
     y_column: str
     group_column: str | None = None
@@ -15,6 +16,8 @@ class AxisMapping(BaseModel):
 
 class ChartConfig(BaseModel):
     chart_type: str = "line"
+    width: int = 836
+    height: int = 420
     color: str = "#6366f1"
     show_area: bool = True
     curve: str = "monotoneX"     # any d3.curve* suffix: monotoneX, linear, step, natural

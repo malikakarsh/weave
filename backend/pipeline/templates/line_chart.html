@@ -18,7 +18,6 @@
 
     #chart {
       position: relative;
-      width: 900px;
       padding: 32px;
       background: #1a1d27;
       border-radius: 16px;
@@ -79,6 +78,8 @@
 <body>
   <div id="chart">
     <div class="chart-actions">
+      <button id="btn-smaller">− Size</button>
+      <button id="btn-larger">+ Size</button>
       <button id="btn-copy">Copy SVG</button>
       <button id="btn-download">Download SVG</button>
     </div>
@@ -106,9 +107,10 @@
     // Detect grouped vs flat
     const isGrouped = raw.length > 0 && "group" in raw[0];
 
-    const firstX    = isGrouped ? raw[0].values[0].x : raw[0].x;
+    const firstX     = isGrouped ? raw[0].values[0].x : raw[0].x;
     const isTemporal = parseDate(firstX) !== null;
-    const parseX    = v => isTemporal ? parseDate(v) : v;
+    const isNumeric  = !isTemporal && !isNaN(parseFloat(firstX));
+    const parseX     = v => isTemporal ? parseDate(v) : isNumeric ? parseFloat(v) : v;
 
     // Normalise to grouped shape internally — simpler rendering logic
     const groups = isGrouped
@@ -120,10 +122,14 @@
     // Dimensions — extra right margin for legend when grouped
     const legendWidth = isGrouped ? 130 : 0;
     const margin      = { top: 32, right: 16 + legendWidth, bottom: 48, left: 72 };
-    const totalWidth  = 836;
-    const totalHeight = 420;
-    const width  = totalWidth  - margin.left - margin.right;
-    const height = totalHeight - margin.top  - margin.bottom;
+    let totalWidth  = config.width;
+    let totalHeight = config.height;
+    let width  = totalWidth  - margin.left - margin.right;
+    let height = totalHeight - margin.top  - margin.bottom;
+
+    // Set outer div width to match SVG + padding
+    const chartEl = document.getElementById("chart");
+    chartEl.style.width = (totalWidth + 64) + "px";
 
     const svg = d3.select("#chart")
       .append("svg")
@@ -154,7 +160,9 @@
     // Scales
     const xScale = isTemporal
       ? d3.scaleTime().domain(d3.extent(allPoints, d => d.x)).range([0, width])
-      : d3.scalePoint().domain([...new Set(allPoints.map(d => d.x))]).range([0, width]).padding(0.5);
+      : isNumeric
+        ? d3.scaleLinear().domain(d3.extent(allPoints, d => d.x)).nice().range([0, width])
+        : d3.scalePoint().domain([...new Set(allPoints.map(d => d.x))]).range([0, width]).padding(0.5);
 
     const yScale = d3.scaleLinear()
       .domain([0, d3.max(allPoints, d => d.y) * 1.1])
@@ -169,7 +177,9 @@
       .attr("transform", `translate(0,${height})`)
       .call(isTemporal
         ? d3.axisBottom(xScale).ticks(6).tickFormat(d3.timeFormat("%b %Y"))
-        : d3.axisBottom(xScale));
+        : isNumeric
+          ? d3.axisBottom(xScale).ticks(6)
+          : d3.axisBottom(xScale));
     xAxisG.selectAll("text")
       .attr("dy", "1.2em")
       .attr("fill", "#64748b")
@@ -278,11 +288,11 @@
       .attr("fill", "none").attr("pointer-events", "all")
       .on("mousemove", function(event) {
         const [mx] = d3.pointer(event);
-        const xVal = isTemporal ? xScale.invert(mx) : null;
+        const xVal = (isTemporal || isNumeric) ? xScale.invert(mx) : null;
 
         // Find nearest index in first group (all groups share the same x domain)
         const ref = groups[0].values;
-        const idx = isTemporal
+        const idx = (isTemporal || isNumeric)
           ? bisect(ref, xVal)
           : Math.round((mx / width) * (ref.length - 1));
         const safeIdx = Math.max(0, Math.min(idx, ref.length - 1));
@@ -409,6 +419,17 @@
 
     document.getElementById("btn-copy").addEventListener("click", copySVG);
     document.getElementById("btn-download").addEventListener("click", downloadSVG);
+
+    const STEP = 150;
+    const MIN_SIZE = 400 + 64;
+
+    function resize(delta) {
+      const current = chartEl.offsetWidth;
+      chartEl.style.width = Math.max(MIN_SIZE, current + delta) + "px";
+    }
+
+    document.getElementById("btn-smaller").addEventListener("click", () => resize(-STEP));
+    document.getElementById("btn-larger").addEventListener("click",  () => resize(+STEP));
   </script>
 </body>
 </html>

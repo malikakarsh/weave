@@ -9,6 +9,8 @@ class PlotSpec(BaseModel):
 class AxisMapping(BaseModel):
     x_column: str
     y_column: str
+    group_column: str | None = None
+    group_filter: list[str] | None = None  # specific group values to include; None means all
 
 
 class ChartConfig(BaseModel):
@@ -20,3 +22,4 @@ class ChartConfig(BaseModel):
     title: str = ""
     x_label: str = ""
     y_label: str = ""
+    palette: list[str] | None = None  # custom colors per group; falls back to D3 categorical scale

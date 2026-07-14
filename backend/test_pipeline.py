@@ -8,7 +8,7 @@ from pipeline.transformer import Transformer
 from pipeline.templater import Templater
 
 CSV_PATH = "samples/sample.csv"
-PROMPT = "Show me how revenue changed over time"
+PROMPT = "Compare revenue over time for each company"
 OUTPUT = "output.html"
 
 schema, rows = DataLoader().load(CSV_PATH)
@@ -18,7 +18,7 @@ for col in schema.columns:
 
 print(f"\nSending to LLM with prompt: {PROMPT!r}")
 mapping = LLMMapper().map(schema, PROMPT)
-print(f"\nAxis mapping: x={mapping.x_column!r}  y={mapping.y_column!r}")
+print(f"\nAxis mapping: x={mapping.x_column!r}  y={mapping.y_column!r}  group={mapping.group_column!r}")
 
 data = Transformer().transform(rows, mapping)
 print(f"\nTransformed ({len(data)} rows)")

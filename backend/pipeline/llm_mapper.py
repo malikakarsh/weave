@@ -69,3 +69,7 @@ class LLMMapper:
             raise ValueError(
                 f"y_column '{mapping.y_column}' not in schema. Available: {column_names}"
             )
+        if mapping.group_column is not None and mapping.group_column not in column_names:
+            raise ValueError(
+                f"group_column '{mapping.group_column}' not in schema. Available: {column_names}"
+            )

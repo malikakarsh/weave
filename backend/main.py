@@ -50,7 +50,10 @@ def main() -> None:
     parser.add_argument("--title",    default="",        help="Chart title")
     parser.add_argument("--x-label",  default="",        help="X-axis label")
     parser.add_argument("--y-label",  default="",        help="Y-axis label")
-    parser.add_argument("--color",    default="#6366f1", help="Line color (hex)")
+    parser.add_argument("--color",    default="#6366f1",
+                        help="Line color for single-series charts (hex or named)")
+    parser.add_argument("--palette",  nargs="+", metavar="COLOR",
+                        help="Colors for grouped charts, one per group (e.g. --palette red blue green)")
     parser.add_argument("--y-format", default=",.0f",    help="D3 format string for y-axis ticks")
     parser.add_argument("--curve",    default="monotoneX",
                         choices=["monotoneX", "linear", "step", "natural", "cardinal"],
@@ -65,6 +68,7 @@ def main() -> None:
         x_label=args.x_label,
         y_label=args.y_label,
         color=args.color,
+        palette=args.palette,
         y_format=args.y_format,
         curve=args.curve,
         show_area=not args.no_area,

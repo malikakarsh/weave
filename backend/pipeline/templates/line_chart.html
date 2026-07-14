@@ -18,7 +18,7 @@
 
     #chart {
       position: relative;
-      width: 860px;
+      width: 900px;
       padding: 32px;
       background: #1a1d27;
       border-radius: 16px;
@@ -44,53 +44,17 @@
       transition: background 0.15s, color 0.15s;
     }
 
-    .chart-actions button:hover {
-      background: #2d3148;
-      color: #e2e8f0;
-    }
+    .chart-actions button:hover { background: #2d3148; color: #e2e8f0; }
+    .chart-actions button.success { color: #4ade80; border-color: #4ade80; }
 
-    .chart-actions button.success {
-      color: #4ade80;
-      border-color: #4ade80;
-    }
-
-    .axis path,
-    .axis line {
-      stroke: #2d3148;
-    }
-
-    .axis text {
-      fill: #64748b;
-      font-size: 12px;
-    }
-
-    .grid line {
-      stroke: #1e2235;
-      stroke-dasharray: 4 4;
-    }
-
+    .axis path, .axis line { stroke: #2d3148; }
+    .axis text { fill: #64748b; font-size: 12px; }
+    .grid line { stroke: #1e2235; stroke-dasharray: 4 4; }
     .grid path { stroke: none; }
-
-    .line-path {
-      fill: none;
-      stroke-width: 2.5;
-    }
-
-    .area-path {
-      fill: url(#area-gradient);
-    }
-
-    .hover-line {
-      stroke-width: 1;
-      stroke-dasharray: 4 4;
-      opacity: 0;
-    }
-
-    .hover-dot {
-      stroke: #1a1d27;
-      stroke-width: 2.5;
-      opacity: 0;
-    }
+    .line-path { fill: none; stroke-width: 2.5; }
+    .area-path { opacity: 0.15; }
+    .hover-line { stroke: #475569; stroke-width: 1; stroke-dasharray: 4 4; opacity: 0; }
+    .hover-dot { stroke: #1a1d27; stroke-width: 2; opacity: 0; }
 
     .tooltip {
       position: absolute;
@@ -102,10 +66,14 @@
       pointer-events: none;
       opacity: 0;
       transition: opacity 0.1s;
+      min-width: 140px;
     }
 
-    .tooltip .label { color: #64748b; font-size: 11px; margin-bottom: 2px; }
-    .tooltip .value { color: #e2e8f0; font-weight: 600; }
+    .tooltip .tip-date { color: #64748b; font-size: 11px; margin-bottom: 6px; }
+    .tooltip .tip-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .tooltip .tip-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .tooltip .tip-label { color: #94a3b8; flex: 1; }
+    .tooltip .tip-val { color: #e2e8f0; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -115,17 +83,13 @@
       <button id="btn-download">Download SVG</button>
     </div>
   </div>
-  <div class="tooltip" id="tooltip">
-    <div class="label" id="tooltip-x"></div>
-    <div class="value" id="tooltip-y"></div>
-  </div>
+  <div class="tooltip" id="tooltip"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
 
-    // Try parsing x as a date; fall back to treating it as a string category
     const parsers = [
       d3.timeParse("%Y-%m-%d"),
       d3.timeParse("%d/%m/%Y"),
@@ -135,24 +99,28 @@
     ];
 
     function parseDate(str) {
-      for (const p of parsers) {
-        const d = p(str);
-        if (d) return d;
-      }
+      for (const p of parsers) { const d = p(str); if (d) return d; }
       return null;
     }
 
-    const firstParsed = parseDate(raw[0].x);
-    const isTemporal = firstParsed !== null;
+    // Detect grouped vs flat
+    const isGrouped = raw.length > 0 && "group" in raw[0];
 
-    const data = raw.map(d => ({
-      x: isTemporal ? parseDate(d.x) : d.x,
-      y: d.y,
-    }));
+    const firstX    = isGrouped ? raw[0].values[0].x : raw[0].x;
+    const isTemporal = parseDate(firstX) !== null;
+    const parseX    = v => isTemporal ? parseDate(v) : v;
 
-    // Dimensions
-    const margin = { top: 24, right: 32, bottom: 48, left: 72 };
-    const totalWidth  = 796;
+    // Normalise to grouped shape internally — simpler rendering logic
+    const groups = isGrouped
+      ? raw.map(g => ({ group: g.group, values: g.values.map(d => ({ x: parseX(d.x), y: d.y })) }))
+      : [{ group: null, values: raw.map(d => ({ x: parseX(d.x), y: d.y })) }];
+
+    const allPoints = groups.flatMap(g => g.values);
+
+    // Dimensions — extra right margin for legend when grouped
+    const legendWidth = isGrouped ? 130 : 0;
+    const margin      = { top: 32, right: 16 + legendWidth, bottom: 48, left: 72 };
+    const totalWidth  = 836;
     const totalHeight = 420;
     const width  = totalWidth  - margin.left - margin.right;
     const height = totalHeight - margin.top  - margin.bottom;
@@ -162,205 +130,257 @@
       .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
       .attr("width", "100%");
 
-    // Gradient def
     const defs = svg.append("defs");
 
-    const grad = defs.append("linearGradient")
-      .attr("id", "area-gradient")
-      .attr("x1", "0").attr("y1", "0")
-      .attr("x2", "0").attr("y2", "1");
+    // Color scale
+    const palette     = config.palette || d3.schemeTableau10;
+    const colorScale  = isGrouped
+      ? d3.scaleOrdinal(palette).domain(groups.map(g => g.group))
+      : () => config.color;
 
-    grad.append("stop").attr("offset", "0%")
-      .attr("stop-color", config.color).attr("stop-opacity", 0.25);
-    grad.append("stop").attr("offset", "100%")
-      .attr("stop-color", config.color).attr("stop-opacity", 0);
+    // Area gradient per group (single only — overlapping areas look messy)
+    if (!isGrouped && config.show_area) {
+      const grad = defs.append("linearGradient")
+        .attr("id", "area-gradient")
+        .attr("x1", "0").attr("y1", "0").attr("x2", "0").attr("y2", "1");
+      grad.append("stop").attr("offset", "0%")
+        .attr("stop-color", config.color).attr("stop-opacity", 0.25);
+      grad.append("stop").attr("offset", "100%")
+        .attr("stop-color", config.color).attr("stop-opacity", 0);
+    }
 
-    const g = svg.append("g")
-      .attr("transform", `translate(${margin.left},${margin.top})`);
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
     // Scales
     const xScale = isTemporal
-      ? d3.scaleTime().domain(d3.extent(data, d => d.x)).range([0, width])
-      : d3.scalePoint().domain(data.map(d => d.x)).range([0, width]).padding(0.5);
+      ? d3.scaleTime().domain(d3.extent(allPoints, d => d.x)).range([0, width])
+      : d3.scalePoint().domain([...new Set(allPoints.map(d => d.x))]).range([0, width]).padding(0.5);
 
     const yScale = d3.scaleLinear()
-      .domain([0, d3.max(data, d => d.y) * 1.1])
+      .domain([0, d3.max(allPoints, d => d.y) * 1.1])
       .range([height, 0]);
 
-    // Grid
-    g.append("g")
-      .attr("class", "grid")
-      .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""));
+    // Grid + axes
+    g.append("g").attr("class", "grid")
+      .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
+      .selectAll("line").attr("stroke", "#1e2235");
 
-    // Axes
-    g.append("g")
-      .attr("class", "axis")
+    const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
-      .call(
-        isTemporal
-          ? d3.axisBottom(xScale).ticks(6).tickFormat(d3.timeFormat("%b %Y"))
-          : d3.axisBottom(xScale)
-      )
-      .selectAll("text")
-      .attr("dy", "1.2em");
+      .call(isTemporal
+        ? d3.axisBottom(xScale).ticks(6).tickFormat(d3.timeFormat("%b %Y"))
+        : d3.axisBottom(xScale));
+    xAxisG.selectAll("text")
+      .attr("dy", "1.2em")
+      .attr("fill", "#64748b")
+      .attr("font-size", "12px");
+    xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 
-    g.append("g")
-      .attr("class", "axis")
+    const yAxisG = g.append("g").attr("class", "axis")
       .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+    yAxisG.selectAll("text")
+      .attr("fill", "#64748b")
+      .attr("font-size", "12px");
+    yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 
+    // Labels
     if (config.title) {
       svg.append("text")
-        .attr("x", totalWidth / 2).attr("y", 16)
+        .attr("x", (totalWidth - legendWidth) / 2).attr("y", 18)
         .attr("text-anchor", "middle")
         .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
         .text(config.title);
     }
-
     if (config.x_label) {
       svg.append("text")
         .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
-        .attr("text-anchor", "middle")
-        .attr("fill", "#64748b").attr("font-size", "12px")
+        .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
         .text(config.x_label);
     }
-
     if (config.y_label) {
       svg.append("text")
-        .attr("transform", `rotate(-90)`)
+        .attr("transform", "rotate(-90)")
         .attr("x", -(margin.top + height / 2)).attr("y", 14)
-        .attr("text-anchor", "middle")
-        .attr("fill", "#64748b").attr("font-size", "12px")
+        .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
         .text(config.y_label);
     }
 
+    // Curve
     const CURVES = {
-      monotoneX: d3.curveMonotoneX,
-      linear: d3.curveLinear,
-      step: d3.curveStep,
-      natural: d3.curveNatural,
-      cardinal: d3.curveCardinal,
+      monotoneX: d3.curveMonotoneX, linear: d3.curveLinear,
+      step: d3.curveStep, natural: d3.curveNatural, cardinal: d3.curveCardinal,
     };
     const curve = CURVES[config.curve] ?? d3.curveMonotoneX;
 
-    // Area
-    const area = d3.area()
-      .defined(d => d.y !== null)
-      .x(d => xScale(d.x))
-      .y0(height)
-      .y1(d => yScale(d.y))
-      .curve(curve);
-
-    if (config.show_area) {
-      g.append("path")
-        .datum(data)
-        .attr("class", "area-path")
-        .attr("d", area);
-    }
-
-    // Line
-    const line = d3.line()
+    const lineGen = d3.line()
       .defined(d => d.y !== null)
       .x(d => xScale(d.x))
       .y(d => yScale(d.y))
       .curve(curve);
 
-    g.append("path")
-      .datum(data)
-      .attr("class", "line-path")
-      .attr("stroke", config.color)
-      .attr("d", line);
+    const areaGen = d3.area()
+      .defined(d => d.y !== null)
+      .x(d => xScale(d.x))
+      .y0(height).y1(d => yScale(d.y))
+      .curve(curve);
 
-    // Hover elements
+    // Draw lines
+    groups.forEach(grp => {
+      const color = colorScale(grp.group);
+
+      if (!isGrouped && config.show_area) {
+        g.append("path").datum(grp.values)
+          .attr("class", "area-path")
+          .attr("fill", "url(#area-gradient)")
+          .attr("d", areaGen);
+      }
+
+      g.append("path").datum(grp.values)
+        .attr("class", "line-path")
+        .attr("stroke", color)
+        .attr("d", lineGen);
+    });
+
+    // Legend (grouped only)
+    if (isGrouped) {
+      const lx = margin.left + width + 20;
+      const ly = margin.top;
+      groups.forEach((grp, i) => {
+        svg.append("rect")
+          .attr("x", lx).attr("y", ly + i * 22)
+          .attr("width", 10).attr("height", 10).attr("rx", 2)
+          .attr("fill", colorScale(grp.group));
+        svg.append("text")
+          .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
+          .attr("fill", "#94a3b8").attr("font-size", "12px")
+          .text(grp.group);
+      });
+    }
+
+    // Hover — vertical line + one dot per group
     const hoverLine = g.append("line")
-      .attr("class", "hover-line")
-      .attr("stroke", config.color)
-      .attr("y1", 0)
-      .attr("y2", height);
+      .attr("class", "hover-line").attr("y1", 0).attr("y2", height);
 
-    const hoverDot = g.append("circle")
-      .attr("class", "hover-dot")
-      .attr("fill", config.color)
-      .attr("r", 5);
+    const hoverDots = groups.map(grp =>
+      g.append("circle")
+        .attr("class", "hover-dot")
+        .attr("r", 5)
+        .attr("fill", colorScale(grp.group))
+    );
 
-    // Invisible overlay for mouse tracking
-    const bisect = d3.bisector(d => d.x).center;
-    const tooltip  = document.getElementById("tooltip");
-    const tipX     = document.getElementById("tooltip-x");
-    const tipY     = document.getElementById("tooltip-y");
-    const formatY  = d3.format(",.2f");
-    const formatX  = isTemporal ? d3.timeFormat("%b %d, %Y") : d => d;
+    const bisect  = d3.bisector(d => d.x).center;
+    const tooltip = document.getElementById("tooltip");
+    const formatY = d3.format(",.2f");
+    const formatX = isTemporal ? d3.timeFormat("%b %d, %Y") : d => d;
 
     g.append("rect")
-      .attr("width", width)
-      .attr("height", height)
-      .attr("fill", "none")
-      .attr("pointer-events", "all")
+      .attr("width", width).attr("height", height)
+      .attr("fill", "none").attr("pointer-events", "all")
       .on("mousemove", function(event) {
         const [mx] = d3.pointer(event);
         const xVal = isTemporal ? xScale.invert(mx) : null;
-        const idx  = isTemporal
-          ? bisect(data, xVal)
-          : Math.round((mx / width) * (data.length - 1));
-        const d = data[Math.max(0, Math.min(idx, data.length - 1))];
 
-        const cx = xScale(d.x);
-        const cy = yScale(d.y);
+        // Find nearest index in first group (all groups share the same x domain)
+        const ref = groups[0].values;
+        const idx = isTemporal
+          ? bisect(ref, xVal)
+          : Math.round((mx / width) * (ref.length - 1));
+        const safeIdx = Math.max(0, Math.min(idx, ref.length - 1));
 
+        const cx = xScale(ref[safeIdx].x);
         hoverLine.attr("x1", cx).attr("x2", cx).attr("opacity", 1);
-        hoverDot.attr("cx", cx).attr("cy", cy).attr("opacity", 1);
 
-        tipX.textContent = formatX(d.x);
-        tipY.textContent = formatY(d.y);
+        // Position dots
+        groups.forEach((grp, i) => {
+          const pt = grp.values[safeIdx];
+          if (pt && pt.y !== null) {
+            hoverDots[i].attr("cx", cx).attr("cy", yScale(pt.y)).attr("opacity", 1);
+          } else {
+            hoverDots[i].attr("opacity", 0);
+          }
+        });
 
-        const rect = document.getElementById("chart").getBoundingClientRect();
-        tooltip.style.left  = `${rect.left + margin.left + cx + 12}px`;
-        tooltip.style.top   = `${rect.top  + margin.top  + cy - 20}px`;
+        // Build tooltip
+        let html = `<div class="tip-date">${formatX(ref[safeIdx].x)}</div>`;
+        groups.forEach(grp => {
+          const pt  = grp.values[safeIdx];
+          const val = pt && pt.y !== null ? formatY(pt.y) : "—";
+          const col = colorScale(grp.group);
+          const lbl = isGrouped ? grp.group : "Value";
+          html += `<div class="tip-row">
+            <span class="tip-swatch" style="background:${col}"></span>
+            <span class="tip-label">${lbl}</span>
+            <span class="tip-val">${val}</span>
+          </div>`;
+        });
+        tooltip.innerHTML = html;
+
+        const chartRect = document.getElementById("chart").getBoundingClientRect();
+        tooltip.style.left    = `${chartRect.left + margin.left + cx + 12}px`;
+        tooltip.style.top     = `${chartRect.top  + margin.top  + yScale(ref[safeIdx].y ?? 0) - 20}px`;
         tooltip.style.opacity = 1;
       })
       .on("mouseleave", () => {
         hoverLine.attr("opacity", 0);
-        hoverDot.attr("opacity", 0);
+        hoverDots.forEach(d => d.attr("opacity", 0));
         tooltip.style.opacity = 0;
       });
 
     // --- SVG export ---
-
-    // CSS class styles don't travel with a copied SVG — inline them first.
     const SVG_PROPS = [
       "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
       "stroke-opacity", "fill-opacity", "opacity", "font-size", "font-family",
       "font-weight", "text-anchor", "dominant-baseline",
     ];
 
+    // PowerPoint's SVG renderer doesn't support rgb() in presentation attributes — needs hex
+    function toHex(color) {
+      if (!color || color === "none" || color.startsWith("#") || color.startsWith("url(")) return color;
+      const m = color.match(/\d+/g);
+      if (!m || m.length < 3) return color;
+      return "#" + m.slice(0, 3).map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+    }
+
     function buildExportSVG() {
       const svgEl = document.querySelector("svg");
       const clone = svgEl.cloneNode(true);
-
       clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
       clone.setAttribute("width", totalWidth);
       clone.setAttribute("height", totalHeight);
 
-      // Background rect so the dark card travels with the SVG
+      // Query BEFORE inserting bg — inserting bg shifts dstEls indices by 1
+      const srcEls = [...svgEl.querySelectorAll("*")];
+      const dstEls = [...clone.querySelectorAll("*")];
+
+      srcEls.forEach((el, i) => {
+        const dst     = dstEls[i];
+        const computed = window.getComputedStyle(el);
+
+        SVG_PROPS.forEach(prop => {
+          // Prefer the element's own presentation attribute (set by D3's .attr())
+          // over the computed CSS value — both paths end up as presentation attributes
+          // so PowerPoint handles them reliably instead of ignoring inline CSS.
+          const raw = el.getAttribute(prop) || computed.getPropertyValue(prop);
+          const val = toHex(raw);
+          if (val) dst.setAttribute(prop, val);
+        });
+
+        // url() gradient refs don't survive SVG export — flatten to solid + opacity
+        const fill = dst.getAttribute("fill") || "";
+        if (fill.startsWith("url(")) {
+          dst.setAttribute("fill", config.color);
+          dst.setAttribute("fill-opacity", "0.12");
+        }
+      });
+
+      // Insert bg after styling so it doesn't skew indices above
       const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       bg.setAttribute("width", "100%");
       bg.setAttribute("height", "100%");
       bg.setAttribute("fill", "#1a1d27");
       clone.insertBefore(bg, clone.firstChild);
 
-      // Inline computed styles from the live elements onto the clone
-      const srcEls = [...svgEl.querySelectorAll("*")];
-      const dstEls = [...clone.querySelectorAll("*")];
-      srcEls.forEach((el, i) => {
-        const computed = window.getComputedStyle(el);
-        SVG_PROPS.forEach(prop => {
-          const val = computed.getPropertyValue(prop);
-          if (val) dstEls[i].style.setProperty(prop, val);
-        });
-      });
-
-      // Strip hover elements — they're invisible in the chart anyway
       clone.querySelectorAll(".hover-line, .hover-dot").forEach(el => el.remove());
-
       return new XMLSerializer().serializeToString(clone);
     }
 
@@ -371,7 +391,6 @@
         const blob = new Blob([svgStr], { type: "image/svg+xml" });
         await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
       } catch {
-        // ClipboardItem not supported — fall back to plain text
         await navigator.clipboard.writeText(svgStr);
       }
       btn.textContent = "Copied!";
@@ -384,9 +403,7 @@
       const blob = new Blob([svgStr], { type: "image/svg+xml" });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
-      a.href = url;
-      a.download = "chart.svg";
-      a.click();
+      a.href = url; a.download = "chart.svg"; a.click();
       URL.revokeObjectURL(url);
     }
 

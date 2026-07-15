@@ -289,7 +289,7 @@ backend/
 │       ├── pie_chart.html         # D3.js donut/pie chart with % labels
 │       ├── scatter_chart.html     # D3.js scatter chart
 │       ├── bubble_chart.html      # D3.js bubble chart (grouped or individually labeled)
-│       ├── map_chart.html          # D3.js symbol map (Natural Earth projection + world-atlas CDN)
+│       ├── symbol_map_chart.html   # D3.js symbol map (Natural Earth projection + world-atlas CDN)
 │       ├── stacked_area_chart.html # D3.js stacked area chart (composition over time)
 │       ├── stacked_bar_chart.html  # D3.js stacked bar chart (composition across categories)
 │       ├── heatmap_chart.html     # D3.js heatmap (sequential color scale + legend)

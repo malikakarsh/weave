@@ -96,6 +96,16 @@
       outline: none;
     }
     .edit-text:focus { border-color: #4f5680; }
+    .edit-select {
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+    }
 
     .axis path, .axis line { stroke: #2d3148; }
     .axis text { fill: #64748b; font-size: 12px; }
@@ -135,8 +145,14 @@
         <input type="color" class="color-pick" id="pick-svg-bg">
       </div>
       <div class="edit-row">
-        <span class="edit-label">Hot Color</span>
-        <input type="color" class="color-pick" id="pick-hot-color">
+        <span class="edit-label">Color Scale</span>
+        <select class="edit-select" id="pick-scale">
+          <option value="viridis">Viridis</option>
+          <option value="inferno">Inferno</option>
+          <option value="plasma">Plasma</option>
+          <option value="magma">Magma</option>
+          <option value="cubehelix">Cubehelix</option>
+        </select>
       </div>
       <div class="edit-divider"></div>
       <div class="edit-row">
@@ -169,18 +185,24 @@
     const config = __CONFIG__;
 
     // ── Color scale ──────────────────────────────────────────────────────────
-    let svgBg    = config.svg_bg || "#1a1d27";
-    let hotColor = config.color  || "#6366f1";
-    const COLD   = "#0d1020";
+    let svgBg = config.svg_bg || "#1a1d27";
+
+    const SCALES = {
+      viridis:   d3.interpolateViridis,
+      inferno:   d3.interpolateInferno,
+      plasma:    d3.interpolatePlasma,
+      magma:     d3.interpolateMagma,
+      cubehelix: d3.interpolateCubehelixDefault,
+    };
+    // config.color can be a scale name; fall back to viridis
+    const initScale = SCALES[config.color] ? config.color : "viridis";
+    let colorInterp = SCALES[initScale];
 
     const zExtent = d3.extent(raw, d => d.z);
     const zMin = zExtent[0] ?? 0;
     const zMax = zExtent[1] ?? 1;
     const zRange = zMax - zMin || 1;
 
-    function colorInterp(t) {
-      return d3.interpolateHcl(COLD, hotColor)(t);
-    }
     function cellColor(z) {
       if (z === null || z === undefined) return "#1e2235";
       return colorInterp(Math.max(0, Math.min(1, (z - zMin) / zRange)));
@@ -482,11 +504,11 @@
       applyTheme(isLightBg(svgBg));
     });
 
-    // Hot color
-    const pickHot = document.getElementById("pick-hot-color");
-    pickHot.value = toPickerHex(hotColor);
-    pickHot.addEventListener("input", e => {
-      hotColor = e.target.value;
+    // Color scale selector
+    const pickScale = document.getElementById("pick-scale");
+    pickScale.value = initScale;
+    pickScale.addEventListener("change", e => {
+      colorInterp = SCALES[e.target.value];
       redrawColors();
     });
 

@@ -69,7 +69,9 @@ def _truncate(s: str, unit: str) -> str | None:
 
 
 class Transformer:
-    def transform(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+    def transform(self, rows: list[dict], mapping: AxisMapping) -> list[dict] | dict:
+        if mapping.chart_type == "network":
+            return self._transform_network(rows, mapping)
         if mapping.chart_type == "heatmap":
             return self._transform_heatmap(rows, mapping)
         if mapping.label_column:
@@ -108,6 +110,47 @@ class Transformer:
         if not time_unit:
             return raw_x
         return _truncate(raw_x, time_unit)
+
+    def _transform_network(self, rows: list[dict], mapping: AxisMapping) -> dict:
+        """Aggregate edges by (source, target) and return {nodes, links}."""
+        buckets: dict[tuple[str, str], list[float | None]] = {}
+        node_seen: list[str] = []
+
+        for row in rows:
+            src = row.get(mapping.x_column, "").strip()
+            tgt = row.get(mapping.y_column, "").strip()
+            if not src or not tgt:
+                continue
+            for n in (src, tgt):
+                if n not in node_seen:
+                    node_seen.append(n)
+            key = (src, tgt)
+            if key not in buckets:
+                buckets[key] = []
+            if mapping.z_column:
+                w = row.get(mapping.z_column, "").strip()
+                buckets[key].append(float(w) if w else None)
+            else:
+                buckets[key].append(1.0)
+
+        agg = mapping.aggregation if mapping.z_column else "sum"
+        links = [
+            {"source": src, "target": tgt, "weight": self._agg(vals, agg)}
+            for (src, tgt), vals in buckets.items()
+        ]
+
+        # Aggregate edge weights per node so the template can size by total weight
+        if mapping.z_column:
+            node_weight: dict[str, float] = {}
+            for (src, tgt), vals in buckets.items():
+                w = self._agg(vals, agg) or 0
+                node_weight[src] = node_weight.get(src, 0) + w
+                node_weight[tgt] = node_weight.get(tgt, 0) + w
+            node_list = [{"id": n, "size": node_weight.get(n, 0)} for n in node_seen]
+        else:
+            node_list = [{"id": n} for n in node_seen]
+
+        return {"nodes": node_list, "links": links}
 
     def _transform_heatmap(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
         """Output one {x, y, z} cell per unique (x_column, y_column) pair."""

@@ -31,7 +31,10 @@ def run(csv_path: str, prompt: str, output: str, config: ChartConfig, sort_overr
           f"time_unit={mapping.time_unit!r}  x_min={mapping.x_min!r}  x_max={mapping.x_max!r}")
 
     data = Transformer().transform(rows, mapping)
-    print(f"  {len(data)} data points")
+    if isinstance(data, dict):
+        print(f"  {len(data.get('nodes', []))} nodes, {len(data.get('links', []))} links")
+    else:
+        print(f"  {len(data)} data points")
 
     # LLM chart type decision overrides default; explicit --curve/--color etc. still apply
     config = config.model_copy(update={"chart_type": mapping.chart_type})

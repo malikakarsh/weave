@@ -362,6 +362,40 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Network graph
+    # ------------------------------------------------------------------ #
+    {
+        "name": "network: airport routes weighted by distance",
+        "csv": "samples/airport_routes.csv",
+        "prompt": "show a network graph of airport routes weighted by distance",
+        "expect_mapping": {
+            "chart_type": "network",
+            "x_column": "source",
+            "y_column": "target",
+            "z_column": "distance_km",
+        },
+        "expect_data": {
+            "nodes_count": 9,
+            "links_count": 20,
+            "node_ids": ["JFK", "LAX", "ORD", "ATL", "SFO"],
+        },
+    },
+    {
+        "name": "network: unweighted airport connections",
+        "csv": "samples/airport_routes.csv",
+        "prompt": "show connections between airports as a network graph",
+        "expect_mapping": {
+            "chart_type": "network",
+            "x_column": "source",
+            "y_column": "target",
+        },
+        "expect_data": {
+            "nodes_count": 9,
+            "links_count": 20,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Heatmap
     # ------------------------------------------------------------------ #
     {

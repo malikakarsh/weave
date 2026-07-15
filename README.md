@@ -16,30 +16,50 @@ DataLoader → LLMMapper → Transformer → Templater
 
 1. **DataLoader** — reads the CSV, auto-detects delimiter, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column.
 
-2. **LLMMapper** — sends the schema and your prompt to Claude Haiku, which decides the chart type (line, bar, scatter), picks the x/y/group columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, and sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns.
+2. **LLMMapper** — sends the schema and your prompt to Claude, which decides the chart type (line, area, bar, pie, bubble, scatter, heatmap, network), picks the x/y/group/z/label columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns, and applies x_min/x_max bounds for time period filtering.
 
-3. **Transformer** — optionally truncates date x-values to a period (year → `2024-01-01`, month → `2024-03-01`, day → `2024-03-15`) before bucketing, then aggregates rows by (group, x) using the chosen function, strips them down to `{x, y}` pairs (single series) or `{group, values}` objects (multi-series), and filters to the top N groups when requested. Missing values are kept as `null` so gaps are visible rather than silently dropped.
+3. **Transformer** — routes to one of five transform modes based on the mapping:
+   - **flat** — aggregates rows by x into `{x, y}` pairs (single series)
+   - **grouped** — aggregates by (group, x) into `{group, values}` objects (multi-series)
+   - **labeled** — one point per row with no aggregation; `{x, y, z, label}` (bubble with named items)
+   - **heatmap** — aggregates by (x_column, y_column) cell into `{x, y, z}` pairs
+   - **network** — aggregates edges by (source, target) into `{nodes, links}` with per-node weight sums
 
-4. **Templater** — injects the data and a `ChartConfig` into the matching D3.js template. Falls back to the line chart if the decided chart type doesn't have a template yet.
+   Date x-values are optionally truncated to a period (year → `2024-01-01`, month → `2024-03-01`, day → `2024-03-15`) before bucketing. Missing values are kept as `null` so gaps are visible rather than silently dropped.
+
+4. **Templater** — injects the data and a `ChartConfig` into the matching D3.js template.
+
+## Chart types
+
+| Type | Best for | Key columns |
+|---|---|---|
+| `line` | Trends over time or numeric x | x (date/numeric), y (numeric), optional group |
+| `area` | Volume or magnitude beneath a curve | x (date/numeric), y (numeric), optional group |
+| `bar` | Comparing unordered categories | x (string), y (numeric), optional group |
+| `pie` | Part-of-whole across ≤ 10 categories | x (label), y (value) |
+| `bubble` | Three-variable relationships | x, y, z (size), optional label or group |
+| `scatter` | Two-numeric-axis relationships | x (numeric), y (numeric), optional group |
+| `heatmap` | Intensity across two categorical axes | x (category), y (category), z (value or count) |
+| `network` | Node-link relationships | x (source), y (target), optional z (edge weight) |
 
 ## Output
 
 A single `.html` file with:
-- Single or multi-series chart with per-group colors and a legend
-- LLM-decided chart type — line for trends, area for volume/magnitude, bar for categories, pie/donut for part-of-whole breakdowns, scatter for two-numeric-axis relationships
-- Interactive hover — vertical line, dots on each series, tooltip showing all group values at that point
+- Interactive hover tooltips on all chart types
 - Visible gaps where data is missing (no silent drops)
-- **Edit panel** — click Edit (toggles to Save) to reveal in-browser controls; clicking Save closes the panel and keeps all changes:
-  - **SVG Background** — color picker that previews live and is used when exporting; axis/label/grid colors automatically flip between dark and light presets based on the background luminance so text stays readable on any background
-  - **Chart Size** — − / + buttons to resize the chart
-  - **Bar Width** — − / + buttons to adjust bar spacing (bar chart only)
-  - **Title / X Label / Y Label** — text inputs to add or change labels live
-  - **Click a bar or line** to change its color; in grouped charts, changing one bar/line recolors the whole series; clicking empty space restores all series to full opacity
-- **Copy SVG** — copies a static vector snapshot to clipboard; works on `file://` via `execCommand` fallback and on `http://` via the Clipboard API
-- Line chart x-values are always sorted left-to-right regardless of CSV row order, so lines are clean even when data is not pre-sorted
-- `--palette` accepts one color per group; if fewer colors are given than groups, the last colors repeat — always provide one color per group for best results
+- Axes extend to 1.2× the max value so data never crowds the edge
+- **Edit panel** — click Edit (toggles to Save) to reveal in-browser controls:
+  - **SVG Background** — color picker; axis/label/grid colors auto-flip dark/light based on background luminance
+  - **Chart Size** — − / + buttons to resize
+  - **Title / X Label / Y Label** — text inputs, update live
+  - **Click any element** (bar, line, slice, bubble, node) to recolor it individually; in grouped charts, recoloring one element recolors the whole series
+  - **Hot Color** (heatmap) — changes the high end of the sequential color scale live
+  - **Node Color** (network) — global node color; individual nodes can still be clicked to override
+  - **Spread** (network) — − / + adjusts force charge strength and restarts the simulation
+- **Copy SVG** — copies a static vector snapshot; works on `file://` via `execCommand` fallback
 - **Download SVG** — saves an `.svg` file with all styles inlined; use Insert > Picture in PowerPoint for guaranteed vector quality
-- `--svg-bg COLOR` — bake a custom SVG export background into the file at generation time (default: `#1a1d27`)
+- `--svg-bg COLOR` — bake a custom SVG export background at generation time (default: `#1a1d27`)
+- Network charts support drag-to-reposition nodes, scroll-to-zoom, and pan
 
 ## Usage
 
@@ -59,36 +79,23 @@ python main.py <csv> "<prompt>" [options]
 | `--y-label` | — | Y-axis label |
 | `--width` | `836` | Initial chart width in px |
 | `--height` | `420` | Initial chart height in px |
-| `--color` | `#6366f1` | Line color for single-series charts (hex or named) |
+| `--color` | `#6366f1` | Accent color — line/bar fill, bubble fill, node fill, heatmap hot end |
 | `--palette` | — | Space-separated colors for grouped charts (one per group) |
 | `--y-format` | `,.0f` | D3 format string for y-axis ticks |
 | `--curve` | `monotoneX` | Line curve: `monotoneX`, `linear`, `step`, `natural`, `cardinal` |
-| `--no-area` | off | Hide the gradient area fill |
+| `--no-area` | off | Hide the gradient area fill (line chart) |
 | `--svg-bg` | `#1a1d27` | SVG export background color |
 | `--sort` | LLM decides | Override bar sort order: `asc`, `desc`, or `none` |
-
-### Sorting
-
-Bar charts are sorted ascending by default. Override with `--sort`:
-
-```bash
-python main.py sales.csv "top 10 products by revenue" --sort desc --open
-python main.py data.csv "revenue by region" --sort none --open  # preserve CSV order
-```
-
-The LLM also infers sort direction from the prompt — "top", "highest", "most" → descending; "bottom", "lowest" → ascending.
 
 ### Date bucketing
 
 When the prompt mentions a time period, the LLM automatically buckets date x-values before aggregating:
 
 ```bash
-python main.py data.csv "how has revenue changed per year?" --open     # groups by year
-python main.py data.csv "show monthly active users per product" --open  # groups by month
-python main.py data.csv "daily signups over Q1" --open                  # groups by day
+python main.py data.csv "how has revenue changed per year?" --open
+python main.py data.csv "show monthly active users per product" --open
+python main.py data.csv "daily signups over Q1" --open
 ```
-
-This works regardless of how granular the source dates are — daily timestamps get rolled up to months or years as needed.
 
 ### Time period filtering
 
@@ -100,9 +107,9 @@ python main.py samples/stocks.csv "show AAPL price since 2010" --open
 python main.py samples/nyc_restaurants.csv "inspections per year between 2022 and 2024" --open
 ```
 
-The LLM converts the range to ISO date bounds (`x_min` / `x_max`) and the transformer filters rows before aggregating, so top_n and sort still operate on the filtered data.
+The LLM converts the range to ISO date bounds (`x_min` / `x_max`) and the transformer filters rows before aggregating.
 
-### Aggregation + filtering
+### Aggregation
 
 The LLM picks the aggregation function from intent words in your prompt:
 
@@ -123,79 +130,72 @@ python main.py sales.csv "top 3 regions by average order value" --open
 
 ### Examples
 
-Single line:
+**Line chart — single series:**
 ```bash
 python main.py samples/sample.csv "show me Acme's revenue over time" \
-  --title "Acme Revenue 2024" \
-  --color "#10b981" \
-  --y-format '$,.0f' \
-  --open
+  --title "Acme Revenue" --color "#10b981" --y-format '$,.0f' --open
 ```
 
-Multi-line — all groups:
+**Line chart — multi-series:**
 ```bash
 python main.py samples/sample.csv "compare revenue across all companies" \
-  --title "Revenue by Company" \
-  --y-label "Revenue (USD)" \
-  --open
+  --title "Revenue by Company" --y-label "Revenue (USD)" --open
 ```
 
-Multi-line — specific groups with custom colors:
+**Area chart — filled volume over time:**
 ```bash
-python main.py samples/sample.csv "show Acme and Globex revenue over time" \
-  --title "Acme vs Globex" \
-  --palette "#6366f1" "#f59e0b" \
-  --open
+python main.py samples/sample.csv "show revenue over time as an area chart for each company" --open
 ```
 
-Non-temporal x-axis:
+**Bar chart — total per category:**
 ```bash
-python main.py samples/numeric_x.csv "show how income changes with age" --open
+python main.py samples/sample.csv "show total revenue per company" --color "#6366f1" --open
 ```
 
-Bar chart — total per category:
+**Grouped bar chart:**
 ```bash
-python main.py samples/sample.csv "show total revenue per company" \
-  --title "Revenue by Company" \
-  --color "#6366f1" \
-  --open
+python main.py samples/sample.csv "compare monthly revenue for each company as grouped bars" --open
 ```
 
-Grouped bar chart — side-by-side bars per group:
+**Pie chart — part-of-whole:**
 ```bash
-python main.py samples/sample.csv "compare monthly revenue for each company as grouped bars" \
-  --title "Monthly Revenue by Company" \
-  --open
+python main.py samples/sample.csv "show the revenue breakdown by company as a pie chart" --open
 ```
 
-Pie chart — part-of-whole breakdown:
-```bash
-python main.py samples/sample.csv "show the revenue breakdown by company as a pie chart" \
-  --title "Revenue Share" \
-  --open
-```
-
-Area chart — filled volume over time:
-```bash
-python main.py samples/sample.csv "show revenue over time as an area chart for each company" \
-  --title "Revenue by Company" \
-  --open
-```
-
-Date bucketing — monthly trends per group:
-```bash
-python main.py samples/sample.csv "what is the average monthly revenue for each company?" \
-  --title "Monthly Revenue by Company" \
-  --open
-```
-
-Scatter chart — two numeric axes:
+**Scatter chart — two numeric axes:**
 ```bash
 python main.py samples/numeric_x.csv "show how income changes with age as a scatter plot" \
-  --title "Age vs Income" \
-  --x-label "Age" \
-  --y-label "Income" \
-  --open
+  --x-label "Age" --y-label "Income" --open
+```
+
+**Bubble chart — three variables:**
+```bash
+python main.py samples/iris.csv \
+  "bubble chart of sepal length vs sepal width sized by petal length for each species" --open
+```
+
+**Bubble chart — individually labeled items:**
+```bash
+python main.py samples/starbucks_coffee.csv \
+  "bubble chart of caffeine vs calories sized by sugar, label each drink" --open
+```
+
+**Heatmap — intensity across two categories:**
+```bash
+python main.py samples/diamonds.csv \
+  "show a heatmap of average diamond price by cut and color" --open
+```
+
+**Network graph — unweighted connections:**
+```bash
+python main.py samples/airport_routes.csv \
+  "show connections between airports as a network graph" --open
+```
+
+**Network graph — node size by total edge weight:**
+```bash
+python main.py samples/airport_routes.csv \
+  "show a network graph of airport routes weighted by distance" --open
 ```
 
 ## Configuration
@@ -218,23 +218,34 @@ backend/
 ├── main.py                        # CLI entry point
 ├── models/
 │   ├── schema.py                  # ColumnType, ColumnInfo, Schema
-│   └── spec.py                    # AxisMapping, ChartConfig, PlotSpec
+│   └── spec.py                    # AxisMapping, ChartConfig
 ├── pipeline/
 │   ├── data_loader.py             # CSV ingestion and type detection
-│   ├── llm_mapper.py              # Claude Haiku axis selection
-│   ├── prompts.py                 # System prompts
-│   ├── transformer.py             # Row filtering to {x, y} pairs
+│   ├── llm_mapper.py              # Claude axis and chart type selection
+│   ├── prompts.py                 # System prompts for LLM
+│   ├── transformer.py             # Five transform modes (flat/grouped/labeled/heatmap/network)
 │   ├── templater.py               # HTML rendering
 │   └── templates/
-│       ├── line_chart.html        # D3.js line chart template
+│       ├── line_chart.html        # D3.js line chart (single + multi-series)
 │       ├── area_chart.html        # D3.js area chart (per-group gradients)
 │       ├── bar_chart.html         # D3.js bar chart (flat + grouped)
 │       ├── pie_chart.html         # D3.js donut/pie chart with % labels
-│       └── scatter_chart.html     # D3.js scatter chart
-├── samples/
-│   ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
-│   └── numeric_x.csv              # Age vs income dataset (Float x-axis)
-└── test_pipeline.py               # Manual end-to-end test
+│       ├── scatter_chart.html     # D3.js scatter chart
+│       ├── bubble_chart.html      # D3.js bubble chart (grouped or individually labeled)
+│       ├── heatmap_chart.html     # D3.js heatmap (sequential color scale + legend)
+│       └── network_chart.html     # D3.js force-directed network graph
+├── evals/
+│   ├── cases.py                   # ~28 test cases covering all chart types and features
+│   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
+└── samples/
+    ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
+    ├── numeric_x.csv              # Age vs income dataset (Float x-axis)
+    ├── stocks.csv                 # Stock prices by symbol over time
+    ├── nyc_restaurants.csv        # NYC restaurant inspection records
+    ├── iris.csv                   # Iris flower measurements by species
+    ├── diamonds.csv               # Diamond prices by cut, color, and clarity
+    ├── starbucks_coffee.csv       # Starbucks drink nutrition data
+    └── airport_routes.csv         # US airport route connections with distances
 ```
 
 ## Eval suite
@@ -242,17 +253,14 @@ backend/
 An LLM eval suite validates that the full pipeline (prompt → LLM mapping → transformer) produces the expected behaviour. Run it from `backend/`:
 
 ```bash
-python -m evals.runner              # run all 21 cases
-python -m evals.runner time_unit    # run cases whose name contains 'time_unit'
+python -m evals.runner              # run all cases
+python -m evals.runner heatmap      # run cases whose name contains 'heatmap'
 python -m evals.runner --fast       # skip LLM calls; only validate transformer output
 ```
 
-Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. Covers: chart type selection, aggregation, group/filter, top_n, sort_order, time_unit bucketing, x_min/x_max filtering, and combined scenarios.
+Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. Covers: all eight chart types, aggregation, group/filter, top_n, sort_order, time_unit bucketing, x_min/x_max filtering, bubble z/label columns, heatmap cell counts, network node/link counts, and combined scenarios.
 
-## What's next (V2)
-
-**Chart types**
-- Pie / donut chart
+## What's next
 
 **API + UI**
 - FastAPI backend — `POST /chart`, `GET /health`
@@ -267,6 +275,6 @@ Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` th
 - Parallel rendering via `asyncio.gather()`
 
 **Data storytelling**
-- Intelligent peer selection — when a user focuses on one entity (e.g. "compare Microsoft"), the LLM picks 4-5 structurally similar peers based on revenue scale, sector, and growth trajectory rather than requiring the user to name them
-- Two-tier visual hierarchy — focus group gets distinct colors and full opacity; the rest render in a single muted color at low opacity so they provide context without cluttering the chart
-- Pre-aggregation stage (`Summarizer`) that computes per-group stats (mean, CAGR, magnitude) before the LLM call, keeping token usage manageable even on large datasets like Fortune 500
+- Intelligent peer selection — when a user focuses on one entity, the LLM picks structurally similar peers based on scale, sector, and growth trajectory
+- Two-tier visual hierarchy — focus group gets distinct colors; peers render in a muted color at low opacity for context without clutter
+- Pre-aggregation stage (`Summarizer`) that computes per-group stats before the LLM call, keeping token usage manageable on large datasets

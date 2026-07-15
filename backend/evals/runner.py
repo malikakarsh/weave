@@ -69,8 +69,25 @@ def _check_mapping(mapping, expect: dict) -> list[str]:
     return failures
 
 
-def _check_data(data: list[dict], expect: dict) -> list[str]:
+def _check_data(data, expect: dict) -> list[str]:
     failures = []
+
+    # Network graph shape: {nodes: [...], links: [...]}
+    if isinstance(data, dict) and "nodes" in data:
+        if "nodes_count" in expect:
+            nc = len(data["nodes"])
+            if nc != expect["nodes_count"]:
+                failures.append(f"  nodes count: expected {expect['nodes_count']}, got {nc}")
+        if "links_count" in expect:
+            lc = len(data["links"])
+            if lc != expect["links_count"]:
+                failures.append(f"  links count: expected {expect['links_count']}, got {lc}")
+        if "node_ids" in expect:
+            ids = {n["id"] for n in data["nodes"]}
+            for nid in expect["node_ids"]:
+                if nid not in ids:
+                    failures.append(f"  node_ids: '{nid}' not found in nodes")
+        return failures
 
     is_grouped = bool(data) and "group" in data[0]
 

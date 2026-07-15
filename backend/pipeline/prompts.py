@@ -16,6 +16,12 @@ AXIS_MAPPING_SYSTEM = (
     "  If each row is a distinct item (drink, country, company) that should be\n"
     "  individually labeled on the chart, set label_column to that String column.\n"
     "  Using label_column skips aggregation — each row becomes one bubble.\n"
+    "- 'network': a node-link graph showing relationships between entities\n"
+    "  (e.g. 'network graph', 'connections between', 'who is linked to', 'relationship map')\n"
+    "  x_column = source node column (String entity name)\n"
+    "  y_column = target node column (String entity name)\n"
+    "  z_column = numeric edge weight column (optional — leave null for unweighted connections)\n"
+    "  aggregation = how to combine multiple edges between the same pair (sum for totals, mean for averages)\n"
     "- 'heatmap': a grid of colored cells — two categorical/date axes and a numeric intensity value\n"
     "  (e.g. 'heatmap', 'heat map', 'intensity matrix', 'activity grid', 'correlation by X and Y')\n"
     "  x_column = first categorical dimension (columns of the grid, e.g. weekday, month, product)\n"
@@ -62,7 +68,7 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|bar|pie|bubble|scatter|heatmap", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|bar|pie|bubble|scatter|heatmap|network", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '

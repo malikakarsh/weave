@@ -48,6 +48,11 @@ class LLMMapper:
             if data.get(key) == "null":
                 data[key] = None
 
+        # y_column must always be a string; if LLM omitted it, fall back to first numeric column
+        if not data.get("y_column"):
+            numeric_cols = [c.name for c in schema.columns if c.type.value == "Float"]
+            data["y_column"] = numeric_cols[0] if numeric_cols else schema.columns[-1].name
+
         mapping = AxisMapping(**data)
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping

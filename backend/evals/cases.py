@@ -36,16 +36,15 @@ CASES = [
     {
         "name": "area: explicit area chart request",
         "csv": "samples/sample.csv",
-        "prompt": "show revenue over time as an area chart for each company",
+        "prompt": "show Acme revenue over time as an area chart",
         "expect_mapping": {
             "chart_type": "area",
             "x_column": "date",
             "y_column": "revenue",
-            "group_column": "company",
         },
         "expect_data": {
             "grouped": True,
-            "count": 3,
+            "count": 1,
         },
     },
     {

@@ -151,9 +151,10 @@ def run_cases(cases: list[dict], fast: bool = False) -> None:
                 elapsed = time.time() - t0
                 print(f"  {DIM}mapped in {elapsed:.1f}s  →  "
                       f"chart={mapping.chart_type!r} x={mapping.x_column!r} "
-                      f"y={mapping.y_column!r} group={mapping.group_column!r} "
-                      f"agg={mapping.aggregation!r} top_n={mapping.top_n!r} "
-                      f"sort={mapping.sort_order!r} time_unit={mapping.time_unit!r} "
+                      f"y={mapping.y_column!r} z={mapping.z_column!r} "
+                      f"group={mapping.group_column!r} agg={mapping.aggregation!r} "
+                      f"top_n={mapping.top_n!r} sort={mapping.sort_order!r} "
+                      f"time_unit={mapping.time_unit!r} "
                       f"x_min={mapping.x_min!r} x_max={mapping.x_max!r}{RESET}")
             except Exception as e:
                 print(f"  {FAIL}  LLM error: {e}")

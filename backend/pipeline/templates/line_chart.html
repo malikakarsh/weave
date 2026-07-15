@@ -311,11 +311,11 @@
     const xScale = isTemporal
       ? d3.scaleTime().domain(d3.extent(allPoints, d => d.x)).range([0, width])
       : isNumeric
-        ? d3.scaleLinear().domain(d3.extent(allPoints, d => d.x)).nice().range([0, width])
+        ? d3.scaleLinear().domain([d3.min(allPoints, d => d.x), d3.max(allPoints, d => d.x) * 1.2]).range([0, width])
         : d3.scalePoint().domain([...new Set(allPoints.map(d => d.x))]).range([0, width]).padding(0.5);
 
     const yScale = d3.scaleLinear()
-      .domain([0, d3.max(allPoints, d => d.y) * 1.1])
+      .domain([0, d3.max(allPoints, d => d.y) * 1.2])
       .range([height, 0]);
 
     // Grid + axes

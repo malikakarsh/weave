@@ -70,6 +70,8 @@ def _truncate(s: str, unit: str) -> str | None:
 
 class Transformer:
     def transform(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        if mapping.label_column:
+            return self._transform_labeled(rows, mapping)
         if mapping.group_column:
             return self._transform_grouped(rows, mapping)
         return self._transform_flat(rows, mapping)
@@ -105,9 +107,33 @@ class Transformer:
             return raw_x
         return _truncate(raw_x, time_unit)
 
+    def _transform_labeled(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """Output one point per unique label — no cross-row aggregation."""
+        result = []
+        for row in rows:
+            raw_x = row.get(mapping.x_column, "").strip()
+            y_str = row.get(mapping.y_column, "").strip()
+            label = row.get(mapping.label_column, "").strip()
+            if not _in_range(raw_x, mapping.x_min, mapping.x_max):
+                continue
+            x = self._x_key(raw_x, mapping.time_unit)
+            if not x or not label:
+                continue
+            try:
+                x_val = float(x)
+            except (ValueError, TypeError):
+                x_val = x
+            point: dict = {"x": x_val, "y": float(y_str) if y_str else None, "label": label}
+            if mapping.z_column:
+                z_str = row.get(mapping.z_column, "").strip()
+                point["z"] = float(z_str) if z_str else None
+            result.append(point)
+        return result
+
     def _transform_flat(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
         allowed = set(mapping.group_filter) if mapping.group_filter else None
         buckets: dict[str, list[float | None]] = {}
+        z_buckets: dict[str, list[float | None]] = {}
         order: list[str] = []
 
         for row in rows:
@@ -119,10 +145,17 @@ class Transformer:
             if x and (allowed is None or x in allowed):
                 if x not in buckets:
                     buckets[x] = []
+                    z_buckets[x] = []
                     order.append(x)
                 buckets[x].append(float(y) if y else None)
+                if mapping.z_column:
+                    z = row.get(mapping.z_column, "").strip()
+                    z_buckets[x].append(float(z) if z else None)
 
         result = [{"x": x, "y": self._agg(buckets[x], mapping.aggregation)} for x in order]
+        if mapping.z_column:
+            for i, x in enumerate(order):
+                result[i]["z"] = self._agg(z_buckets[x], mapping.aggregation)
         if mapping.top_n:
             result = sorted(result, key=lambda d: (d["y"] is None, d["y"] or 0), reverse=True)[: mapping.top_n]
         return self._sort(result, mapping.sort_order)
@@ -132,6 +165,8 @@ class Transformer:
         # buckets[group][x] = list of y values
         buckets: dict[str, dict[str, list[float | None]]] = {}
         x_order: dict[str, list[str]] = {}
+
+        z_buckets: dict[str, dict[str, list[float | None]]] = {}
 
         for row in rows:
             raw_x = row.get(mapping.x_column,    "").strip()
@@ -143,19 +178,27 @@ class Transformer:
             if x and group and (allowed is None or group in allowed):
                 if group not in buckets:
                     buckets[group] = {}
+                    z_buckets[group] = {}
                     x_order[group] = []
                 if x not in buckets[group]:
                     buckets[group][x] = []
+                    z_buckets[group][x] = []
                     x_order[group].append(x)
                 buckets[group][x].append(float(y) if y else None)
+                if mapping.z_column:
+                    z = row.get(mapping.z_column, "").strip()
+                    z_buckets[group][x].append(float(z) if z else None)
 
-        # Aggregate y values per (group, x)
+        # Aggregate y (and optional z) values per (group, x)
         result = []
         for group in sorted(buckets):
             values = [
                 {"x": x, "y": self._agg(buckets[group][x], mapping.aggregation)}
                 for x in x_order[group]
             ]
+            if mapping.z_column:
+                for i, x in enumerate(x_order[group]):
+                    values[i]["z"] = self._agg(z_buckets[group][x], mapping.aggregation)
             result.append({"group": group, "values": values})
 
         # top_n: rank groups by sum of their aggregated y, keep the N highest

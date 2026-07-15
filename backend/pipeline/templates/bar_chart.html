@@ -282,7 +282,7 @@
       : raw.map(d => d.y).filter(y => y !== null);
 
     const yScale = d3.scaleLinear()
-      .domain([0, d3.max(allY) * 1.1])
+      .domain([0, d3.max(allY) * 1.2])
       .nice()
       .range([height, 0]);
 

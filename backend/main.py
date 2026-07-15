@@ -25,6 +25,7 @@ def run(csv_path: str, prompt: str, output: str, config: ChartConfig, sort_overr
     if sort_override:
         mapping = mapping.model_copy(update={"sort_order": sort_override})
     print(f"  chart={mapping.chart_type!r}  x={mapping.x_column!r}  y={mapping.y_column!r}  "
+          f"z={mapping.z_column!r}  label={mapping.label_column!r}  "
           f"group={mapping.group_column!r}  filter={mapping.group_filter!r}  "
           f"agg={mapping.aggregation!r}  top_n={mapping.top_n!r}  sort={mapping.sort_order!r}  "
           f"time_unit={mapping.time_unit!r}  x_min={mapping.x_min!r}  x_max={mapping.x_max!r}")

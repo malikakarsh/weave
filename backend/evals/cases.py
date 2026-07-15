@@ -340,6 +340,28 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Bubble chart
+    # ------------------------------------------------------------------ #
+    {
+        "name": "bubble: sepal vs petal sized by petal length",
+        "csv": "samples/iris.csv",
+        "prompt": "show a bubble chart of sepal length vs sepal width sized by petal length for each species",
+        "expect_mapping": {
+            "chart_type": "bubble",
+            "x_column": "SepalLengthCm",
+            "y_column": "SepalWidthCm",
+            "z_column": "PetalLengthCm",
+            "group_column": "Species",
+        },
+        "expect_data": {
+            "grouped": True,
+            "count": 3,
+            # Each species has many unique SepalLengthCm values — transformer buckets by x,
+            # so values_count varies (~15-21 per species). Just assert 3 groups.
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Combined: multiple features at once
     # ------------------------------------------------------------------ #
     {

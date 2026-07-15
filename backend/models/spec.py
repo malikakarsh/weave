@@ -18,6 +18,8 @@ class AxisMapping(BaseModel):
     time_unit: str | None = None         # year | month | day — truncate date x values before bucketing
     x_min: str | None = None             # inclusive lower bound on x (ISO date or number as string)
     x_max: str | None = None             # inclusive upper bound on x (ISO date or number as string)
+    z_column: str | None = None          # bubble size column (numeric); only used for bubble chart type
+    label_column: str | None = None      # column whose value labels each individual point (bubble name, etc.)
 
 
 class ChartConfig(BaseModel):

@@ -10,6 +10,12 @@ AXIS_MAPPING_SYSTEM = (
     "  (e.g. 'pie chart', 'donut', 'share of', 'breakdown', 'proportion', 'distribution')\n"
     "  For pie: x_column = the String label column, y_column = the Float value column.\n"
     "  Never use pie for time-series data or when there are many categories.\n"
+    "- 'bubble': like scatter but a third numeric column controls dot size\n"
+    "  (e.g. 'bubble chart', 'size by population', 'sized by market cap')\n"
+    "  For bubble: set z_column to the Float column that drives bubble size.\n"
+    "  If each row is a distinct item (drink, country, company) that should be\n"
+    "  individually labeled on the chart, set label_column to that String column.\n"
+    "  Using label_column skips aggregation — each row becomes one bubble.\n"
     "- 'scatter': both x and y are numeric with no implied ordering\n\n"
     "Also choose:\n"
     "- x_column: the column for the x-axis (Date, Float, or String)\n"
@@ -50,8 +56,9 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|bar|pie|scatter", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|bar|pie|bubble|scatter", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
-    '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>"}'
+    '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
+    '"z_column": "<column name or null>", "label_column": "<column name or null>"}'
 )

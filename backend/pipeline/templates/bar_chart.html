@@ -238,19 +238,11 @@
       : () => config.color;
 
     if (isGrouped) {
-      // Collect ordered unique x categories from first group
       categories = raw[0].values.map(d => d.x);
       groups     = raw.map(g => g.group);
     } else {
-      // Aggregate duplicate x values by summing y (e.g. multiple rows per category)
-      const agg = d3.rollup(raw, vals => d3.sum(vals, v => v.y ?? 0), d => d.x);
-      const flat = Array.from(agg, ([x, y]) => ({ x, y }));
-      // Preserve original order of first occurrence
-      const seen = new Set();
-      categories = raw.map(d => d.x).filter(x => !seen.has(x) && seen.add(x));
-      // Replace raw with aggregated ordered data (reuse variable name to keep rest of code unchanged)
-      raw.length = 0;
-      categories.forEach(x => raw.push({ x, y: agg.get(x) }));
+      // Data is already aggregated by the backend
+      categories = raw.map(d => d.x);
       groups = [null];
     }
 

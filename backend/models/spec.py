@@ -12,6 +12,8 @@ class AxisMapping(BaseModel):
     y_column: str
     group_column: str | None = None
     group_filter: list[str] | None = None  # specific group values to include; None means all
+    aggregation: str = "sum"              # sum | mean | count | min | max
+    top_n: int | None = None              # keep only top N groups by aggregated y; None means all
 
 
 class ChartConfig(BaseModel):

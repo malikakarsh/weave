@@ -6,6 +6,10 @@ AXIS_MAPPING_SYSTEM = (
     "- 'area': same as line but use when the magnitude/volume beneath the curve is meaningful\n"
     "  (e.g. 'area chart', 'show volume over time', 'cumulative', 'filled')\n"
     "- 'bar': x is an unordered string category (e.g. country, product, name)\n"
+    "- 'pie': part-of-whole breakdown across a small number of categories (≤ 10)\n"
+    "  (e.g. 'pie chart', 'donut', 'share of', 'breakdown', 'proportion', 'distribution')\n"
+    "  For pie: x_column = the String label column, y_column = the Float value column.\n"
+    "  Never use pie for time-series data or when there are many categories.\n"
     "- 'scatter': both x and y are numeric with no implied ordering\n\n"
     "Also choose:\n"
     "- x_column: the column for the x-axis (Date, Float, or String)\n"
@@ -46,7 +50,7 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|bar|scatter", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|bar|pie|scatter", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>"}'

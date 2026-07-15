@@ -26,7 +26,7 @@ DataLoader → LLMMapper → Transformer → Templater
 
 A single `.html` file with:
 - Single or multi-series chart with per-group colors and a legend
-- LLM-decided chart type — line for trends, area for volume/magnitude, bar for categories, scatter for two-numeric-axis relationships
+- LLM-decided chart type — line for trends, area for volume/magnitude, bar for categories, pie/donut for part-of-whole breakdowns, scatter for two-numeric-axis relationships
 - Interactive hover — vertical line, dots on each series, tooltip showing all group values at that point
 - Visible gaps where data is missing (no silent drops)
 - **Edit panel** — click Edit (toggles to Save) to reveal in-browser controls; clicking Save closes the panel and keeps all changes:
@@ -168,6 +168,13 @@ python main.py samples/sample.csv "compare monthly revenue for each company as g
   --open
 ```
 
+Pie chart — part-of-whole breakdown:
+```bash
+python main.py samples/sample.csv "show the revenue breakdown by company as a pie chart" \
+  --title "Revenue Share" \
+  --open
+```
+
 Area chart — filled volume over time:
 ```bash
 python main.py samples/sample.csv "show revenue over time as an area chart for each company" \
@@ -222,6 +229,7 @@ backend/
 │       ├── line_chart.html        # D3.js line chart template
 │       ├── area_chart.html        # D3.js area chart (per-group gradients)
 │       ├── bar_chart.html         # D3.js bar chart (flat + grouped)
+│       ├── pie_chart.html         # D3.js donut/pie chart with % labels
 │       └── scatter_chart.html     # D3.js scatter chart
 ├── samples/
 │   ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)

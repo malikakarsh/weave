@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #chart {
+      position: relative;
+      padding: 32px;
+      background: #1a1d27;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+    }
+
+    .chart-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .chart-actions button {
+      background: #252836;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .chart-actions button:hover { background: #2d3148; color: #e2e8f0; }
+    .chart-actions button.success { color: #4ade80; border-color: #4ade80; }
+    .chart-actions button.active  { color: #e2e8f0; background: #2d3148; }
+
+    #edit-panel {
+      display: none;
+      position: absolute;
+      top: 52px;
+      right: 16px;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px 16px;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      min-width: 180px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    #edit-panel.open { display: flex; }
+    .edit-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .edit-label { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+    .color-pick {
+      width: 32px; height: 22px;
+      padding: 1px 2px;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .edit-divider { border-top: 1px solid #2d3148; margin: 2px 0; }
+    .edit-btn-group { display: flex; gap: 4px; }
+    .edit-btn {
+      background: #1a1d27;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .edit-btn:hover { background: #2d3148; color: #e2e8f0; }
+    .edit-hint { color: #475569; font-size: 11px; font-style: italic; }
+    .edit-text {
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 12px;
+      width: 110px;
+      outline: none;
+    }
+    .edit-text:focus { border-color: #4f5680; }
+
+    .tooltip {
+      position: absolute;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      min-width: 140px;
+    }
+    .tooltip .tip-label { color: #94a3b8; font-size: 11px; margin-bottom: 4px; }
+    .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; font-size: 15px; }
+    .tooltip .tip-pct   { color: #64748b; font-size: 12px; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div id="chart">
+    <div class="chart-actions">
+      <button id="btn-edit">Edit</button>
+      <button id="btn-copy">Copy SVG</button>
+      <button id="btn-download">Download SVG</button>
+    </div>
+    <div id="edit-panel">
+      <div class="edit-row">
+        <span class="edit-label">SVG Background</span>
+        <input type="color" class="color-pick" id="pick-svg-bg">
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Chart Size</span>
+        <div class="edit-btn-group">
+          <button class="edit-btn" id="ep-smaller">−</button>
+          <button class="edit-btn" id="ep-larger">+</button>
+        </div>
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Title</span>
+        <input type="text" class="edit-text" id="edit-title" placeholder="Chart title">
+      </div>
+      <div class="edit-divider"></div>
+      <span class="edit-hint">Click a slice to change its color</span>
+    </div>
+  </div>
+  <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    const raw    = __DATA__;
+    const config = __CONFIG__;
+
+    let svgBg    = config.svg_bg || "#1a1d27";
+    let editMode = false;
+    let activeSlice = null;
+
+    const total = d3.sum(raw, d => d.y);
+
+    // Color per slice
+    const palette    = config.palette || d3.schemeTableau10;
+    const colorScale = d3.scaleOrdinal(palette).domain(raw.map(d => d.x));
+    const sliceColor = {};
+    raw.forEach(d => { sliceColor[d.x] = colorScale(d.x); });
+
+    // ── Dimensions ──────────────────────────────────────────────────────
+    const legendWidth = 160;
+    const totalWidth  = config.width;
+    const totalHeight = config.height;
+    const pieArea     = Math.min(totalWidth - legendWidth, totalHeight);
+    const radius      = (pieArea / 2) * 0.82;
+    const innerRadius = radius * 0.42;  // donut hole
+    const cx          = pieArea / 2;
+    const cy          = totalHeight / 2;
+
+    const chartEl = document.getElementById("chart");
+    chartEl.style.width = (totalWidth + 64) + "px";
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
+      .attr("width", "100%");
+
+    // ── Arc generators ───────────────────────────────────────────────────
+    const arc = d3.arc().innerRadius(innerRadius).outerRadius(radius);
+    const arcHover = d3.arc().innerRadius(innerRadius).outerRadius(radius * 1.06);
+
+    const pie = d3.pie().value(d => d.y).sort(null);
+    const arcs = pie(raw);
+
+    // ── Title ────────────────────────────────────────────────────────────
+    const titleEl = svg.append("text")
+      .attr("x", totalWidth / 2).attr("y", 18)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
+      .text(config.title || "");
+
+    // ── Pie group ────────────────────────────────────────────────────────
+    const g = svg.append("g").attr("transform", `translate(${cx},${cy})`);
+
+    // ── Floating color picker ────────────────────────────────────────────
+    const floatingPick = document.getElementById("floating-color-pick");
+    floatingPick.addEventListener("input", e => {
+      const color = e.target.value;
+      if (!activeSlice) return;
+      sliceColor[activeSlice] = color;
+      const key = CSS.escape(activeSlice);
+      g.select(`.slice[data-x="${key}"]`).attr("fill", color);
+      svg.select(`.legend-swatch[data-x="${key}"]`).attr("fill", color);
+    });
+
+    function openColorPicker(currentColor, label, event) {
+      activeSlice = label;
+      floatingPick.value = toPickerHex(currentColor);
+      floatingPick.style.left = event.clientX + "px";
+      floatingPick.style.top  = event.clientY + "px";
+      floatingPick.getBoundingClientRect();
+      floatingPick.click();
+    }
+
+    function toPickerHex(color) {
+      if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
+      document.body.appendChild(tmp);
+      const rgb = getComputedStyle(tmp).color;
+      document.body.removeChild(tmp);
+      const m = rgb.match(/\d+/g);
+      return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
+    }
+
+    // ── Slices ───────────────────────────────────────────────────────────
+    const tooltip = document.getElementById("tooltip");
+    const formatY = d3.format(config.y_format || ",.2f");
+
+    g.selectAll(".slice")
+      .data(arcs)
+      .join("path")
+        .attr("class", "slice")
+        .attr("data-x", d => CSS.escape(d.data.x))
+        .attr("fill", d => sliceColor[d.data.x])
+        .attr("stroke", "#1a1d27")
+        .attr("stroke-width", 2)
+        .attr("d", arc)
+        .attr("cursor", "default")
+        .on("mouseover", function(event, d) {
+          if (!editMode) {
+            d3.select(this).transition().duration(120).attr("d", arcHover);
+          }
+          const pct = ((d.data.y / total) * 100).toFixed(1);
+          tooltip.innerHTML = `
+            <div class="tip-label">${d.data.x}</div>
+            <div class="tip-val">${formatY(d.data.y)}</div>
+            <div class="tip-pct">${pct}% of total</div>`;
+          tooltip.style.opacity = 1;
+        })
+        .on("mousemove", function(event) {
+          const chartRect = chartEl.getBoundingClientRect();
+          tooltip.style.left = `${event.clientX - chartRect.left + 12}px`;
+          tooltip.style.top  = `${event.clientY - chartRect.top  - 40}px`;
+        })
+        .on("mouseout", function() {
+          d3.select(this).transition().duration(120).attr("d", arc);
+          tooltip.style.opacity = 0;
+        })
+        .on("click", function(event, d) {
+          if (!editMode) return;
+          event.stopPropagation();
+          openColorPicker(sliceColor[d.data.x], d.data.x, event);
+        });
+
+    // ── Percentage labels on slices larger than 5% ───────────────────────
+    g.selectAll(".slice-label")
+      .data(arcs.filter(d => (d.data.y / total) > 0.05))
+      .join("text")
+        .attr("class", "slice-label")
+        .attr("transform", d => `translate(${arc.centroid(d)})`)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "middle")
+        .attr("fill", "#fff")
+        .attr("font-size", "12px")
+        .attr("font-weight", "600")
+        .attr("pointer-events", "none")
+        .text(d => `${((d.data.y / total) * 100).toFixed(1)}%`);
+
+    // ── Legend ───────────────────────────────────────────────────────────
+    const lx = pieArea + 16;
+    const ly = (totalHeight - raw.length * 24) / 2;
+
+    raw.forEach((d, i) => {
+      svg.append("rect")
+        .attr("class", "legend-swatch")
+        .attr("data-x", CSS.escape(d.x))
+        .attr("x", lx).attr("y", ly + i * 24)
+        .attr("width", 10).attr("height", 10).attr("rx", 2)
+        .attr("fill", sliceColor[d.x]);
+
+      svg.append("text")
+        .attr("class", "legend-label")
+        .attr("x", lx + 16).attr("y", ly + i * 24 + 9)
+        .attr("fill", "#94a3b8").attr("font-size", "12px")
+        .text(d.x.length > 18 ? d.x.slice(0, 16) + "…" : d.x);
+    });
+
+    // ── SVG export ───────────────────────────────────────────────────────
+    const SVG_PROPS = [
+      "fill", "stroke", "stroke-width", "stroke-dasharray",
+      "fill-opacity", "stroke-opacity", "opacity",
+      "font-size", "font-weight", "text-anchor", "dominant-baseline",
+    ];
+
+    function toHex(color) {
+      if (!color || color === "none" || color.startsWith("#") || color.startsWith("url(")) return color;
+      const m = color.match(/\d+/g);
+      if (!m || m.length < 3) return color;
+      return "#" + m.slice(0, 3).map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+    }
+
+    function buildExportSVG() {
+      const svgEl = document.querySelector("svg");
+      const clone = svgEl.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", totalWidth);
+      clone.setAttribute("height", totalHeight);
+
+      const srcEls = [...svgEl.querySelectorAll("*")];
+      const dstEls = [...clone.querySelectorAll("*")];
+      srcEls.forEach((el, i) => {
+        const dst     = dstEls[i];
+        const computed = window.getComputedStyle(el);
+        SVG_PROPS.forEach(prop => {
+          const raw = el.getAttribute(prop) || computed.getPropertyValue(prop);
+          const val = toHex(raw);
+          if (val) dst.setAttribute(prop, val);
+        });
+      });
+
+      const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("width", "100%");
+      bg.setAttribute("height", "100%");
+      bg.setAttribute("fill", svgBg);
+      clone.insertBefore(bg, clone.firstChild);
+
+      return new XMLSerializer().serializeToString(clone);
+    }
+
+    async function copySVG() {
+      const svgStr = buildExportSVG();
+      const btn = document.getElementById("btn-copy");
+      let ok = false;
+      if (location.protocol !== "file:") {
+        try {
+          const blob = new Blob([svgStr], { type: "image/svg+xml" });
+          await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
+          ok = true;
+        } catch {}
+        if (!ok) { try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {} }
+      }
+      if (!ok) {
+        try {
+          const ta = Object.assign(document.createElement("textarea"), { value: svgStr });
+          ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+          document.body.appendChild(ta);
+          ta.focus(); ta.select();
+          ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+        } catch {}
+      }
+      btn.textContent = ok ? "Copied!" : "Failed";
+      if (ok) btn.classList.add("success");
+      setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
+    }
+
+    function downloadSVG() {
+      const svgStr = buildExportSVG();
+      const blob = new Blob([svgStr], { type: "image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url; a.download = "chart.svg"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("btn-copy").addEventListener("click", copySVG);
+    document.getElementById("btn-download").addEventListener("click", downloadSVG);
+
+    // ── Edit panel ───────────────────────────────────────────────────────
+    const editPanel = document.getElementById("edit-panel");
+    const btnEdit   = document.getElementById("btn-edit");
+    btnEdit.addEventListener("click", () => {
+      editMode = !editMode;
+      editPanel.classList.toggle("open", editMode);
+      btnEdit.classList.toggle("active", editMode);
+      btnEdit.textContent = editMode ? "Save" : "Edit";
+      g.selectAll(".slice").attr("cursor", editMode ? "pointer" : "default");
+      svg.on("click", editMode ? () => { activeSlice = null; } : null);
+    });
+
+    function isLightBg(hex) {
+      const r = parseInt(hex.slice(1,3), 16);
+      const g = parseInt(hex.slice(3,5), 16);
+      const b = parseInt(hex.slice(5,7), 16);
+      return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.5;
+    }
+
+    function applyTheme(light) {
+      const titleColor  = light ? "#1e293b" : "#e2e8f0";
+      const legendColor = light ? "#334155" : "#94a3b8";
+      titleEl.attr("fill", titleColor);
+      svg.selectAll(".legend-label").attr("fill", legendColor);
+      g.selectAll(".slice").attr("stroke", light ? "#ffffff" : "#1a1d27");
+    }
+
+    const pickBg = document.getElementById("pick-svg-bg");
+    pickBg.value = toPickerHex(svgBg);
+    pickBg.addEventListener("input", e => {
+      svgBg = e.target.value;
+      chartEl.style.background = svgBg;
+      applyTheme(isLightBg(svgBg));
+    });
+
+    const STEP = 100, MIN_SIZE = 300 + 64;
+    function resize(delta) {
+      chartEl.style.width = Math.max(MIN_SIZE, chartEl.offsetWidth + delta) + "px";
+    }
+    document.getElementById("ep-smaller").addEventListener("click", () => resize(-STEP));
+    document.getElementById("ep-larger").addEventListener("click",  () => resize(+STEP));
+
+    const editTitleEl = document.getElementById("edit-title");
+    editTitleEl.value = config.title || "";
+    editTitleEl.addEventListener("input", e => titleEl.text(e.target.value));
+  </script>
+</body>
+</html>

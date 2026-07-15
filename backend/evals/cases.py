@@ -307,6 +307,39 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Pie chart
+    # ------------------------------------------------------------------ #
+    {
+        "name": "pie: revenue breakdown by company",
+        "csv": "samples/sample.csv",
+        "prompt": "show the revenue breakdown by company as a pie chart",
+        "expect_mapping": {
+            "chart_type": "pie",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+        },
+        "expect_data": {
+            "grouped": False,
+            "count": 3,
+            "spot": [{"x": "Acme", "y": 264803.5}],
+        },
+    },
+    {
+        "name": "pie: share of inspections by borough",
+        "csv": "samples/nyc_restaurants.csv",
+        "prompt": "show the share of inspections by borough",
+        "expect_mapping": {
+            "chart_type": "pie",
+            "x_column": "boro",
+            "aggregation": "count",
+        },
+        "expect_data": {
+            "grouped": False,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Combined: multiple features at once
     # ------------------------------------------------------------------ #
     {

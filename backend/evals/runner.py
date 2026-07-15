@@ -38,16 +38,21 @@ SKIP = f"{YELLOW}SKIP{RESET}"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _is_grouped(data: list[dict]) -> bool:
+    """True only for the {group, values} grouped format (not symbol_map flat points)."""
+    return bool(data) and "group" in data[0] and "values" in data[0]
+
+
 def _flat_xs(data: list[dict]) -> set:
     """Return all x values from flat or grouped data."""
-    if data and "group" in data[0]:
+    if _is_grouped(data):
         return {pt["x"] for grp in data for pt in grp["values"]}
     return {d["x"] for d in data}
 
 
 def _flat_points(data: list[dict]) -> list[dict]:
     """Return all {x, y} points regardless of grouped/flat shape."""
-    if data and "group" in data[0]:
+    if _is_grouped(data):
         return [pt for grp in data for pt in grp["values"]]
     return data
 
@@ -89,7 +94,7 @@ def _check_data(data, expect: dict) -> list[str]:
                     failures.append(f"  node_ids: '{nid}' not found in nodes")
         return failures
 
-    is_grouped = bool(data) and "group" in data[0]
+    is_grouped = _is_grouped(data)
 
     if "grouped" in expect:
         if is_grouped != expect["grouped"]:

@@ -37,7 +37,15 @@ AXIS_MAPPING_SYSTEM = (
     "  x_column and y_column MUST be two DIFFERENT columns — never use the same column for both.\n"
     "  z_column = numeric column for cell color intensity; leave null to color by count of rows per cell\n"
     "  aggregation = how to combine z values per (x, y) cell: mean for averages, sum for totals\n"
-    "- 'scatter': both x and y are numeric with no implied ordering\n\n"
+    "- 'scatter': both x and y are numeric with no implied ordering\n"
+    "- 'symbol_map': circles plotted on a world map at geographic coordinates\n"
+    "  (e.g. 'map', 'world map', 'geographic', 'by location', 'symbol map', 'bubble map', 'plot on a map')\n"
+    "  x_column = longitude column (Float) — look for names like 'longitude', 'lon', 'lng', 'long'\n"
+    "  y_column = latitude column (Float) — look for names like 'latitude', 'lat'\n"
+    "  z_column = numeric column for symbol size (optional — larger value → bigger circle)\n"
+    "  label_column = string column for the place/location name shown in the tooltip (recommended)\n"
+    "  group_column = categorical column to color symbols by (optional)\n"
+    "  aggregation is irrelevant for symbol_map — every row becomes one symbol, no aggregation.\n\n"
     "Also choose:\n"
     "- x_column: the column for the x-axis (Date, Float, or String)\n"
     "- y_column: the column for the y-axis (Float for most chart types; String/category for heatmap rows)\n"
@@ -88,7 +96,7 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|pie|bubble|scatter|heatmap|network", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '

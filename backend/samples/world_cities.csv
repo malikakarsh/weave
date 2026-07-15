@@ -1,0 +1,56 @@
+city,country,continent,latitude,longitude,population
+Tokyo,Japan,Asia,35.68,139.69,13960000
+Delhi,India,Asia,28.66,77.23,32226000
+Shanghai,China,Asia,31.23,121.47,24870000
+Dhaka,Bangladesh,Asia,23.72,90.41,21741000
+Beijing,China,Asia,39.91,116.39,21766000
+Mumbai,India,Asia,19.08,72.88,20667000
+Osaka,Japan,Asia,34.69,135.50,19110000
+Karachi,Pakistan,Asia,24.86,67.01,16093000
+Jakarta,Indonesia,Asia,-6.21,106.85,10562000
+Manila,Philippines,Asia,14.60,120.98,14406000
+Bangkok,Thailand,Asia,13.75,100.52,10539000
+Seoul,South Korea,Asia,37.57,126.98,9776000
+Singapore,Singapore,Asia,1.29,103.85,5850342
+Dubai,UAE,Asia,25.20,55.27,3604029
+Tehran,Iran,Asia,35.69,51.42,9259000
+Istanbul,Turkey,Europe,41.01,28.95,15840900
+Taipei,Taiwan,Asia,25.05,121.53,2646204
+Yangon,Myanmar,Asia,16.87,96.13,5209000
+Ho Chi Minh City,Vietnam,Asia,10.82,106.63,8993000
+Riyadh,Saudi Arabia,Asia,24.69,46.72,7676654
+Moscow,Russia,Europe,55.75,37.62,12593000
+London,United Kingdom,Europe,51.51,-0.13,9541000
+Paris,France,Europe,48.86,2.35,11060000
+Madrid,Spain,Europe,40.42,-3.70,6642000
+Berlin,Germany,Europe,52.52,13.40,3769000
+Rome,Italy,Europe,41.90,12.48,4342000
+Warsaw,Poland,Europe,52.23,21.01,1794000
+Amsterdam,Netherlands,Europe,52.37,4.90,1459000
+Kyiv,Ukraine,Europe,50.45,30.52,2952301
+Stockholm,Sweden,Europe,59.33,18.07,1007000
+Lagos,Nigeria,Africa,6.45,3.39,15386000
+Cairo,Egypt,Africa,30.06,31.25,21750000
+Kinshasa,DR Congo,Africa,-4.32,15.32,14970000
+Johannesburg,South Africa,Africa,-26.20,28.04,9180000
+Nairobi,Kenya,Africa,-1.29,36.82,4922000
+Addis Ababa,Ethiopia,Africa,9.03,38.74,5005524
+Casablanca,Morocco,Africa,33.59,-7.62,3752000
+Accra,Ghana,Africa,5.55,-0.20,2514000
+Luanda,Angola,Africa,-8.84,13.23,8952496
+Khartoum,Sudan,Africa,15.55,32.53,5534000
+New York,United States,North America,40.71,-74.01,18713220
+Los Angeles,United States,North America,34.05,-118.24,12458000
+Chicago,United States,North America,41.85,-87.65,8901000
+Mexico City,Mexico,North America,19.43,-99.13,21672000
+Toronto,Canada,North America,43.70,-79.42,6082000
+Bogotá,Colombia,South America,4.71,-74.07,10574000
+São Paulo,Brazil,South America,-23.55,-46.63,22430000
+Buenos Aires,Argentina,South America,-34.60,-58.38,15370000
+Rio de Janeiro,Brazil,South America,-22.91,-43.17,13458000
+Lima,Peru,South America,-12.05,-77.05,11044000
+Santiago,Chile,South America,-33.46,-70.65,6767000
+Sydney,Australia,Oceania,-33.87,151.21,5312000
+Melbourne,Australia,Oceania,-37.84,144.96,5078000
+Auckland,New Zealand,Oceania,-36.87,174.77,1657000
+Brisbane,Australia,Oceania,-27.47,153.02,2561000

@@ -503,6 +503,41 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Symbol map
+    # ------------------------------------------------------------------ #
+    {
+        "name": "symbol_map: world cities sized by population",
+        "csv": "samples/world_cities.csv",
+        "prompt": "plot world cities on a map, size each symbol by population and color by continent",
+        "expect_mapping": {
+            "chart_type": "symbol_map",
+            "x_column": "longitude",
+            "y_column": "latitude",
+            "z_column": "population",
+            "group_column": "continent",
+        },
+        "expect_data": {
+            # symbol_map outputs flat [{x, y, z, group, ...}] — one point per row
+            "count": 55,
+        },
+    },
+    {
+        "name": "symbol_map: cities labeled",
+        "csv": "samples/world_cities.csv",
+        "prompt": "show a world map of cities with population as bubble size, label each city",
+        "expect_mapping": {
+            "chart_type": "symbol_map",
+            "x_column": "longitude",
+            "y_column": "latitude",
+            "z_column": "population",
+            "label_column": "city",
+        },
+        "expect_data": {
+            "count": 55,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Combined: multiple features at once
     # ------------------------------------------------------------------ #
     {

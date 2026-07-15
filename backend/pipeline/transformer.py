@@ -74,6 +74,8 @@ class Transformer:
             return self._transform_network(rows, mapping)
         if mapping.chart_type == "heatmap":
             return self._transform_heatmap(rows, mapping)
+        if mapping.chart_type == "symbol_map":
+            return self._transform_map(rows, mapping)
         if mapping.label_column:
             return self._transform_labeled(rows, mapping)
         if mapping.group_column:
@@ -186,6 +188,30 @@ class Transformer:
             for y in y_seen
             if (x, y) in buckets
         ]
+
+    def _transform_map(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """Output one point per row for symbol maps — no aggregation."""
+        result = []
+        for row in rows:
+            lon_str = row.get(mapping.x_column, "").strip()
+            lat_str = row.get(mapping.y_column, "").strip()
+            if not lon_str or not lat_str:
+                continue
+            try:
+                lon = float(lon_str)
+                lat = float(lat_str)
+            except ValueError:
+                continue
+            point: dict = {"x": lon, "y": lat}
+            if mapping.z_column:
+                z_str = row.get(mapping.z_column, "").strip()
+                point["z"] = float(z_str) if z_str else None
+            if mapping.label_column:
+                point["label"] = row.get(mapping.label_column, "").strip()
+            if mapping.group_column:
+                point["group"] = row.get(mapping.group_column, "").strip()
+            result.append(point)
+        return result
 
     def _transform_labeled(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
         """Output one point per unique label — no cross-row aggregation."""

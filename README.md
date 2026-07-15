@@ -43,6 +43,7 @@ DataLoader → LLMMapper → Transformer → Templater
 | `scatter` | Two-numeric-axis relationships | x (numeric), y (numeric), optional group |
 | `heatmap` | Intensity across two categorical axes | x (category), y (category), z (value or count) |
 | `network` | Node-link relationships | x (source), y (target), optional z (edge weight) |
+| `symbol_map` | Geographic point data on a world map | x (longitude), y (latitude), optional z (size), label, group |
 
 ### Faceting (small multiples)
 
@@ -218,6 +219,18 @@ python main.py samples/sample.csv \
   "show a stacked bar chart of monthly revenue for each company" --open
 ```
 
+**Symbol map — world cities by population:**
+```bash
+python main.py samples/world_cities.csv \
+  "plot world cities on a map, size each symbol by population and color by continent" --open
+```
+
+**Symbol map — labeled points:**
+```bash
+python main.py samples/world_cities.csv \
+  "show a world map of cities with population as bubble size, label each city" --open
+```
+
 **Stacked bar chart — breakdown by category:**
 ```bash
 python main.py samples/nyc_restaurants.csv \
@@ -276,13 +289,14 @@ backend/
 │       ├── pie_chart.html         # D3.js donut/pie chart with % labels
 │       ├── scatter_chart.html     # D3.js scatter chart
 │       ├── bubble_chart.html      # D3.js bubble chart (grouped or individually labeled)
+│       ├── map_chart.html          # D3.js symbol map (Natural Earth projection + world-atlas CDN)
 │       ├── stacked_area_chart.html # D3.js stacked area chart (composition over time)
 │       ├── stacked_bar_chart.html  # D3.js stacked bar chart (composition across categories)
 │       ├── heatmap_chart.html     # D3.js heatmap (sequential color scale + legend)
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # ~33 test cases covering all chart types and features
+│   ├── cases.py                   # ~34 test cases covering all chart types and features
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 └── samples/
     ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
@@ -292,7 +306,8 @@ backend/
     ├── iris.csv                   # Iris flower measurements by species
     ├── diamonds.csv               # Diamond prices by cut, color, and clarity
     ├── starbucks_coffee.csv       # Starbucks drink nutrition data
-    └── airport_routes.csv         # US airport route connections with distances
+    ├── airport_routes.csv         # US airport route connections with distances
+    └── world_cities.csv           # 55 major world cities with lat/lon, population, continent
 ```
 
 ## Eval suite

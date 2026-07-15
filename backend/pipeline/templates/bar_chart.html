@@ -380,7 +380,7 @@
           .on("mouseleave", hideTooltip)
           .on("click", function(event) {
             if (!editMode) return;
-            highlightGroup(grp.group);
+            event.stopPropagation();
             openColorPicker(d3.select(this).attr("fill"), grp.group, event);
           });
       });
@@ -399,6 +399,7 @@
         .on("mouseleave", hideTooltip)
         .on("click", function(event) {
           if (!editMode) return;
+          event.stopPropagation();
           openColorPicker(d3.select(this).attr("fill"), null, event);
         });
     }
@@ -520,7 +521,7 @@
       editMode = !editMode;
       editPanel.classList.toggle("open", editMode);
       btnEdit.classList.toggle("active", editMode);
-      g.selectAll(".bar").style("cursor", editMode ? "crosshair" : "pointer");
+      g.selectAll(".bar").style("cursor", editMode ? "pointer" : "default");
       if (!editMode) clearHighlight();
     });
 

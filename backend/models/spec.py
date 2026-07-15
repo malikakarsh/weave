@@ -26,3 +26,4 @@ class ChartConfig(BaseModel):
     x_label: str = ""
     y_label: str = ""
     palette: list[str] | None = None  # custom colors per group; falls back to D3 categorical scale
+    svg_bg: str = "#1a1d27"           # background rect injected into exported SVG

@@ -29,10 +29,15 @@ A single `.html` file with:
 - LLM-decided chart type — line for trends, bar for categories, scatter for numeric relationships
 - Interactive hover — vertical line, dots on each series, tooltip showing all group values at that point
 - Visible gaps where data is missing (no silent drops)
-- **− Size / + Size** — resize the chart in the browser; the SVG scales proportionally by changing the container width while keeping the viewBox fixed
-- **− Bars / + Bars** — adjust bar width interactively (bar chart only)
+- **Edit panel** — click Edit to reveal in-browser controls:
+  - **SVG Background** — color picker that previews live and is used when exporting; axis/label/grid colors automatically flip between dark and light presets based on the background luminance so text stays readable on any background
+  - **Chart Size** — − / + buttons to resize the chart
+  - **Bar Width** — − / + buttons to adjust bar spacing (bar chart only)
+  - **Title / X Label / Y Label** — text inputs to add or change labels live
+  - **Click a bar or line** to change its color; in grouped charts, changing one bar/line recolors the whole series; clicking empty space restores all series to full opacity
 - **Copy SVG** — copies a static vector snapshot to clipboard; works on `file://` via `execCommand` fallback and on `http://` via the Clipboard API
 - **Download SVG** — saves an `.svg` file with all styles inlined; use Insert > Picture in PowerPoint for guaranteed vector quality
+- `--svg-bg COLOR` — bake a custom SVG export background into the file at generation time (default: `#1a1d27`)
 
 ## Usage
 
@@ -57,6 +62,7 @@ python main.py <csv> "<prompt>" [options]
 | `--y-format` | `,.0f` | D3 format string for y-axis ticks |
 | `--curve` | `monotoneX` | Line curve: `monotoneX`, `linear`, `step`, `natural`, `cardinal` |
 | `--no-area` | off | Hide the gradient area fill |
+| `--svg-bg` | `#1a1d27` | SVG export background color |
 
 ### Examples
 

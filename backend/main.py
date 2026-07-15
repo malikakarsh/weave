@@ -64,6 +64,8 @@ def main() -> None:
                         help="Line curve type")
     parser.add_argument("--no-area",  action="store_true",
                         help="Hide the gradient area fill")
+    parser.add_argument("--svg-bg",   default="#1a1d27", metavar="COLOR",
+                        help="SVG export background color (default: #1a1d27)")
 
     args = parser.parse_args()
 
@@ -78,6 +80,7 @@ def main() -> None:
         y_format=args.y_format,
         curve=args.curve,
         show_area=not args.no_area,
+        svg_bg=args.svg_bg,
     )
 
     run(args.csv, args.prompt, args.output, config)

@@ -45,6 +45,58 @@
 
     .chart-actions button:hover { background: #2d3148; color: #e2e8f0; }
     .chart-actions button.success { color: #4ade80; border-color: #4ade80; }
+    .chart-actions button.active  { color: #e2e8f0; background: #2d3148; }
+
+    #edit-panel {
+      display: none;
+      position: absolute;
+      top: 52px;
+      right: 16px;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px 16px;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      min-width: 180px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    #edit-panel.open { display: flex; }
+    .edit-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .edit-label { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+    .color-pick {
+      width: 32px; height: 22px;
+      padding: 1px 2px;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .edit-divider { border-top: 1px solid #2d3148; margin: 2px 0; }
+    .edit-btn-group { display: flex; gap: 4px; }
+    .edit-btn {
+      background: #1a1d27;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .edit-btn:hover { background: #2d3148; color: #e2e8f0; }
+    .edit-hint { color: #475569; font-size: 11px; font-style: italic; }
+    .edit-text {
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 12px;
+      width: 110px;
+      outline: none;
+    }
+    .edit-text:focus { border-color: #4f5680; }
 
     .axis path, .axis line { stroke: #2d3148; }
     .axis text { fill: #64748b; font-size: 12px; }
@@ -78,18 +130,101 @@
 <body>
   <div id="chart">
     <div class="chart-actions">
-      <button id="btn-smaller">− Size</button>
-      <button id="btn-larger">+ Size</button>
+      <button id="btn-edit">Edit</button>
       <button id="btn-copy">Copy SVG</button>
       <button id="btn-download">Download SVG</button>
     </div>
+    <div id="edit-panel">
+      <div class="edit-row">
+        <span class="edit-label">SVG Background</span>
+        <input type="color" class="color-pick" id="pick-svg-bg">
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Chart Size</span>
+        <div class="edit-btn-group">
+          <button class="edit-btn" id="ep-smaller">−</button>
+          <button class="edit-btn" id="ep-larger">+</button>
+        </div>
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Title</span>
+        <input type="text" class="edit-text" id="edit-title" placeholder="Chart title">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">X Label</span>
+        <input type="text" class="edit-text" id="edit-xlabel" placeholder="x-axis label">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">Y Label</span>
+        <input type="text" class="edit-text" id="edit-ylabel" placeholder="y-axis label">
+      </div>
+      <div class="edit-divider"></div>
+      <span class="edit-hint">Click any line to change its color</span>
+    </div>
   </div>
+  <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+
+    let svgBg        = config.svg_bg || "#1a1d27";
+    let editMode     = false;
+    let activeSeries = null;
+    let currentSingleColor = config.color;
+
+    const floatingPick = document.getElementById("floating-color-pick");
+    floatingPick.addEventListener("input", e => {
+      const color = e.target.value;
+      if (activeSeries === "__single__") {
+        currentSingleColor = color;
+        g.selectAll(".line-path").attr("stroke", color);
+        g.selectAll(".hover-dot").attr("fill", color);
+        svg.selectAll("#area-gradient stop").attr("stop-color", color);
+      } else {
+        const s = CSS.escape(activeSeries);
+        g.selectAll(`.line-path[data-series="${s}"]`).attr("stroke", color);
+        g.selectAll(`.hover-dot[data-series="${s}"]`).attr("fill", color);
+        svg.selectAll(`.legend-swatch[data-series="${s}"]`).attr("fill", color);
+      }
+    });
+
+    function highlightSeries(series) {
+      groups.forEach(grp => {
+        const s = CSS.escape(grp.group ?? "__single__");
+        const active = (grp.group ?? "__single__") === series;
+        g.selectAll(`.line-path[data-series="${s}"]`)
+          .attr("opacity", active ? 1 : 0.12)
+          .attr("stroke-width", active ? 2.5 : 1.5);
+      });
+    }
+
+    function clearHighlight() {
+      g.selectAll(".line-path").attr("opacity", 1).attr("stroke-width", 2);
+    }
+
+    function openColorPicker(currentColor, series, event) {
+      activeSeries = series;
+      floatingPick.value = toPickerHex(currentColor);
+      floatingPick.style.left = event.clientX + "px";
+      floatingPick.style.top  = event.clientY + "px";
+      floatingPick.getBoundingClientRect(); // flush layout so position applies before picker opens
+      floatingPick.click();
+    }
+
+    function toPickerHex(color) {
+      if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
+      document.body.appendChild(tmp);
+      const rgb = getComputedStyle(tmp).color;
+      document.body.removeChild(tmp);
+      const m = rgb.match(/\d+/g);
+      return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
+    }
 
     const parsers = [
       d3.timeParse("%Y-%m-%d"),
@@ -193,27 +328,23 @@
       .attr("font-size", "12px");
     yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 
-    // Labels
-    if (config.title) {
-      svg.append("text")
-        .attr("x", (totalWidth - legendWidth) / 2).attr("y", 18)
-        .attr("text-anchor", "middle")
-        .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
-        .text(config.title);
-    }
-    if (config.x_label) {
-      svg.append("text")
-        .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
-        .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
-        .text(config.x_label);
-    }
-    if (config.y_label) {
-      svg.append("text")
-        .attr("transform", "rotate(-90)")
-        .attr("x", -(margin.top + height / 2)).attr("y", 14)
-        .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
-        .text(config.y_label);
-    }
+    // Labels — always created so edit panel can update them
+    const titleEl = svg.append("text")
+      .attr("x", (totalWidth - legendWidth) / 2).attr("y", 18)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
+      .text(config.title || "");
+
+    const xLabelEl = svg.append("text")
+      .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.x_label || "");
+
+    const yLabelEl = svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -(margin.top + height / 2)).attr("y", 14)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.y_label || "");
 
     // Curve
     const CURVES = {
@@ -247,8 +378,27 @@
 
       g.append("path").datum(grp.values)
         .attr("class", "line-path")
+        .attr("data-series", grp.group ?? "__single__")
         .attr("stroke", color)
         .attr("d", lineGen);
+
+      // Wide transparent overlay for easy clicking in edit mode
+      g.append("path").datum(grp.values)
+        .attr("class", "line-hit")
+        .attr("data-series", grp.group ?? "__single__")
+        .attr("stroke", "transparent")
+        .attr("stroke-width", 20)
+        .attr("fill", "none")
+        .attr("cursor", "default")  // overridden to "pointer" when edit mode is active
+        .attr("d", lineGen)
+        .on("click", function(event) {
+          if (!editMode) return;
+          event.stopPropagation();
+          const series   = this.getAttribute("data-series");
+          const linePath = g.select(`.line-path[data-series="${CSS.escape(series)}"]`);
+          highlightSeries(series);
+          openColorPicker(linePath.attr("stroke"), series, event);
+        });
     });
 
     // Legend (grouped only)
@@ -257,10 +407,12 @@
       const ly = margin.top;
       groups.forEach((grp, i) => {
         svg.append("rect")
+          .attr("class", "legend-swatch").attr("data-series", grp.group)
           .attr("x", lx).attr("y", ly + i * 22)
           .attr("width", 10).attr("height", 10).attr("rx", 2)
           .attr("fill", colorScale(grp.group));
         svg.append("text")
+          .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
           .text(grp.group);
@@ -274,6 +426,7 @@
     const hoverDots = groups.map(grp =>
       g.append("circle")
         .attr("class", "hover-dot")
+        .attr("data-series", grp.group ?? "__single__")
         .attr("r", 5)
         .attr("fill", colorScale(grp.group))
     );
@@ -283,7 +436,7 @@
     const formatY = d3.format(",.2f");
     const formatX = isTemporal ? d3.timeFormat("%b %d, %Y") : d => d;
 
-    g.append("rect")
+    const hoverOverlay = g.append("rect")
       .attr("width", width).attr("height", height)
       .attr("fill", "none").attr("pointer-events", "all")
       .on("mousemove", function(event) {
@@ -378,7 +531,7 @@
         // url() gradient refs don't survive SVG export — flatten to solid + opacity
         const fill = dst.getAttribute("fill") || "";
         if (fill.startsWith("url(")) {
-          dst.setAttribute("fill", config.color);
+          dst.setAttribute("fill", currentSingleColor);
           dst.setAttribute("fill-opacity", "0.12");
         }
       });
@@ -387,7 +540,7 @@
       const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       bg.setAttribute("width", "100%");
       bg.setAttribute("height", "100%");
-      bg.setAttribute("fill", "#1a1d27");
+      bg.setAttribute("fill", svgBg);
       clone.insertBefore(bg, clone.firstChild);
 
       clone.querySelectorAll(".hover-line, .hover-dot").forEach(el => el.remove());
@@ -441,16 +594,71 @@
     document.getElementById("btn-copy").addEventListener("click", copySVG);
     document.getElementById("btn-download").addEventListener("click", downloadSVG);
 
-    const STEP = 150;
-    const MIN_SIZE = 400 + 64;
+    // --- Edit panel ---
+    const editPanel = document.getElementById("edit-panel");
+    const btnEdit   = document.getElementById("btn-edit");
+    btnEdit.addEventListener("click", () => {
+      editMode = !editMode;
+      editPanel.classList.toggle("open", editMode);
+      btnEdit.classList.toggle("active", editMode);
+      hoverOverlay.attr("pointer-events", editMode ? "none" : "all");
+      g.selectAll(".line-hit").style("cursor", editMode ? "pointer" : "default");
+      if (!editMode) clearHighlight();
+      // Clear selection when clicking empty chart area
+      svg.on("click", editMode ? () => clearHighlight() : null);
+    });
 
-    function resize(delta) {
-      const current = chartEl.offsetWidth;
-      chartEl.style.width = Math.max(MIN_SIZE, current + delta) + "px";
+    // SVG background picker + auto-contrast
+    function isLightBg(hex) {
+      const r = parseInt(hex.slice(1,3), 16);
+      const g = parseInt(hex.slice(3,5), 16);
+      const b = parseInt(hex.slice(5,7), 16);
+      return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.5;
     }
 
-    document.getElementById("btn-smaller").addEventListener("click", () => resize(-STEP));
-    document.getElementById("btn-larger").addEventListener("click",  () => resize(+STEP));
+    function applyTheme(light) {
+      const titleColor  = light ? "#1e293b" : "#e2e8f0";
+      const labelColor  = light ? "#475569" : "#64748b";
+      const axisColor   = light ? "#cbd5e1" : "#2d3148";
+      const gridColor   = light ? "#d1d5db" : "#1e2235";
+      const legendColor = light ? "#334155" : "#94a3b8";
+      titleEl.attr("fill", titleColor);
+      xLabelEl.attr("fill", labelColor);
+      yLabelEl.attr("fill", labelColor);
+      xAxisG.selectAll("text").attr("fill", labelColor);
+      yAxisG.selectAll("text").attr("fill", labelColor);
+      xAxisG.selectAll("path, line").attr("stroke", axisColor);
+      yAxisG.selectAll("path, line").attr("stroke", axisColor);
+      g.selectAll(".grid line").attr("stroke", gridColor);
+      svg.selectAll(".legend-text").attr("fill", legendColor);
+    }
+
+    const pickBg = document.getElementById("pick-svg-bg");
+    pickBg.value = toPickerHex(svgBg);
+    pickBg.addEventListener("input", e => {
+      svgBg = e.target.value;
+      chartEl.style.background = svgBg;
+      applyTheme(isLightBg(svgBg));
+    });
+
+    // Chart size
+    const STEP = 150, MIN_SIZE = 400 + 64;
+    function resize(delta) {
+      chartEl.style.width = Math.max(MIN_SIZE, chartEl.offsetWidth + delta) + "px";
+    }
+    document.getElementById("ep-smaller").addEventListener("click", () => resize(-STEP));
+    document.getElementById("ep-larger").addEventListener("click",  () => resize(+STEP));
+
+    // Title / axis labels
+    const editTitleEl  = document.getElementById("edit-title");
+    const editXLabelEl = document.getElementById("edit-xlabel");
+    const editYLabelEl = document.getElementById("edit-ylabel");
+    editTitleEl.value  = config.title   || "";
+    editXLabelEl.value = config.x_label || "";
+    editYLabelEl.value = config.y_label || "";
+    editTitleEl.addEventListener("input",  e => titleEl.text(e.target.value));
+    editXLabelEl.addEventListener("input", e => xLabelEl.text(e.target.value));
+    editYLabelEl.addEventListener("input", e => yLabelEl.text(e.target.value));
   </script>
 </body>
 </html>

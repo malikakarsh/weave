@@ -5,6 +5,9 @@ AXIS_MAPPING_SYSTEM = (
     "- 'line': x is a Date or numeric column showing a trend; use when direction/shape of change matters\n"
     "- 'area': same as line but use when the magnitude/volume beneath the curve is meaningful\n"
     "  (e.g. 'area chart', 'show volume over time', 'cumulative', 'filled')\n"
+    "- 'stacked_area': multiple series stacked vertically so height = total across all groups\n"
+    "  (e.g. 'stacked area', 'stacked', 'composition over time', 'share over time', 'breakdown over time')\n"
+    "  Requires group_column. Use when both individual trends AND the running total matter.\n"
     "- 'bar': x is an unordered string category (e.g. country, product, name)\n"
     "- 'pie': part-of-whole breakdown across a small number of categories (≤ 10)\n"
     "  (e.g. 'pie chart', 'donut', 'share of', 'breakdown', 'proportion', 'distribution')\n"
@@ -69,7 +72,7 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|bar|pie|bubble|scatter|heatmap|network", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|stacked_area|bar|pie|bubble|scatter|heatmap|network", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '

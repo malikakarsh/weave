@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #chart {
+      position: relative;
+      padding: 32px;
+      background: #1a1d27;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+    }
+
+    .chart-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .chart-actions button {
+      background: #252836;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .chart-actions button:hover { background: #2d3148; color: #e2e8f0; }
+    .chart-actions button.success { color: #4ade80; border-color: #4ade80; }
+    .chart-actions button.active  { color: #e2e8f0; background: #2d3148; }
+
+    #edit-panel {
+      display: none;
+      position: absolute;
+      top: 52px;
+      right: 16px;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px 16px;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      min-width: 180px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    #edit-panel.open { display: flex; }
+    .edit-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .edit-label { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+    .color-pick {
+      width: 32px; height: 22px;
+      padding: 1px 2px;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .edit-divider { border-top: 1px solid #2d3148; margin: 2px 0; }
+    .edit-btn-group { display: flex; gap: 4px; }
+    .edit-btn {
+      background: #1a1d27;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .edit-btn:hover { background: #2d3148; color: #e2e8f0; }
+    .edit-hint { color: #475569; font-size: 11px; font-style: italic; }
+    .edit-text {
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 12px;
+      width: 110px;
+      outline: none;
+    }
+    .edit-text:focus { border-color: #4f5680; }
+
+    .axis path, .axis line { stroke: #2d3148; }
+    .axis text { fill: #64748b; font-size: 12px; }
+    .grid line { stroke: #1e2235; stroke-dasharray: 4 4; }
+    .grid path { stroke: none; }
+    .hover-line { stroke: #475569; stroke-width: 1; stroke-dasharray: 4 4; opacity: 0; }
+    .hover-dot  { stroke: #1a1d27; stroke-width: 2; opacity: 0; }
+
+    .tooltip {
+      position: absolute;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      min-width: 150px;
+    }
+    .tooltip .tip-date  { color: #64748b; font-size: 11px; margin-bottom: 6px; }
+    .tooltip .tip-row   { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .tooltip .tip-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .tooltip .tip-label { color: #94a3b8; flex: 1; }
+    .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; }
+    .tooltip .tip-total { border-top: 1px solid #2d3148; margin-top: 5px; padding-top: 5px; }
+    .tooltip .tip-total .tip-label { color: #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div id="chart">
+    <div class="chart-actions">
+      <button id="btn-edit">Edit</button>
+      <button id="btn-copy">Copy SVG</button>
+      <button id="btn-download">Download SVG</button>
+    </div>
+    <div id="edit-panel">
+      <div class="edit-row">
+        <span class="edit-label">SVG Background</span>
+        <input type="color" class="color-pick" id="pick-svg-bg">
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Chart Size</span>
+        <div class="edit-btn-group">
+          <button class="edit-btn" id="ep-smaller">−</button>
+          <button class="edit-btn" id="ep-larger">+</button>
+        </div>
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Title</span>
+        <input type="text" class="edit-text" id="edit-title" placeholder="Chart title">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">X Label</span>
+        <input type="text" class="edit-text" id="edit-xlabel" placeholder="x-axis label">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">Y Label</span>
+        <input type="text" class="edit-text" id="edit-ylabel" placeholder="y-axis label">
+      </div>
+      <div class="edit-divider"></div>
+      <span class="edit-hint">Click any area to change its color</span>
+    </div>
+  </div>
+  <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    const raw    = __DATA__;
+    const config = __CONFIG__;
+
+    let svgBg     = config.svg_bg || "#1a1d27";
+    let editMode  = false;
+    let activeSeries = null;
+    const seriesColor = {};
+
+    // ── Color picker ──────────────────────────────────────────────────────────
+    const floatingPick = document.getElementById("floating-color-pick");
+    floatingPick.addEventListener("input", e => {
+      if (!activeSeries) return;
+      const color = e.target.value;
+      seriesColor[activeSeries] = color;
+      const s = CSS.escape(activeSeries);
+      g.selectAll(`.area-path[data-series="${s}"]`).attr("fill", color);
+      svg.selectAll(`.legend-swatch[data-series="${s}"]`).attr("fill", color);
+      hoverDots.forEach(dot => {
+        if (dot.attr("data-series") === activeSeries) dot.attr("fill", color);
+      });
+    });
+
+    function openColorPicker(currentColor, series, event) {
+      activeSeries = series;
+      floatingPick.value = toPickerHex(currentColor);
+      floatingPick.style.left = event.clientX + "px";
+      floatingPick.style.top  = event.clientY + "px";
+      floatingPick.getBoundingClientRect();
+      floatingPick.click();
+    }
+
+    function toPickerHex(color) {
+      if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
+      document.body.appendChild(tmp);
+      const rgb = getComputedStyle(tmp).color;
+      document.body.removeChild(tmp);
+      const m = rgb.match(/\d+/g);
+      return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
+    }
+
+    // ── Date parsing ──────────────────────────────────────────────────────────
+    const parsers = [
+      d3.timeParse("%Y-%m-%d"), d3.timeParse("%Y/%m/%d"),
+      d3.timeParse("%d/%m/%Y"), d3.timeParse("%m/%d/%Y"),
+      d3.timeParse("%Y-%m-%dT%H:%M:%S"), d3.timeParse("%Y-%m-%d %H:%M:%S"),
+    ];
+    function parseDate(str) {
+      for (const p of parsers) { const d = p(str); if (d) return d; }
+      if (/[a-zA-Z]/.test(str)) { const d = new Date(str); if (!isNaN(d)) return d; }
+      return null;
+    }
+
+    // ── Data prep ─────────────────────────────────────────────────────────────
+    const isGrouped  = raw.length > 0 && "group" in raw[0];
+    const groupNames = isGrouped ? raw.map(d => d.group) : ["Value"];
+    const firstX     = isGrouped ? raw[0].values[0].x : raw[0].x;
+    const isTemporal = parseDate(firstX) !== null;
+    const isNumeric  = !isTemporal && !isNaN(parseFloat(firstX));
+    const parseX     = v => isTemporal ? parseDate(v) : isNumeric ? parseFloat(v) : v;
+
+    // Collect all unique x keys in original order, then sort if orderable
+    const xMap = new Map(); // raw string → parsed value
+    if (isGrouped) {
+      raw.forEach(grp => grp.values.forEach(v => xMap.set(v.x, parseX(v.x))));
+    } else {
+      raw.forEach(v => xMap.set(v.x, parseX(v.x)));
+    }
+    let xKeys = [...xMap.keys()];
+    if (isTemporal || isNumeric) xKeys.sort((a, b) => xMap.get(a) - xMap.get(b));
+
+    // Pivot to [{x: parsed, _xk: raw, G1: y, G2: y, ...}]
+    const pivoted = xKeys.map(xk => {
+      const obj = { x: xMap.get(xk), _xk: xk };
+      if (isGrouped) {
+        raw.forEach(grp => {
+          const pt = grp.values.find(v => v.x === xk);
+          obj[grp.group] = pt && pt.y !== null ? pt.y : 0;
+        });
+      } else {
+        const pt = raw.find(v => v.x === xk);
+        obj["Value"] = pt && pt.y !== null ? pt.y : 0;
+      }
+      return obj;
+    });
+
+    // Stack
+    const stack  = d3.stack().keys(groupNames).order(d3.stackOrderNone).offset(d3.stackOffsetNone);
+    const layers = stack(pivoted);
+
+    const yMax = d3.max(pivoted, d => groupNames.reduce((s, g) => s + (d[g] || 0), 0)) || 1;
+
+    // ── Dimensions ────────────────────────────────────────────────────────────
+    const legendWidth = isGrouped ? 130 : 0;
+    const margin = { top: 32, right: 16 + legendWidth, bottom: 48, left: 72 };
+    const totalWidth  = config.width;
+    const totalHeight = config.height;
+    const width  = totalWidth  - margin.left - margin.right;
+    const height = totalHeight - margin.top  - margin.bottom;
+
+    const chartEl = document.getElementById("chart");
+    chartEl.style.width = (totalWidth + 64) + "px";
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
+      .attr("width", "100%");
+
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // ── Scales ────────────────────────────────────────────────────────────────
+    const palette    = config.palette || d3.schemeTableau10;
+    const colorScale = d3.scaleOrdinal(palette).domain(groupNames);
+    groupNames.forEach(n => { seriesColor[n] = colorScale(n); });
+
+    const xScale = isTemporal
+      ? d3.scaleTime().domain(d3.extent(pivoted, d => d.x)).range([0, width])
+      : isNumeric
+        ? d3.scaleLinear().domain([d3.min(pivoted, d => d.x), d3.max(pivoted, d => d.x) * 1.2]).range([0, width])
+        : d3.scalePoint().domain(xKeys.map(k => xMap.get(k))).range([0, width]).padding(0.5);
+
+    const yScale = d3.scaleLinear()
+      .domain([0, yMax * 1.2])
+      .range([height, 0]);
+
+    // ── Grid ──────────────────────────────────────────────────────────────────
+    g.append("g").attr("class", "grid")
+      .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
+      .selectAll("line").attr("stroke", "#1e2235");
+
+    // ── X axis ────────────────────────────────────────────────────────────────
+    let xAxis;
+    if (isTemporal) {
+      const [t0, t1] = xScale.domain();
+      const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
+      const interval = years > 20 ? d3.timeYear.every(5)
+        : years > 10 ? d3.timeYear.every(2)
+        : years > 4  ? d3.timeYear.every(1)
+        : years > 1  ? d3.timeMonth.every(3)
+        : d3.timeMonth.every(1);
+      xAxis = d3.axisBottom(xScale).ticks(interval)
+        .tickFormat(years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y"));
+    } else if (isNumeric) {
+      xAxis = d3.axisBottom(xScale).ticks(6);
+    } else {
+      const allX = xKeys.map(k => xMap.get(k));
+      const step = allX.length > 8 ? Math.ceil(allX.length / 8) : 1;
+      const shown = new Set(allX.filter((_, i) => i % step === 0));
+      xAxis = d3.axisBottom(xScale).tickValues(allX.filter(x => shown.has(x)));
+    }
+
+    const xAxisG = g.append("g").attr("class", "axis")
+      .attr("transform", `translate(0,${height})`).call(xAxis);
+    xAxisG.selectAll("text").attr("dy", "1.2em").attr("fill", "#64748b").attr("font-size", "12px");
+    xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+    // ── Y axis ────────────────────────────────────────────────────────────────
+    const yAxisG = g.append("g").attr("class", "axis")
+      .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+    yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "12px");
+    yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+    // ── Labels ────────────────────────────────────────────────────────────────
+    const titleEl = svg.append("text")
+      .attr("x", (totalWidth - legendWidth) / 2).attr("y", 18)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
+      .text(config.title || "");
+
+    const xLabelEl = svg.append("text")
+      .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.x_label || "");
+
+    const yLabelEl = svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -(margin.top + height / 2)).attr("y", 14)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.y_label || "");
+
+    // ── Curve ─────────────────────────────────────────────────────────────────
+    const CURVES = {
+      monotoneX: d3.curveMonotoneX, linear: d3.curveLinear,
+      step: d3.curveStep, natural: d3.curveNatural, cardinal: d3.curveCardinal,
+    };
+    const curve = CURVES[config.curve] ?? d3.curveMonotoneX;
+
+    const areaGen = d3.area()
+      .x(d => xScale(d.data.x))
+      .y0(d => yScale(d[0]))
+      .y1(d => yScale(d[1]))
+      .curve(curve);
+
+    // ── Draw stacked layers (bottom → top) ────────────────────────────────────
+    layers.forEach((layer, i) => {
+      const name  = groupNames[i];
+      const color = colorScale(name);
+
+      g.append("path")
+        .datum(layer)
+        .attr("class", "area-path")
+        .attr("data-series", name)
+        .attr("fill", color)
+        .attr("fill-opacity", 0.82)
+        .attr("stroke", "#1a1d27")
+        .attr("stroke-width", 0.8)
+        .attr("d", areaGen)
+        .style("cursor", "default")
+        .on("click", function(event) {
+          if (!editMode) return;
+          event.stopPropagation();
+          openColorPicker(seriesColor[name], name, event);
+        });
+    });
+
+    // ── Legend ────────────────────────────────────────────────────────────────
+    if (isGrouped) {
+      const lx = margin.left + width + 20;
+      const ly = margin.top;
+      groupNames.forEach((name, i) => {
+        svg.append("rect")
+          .attr("class", "legend-swatch").attr("data-series", name)
+          .attr("x", lx).attr("y", ly + i * 22)
+          .attr("width", 10).attr("height", 10).attr("rx", 2)
+          .attr("fill", colorScale(name));
+        svg.append("text")
+          .attr("class", "legend-text")
+          .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
+          .attr("fill", "#94a3b8").attr("font-size", "12px")
+          .text(name);
+      });
+    }
+
+    // ── Hover ─────────────────────────────────────────────────────────────────
+    const hoverLine = g.append("line").attr("class", "hover-line").attr("y1", 0).attr("y2", height);
+
+    const hoverDots = groupNames.map(name =>
+      g.append("circle")
+        .attr("class", "hover-dot")
+        .attr("data-series", name)
+        .attr("r", 4)
+        .attr("fill", colorScale(name))
+    );
+
+    const bisect  = d3.bisector(d => d.x).center;
+    const tooltip = document.getElementById("tooltip");
+    const formatY = d3.format(",.2f");
+    const formatX = isTemporal ? d3.timeFormat("%b %d, %Y") : d => String(d);
+
+    g.append("rect")
+      .attr("width", width).attr("height", height)
+      .attr("fill", "none").attr("pointer-events", "all")
+      .on("mousemove", function(event) {
+        const [mx] = d3.pointer(event);
+        let idx;
+        if (isTemporal || isNumeric) {
+          idx = bisect(pivoted, xScale.invert(mx));
+        } else {
+          idx = Math.round((mx / width) * (pivoted.length - 1));
+        }
+        idx = Math.max(0, Math.min(idx, pivoted.length - 1));
+
+        const d  = pivoted[idx];
+        const cx = xScale(d.x);
+        hoverLine.attr("x1", cx).attr("x2", cx).attr("opacity", 1);
+
+        // Dot at top of each layer at this x
+        layers.forEach((layer, i) => {
+          const pt = layer[idx];
+          hoverDots[i].attr("cx", cx).attr("cy", yScale(pt[1])).attr("opacity", 1);
+        });
+
+        let html = `<div class="tip-date">${formatX(d.x)}</div>`;
+        groupNames.forEach(name => {
+          const val = d[name] || 0;
+          html += `<div class="tip-row">
+            <span class="tip-swatch" style="background:${seriesColor[name]}"></span>
+            <span class="tip-label">${name}</span>
+            <span class="tip-val">${formatY(val)}</span>
+          </div>`;
+        });
+        const total = groupNames.reduce((s, n) => s + (d[n] || 0), 0);
+        if (groupNames.length > 1) {
+          html += `<div class="tip-row tip-total">
+            <span class="tip-label" style="color:#e2e8f0">Total</span>
+            <span class="tip-val">${formatY(total)}</span>
+          </div>`;
+        }
+
+        tooltip.innerHTML = html;
+        const rect = chartEl.getBoundingClientRect();
+        tooltip.style.left    = `${event.clientX - rect.left + 14}px`;
+        tooltip.style.top     = `${event.clientY - rect.top  - 20}px`;
+        tooltip.style.opacity = 1;
+      })
+      .on("mouseleave", () => {
+        hoverLine.attr("opacity", 0);
+        hoverDots.forEach(d => d.attr("opacity", 0));
+        tooltip.style.opacity = 0;
+      });
+
+    // ── SVG export ────────────────────────────────────────────────────────────
+    const SVG_PROPS = [
+      "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
+      "stroke-opacity", "fill-opacity", "opacity", "font-size", "font-family",
+      "font-weight", "text-anchor", "dominant-baseline",
+    ];
+
+    function toHex(color) {
+      if (!color || color === "none" || color.startsWith("#") || color.startsWith("url(")) return color;
+      const m = color.match(/\d+/g);
+      if (!m || m.length < 3) return color;
+      return "#" + m.slice(0, 3).map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+    }
+
+    function buildExportSVG() {
+      const svgEl = document.querySelector("svg");
+      const clone = svgEl.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", totalWidth);
+      clone.setAttribute("height", totalHeight);
+
+      const srcEls = [...svgEl.querySelectorAll("*")];
+      const dstEls = [...clone.querySelectorAll("*")];
+      srcEls.forEach((el, i) => {
+        const dst     = dstEls[i];
+        const computed = window.getComputedStyle(el);
+        SVG_PROPS.forEach(prop => {
+          const val = toHex(el.getAttribute(prop) || computed.getPropertyValue(prop));
+          if (val) dst.setAttribute(prop, val);
+        });
+      });
+
+      const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("width", "100%"); bg.setAttribute("height", "100%");
+      bg.setAttribute("fill", svgBg);
+      clone.insertBefore(bg, clone.firstChild);
+      clone.querySelectorAll(".hover-line, .hover-dot").forEach(el => el.remove());
+
+      return new XMLSerializer().serializeToString(clone);
+    }
+
+    async function copySVG() {
+      const svgStr = buildExportSVG();
+      const btn = document.getElementById("btn-copy");
+      let ok = false;
+
+      if (location.protocol !== "file:") {
+        try {
+          const blob = new Blob([svgStr], { type: "image/svg+xml" });
+          await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
+          ok = true;
+        } catch {}
+        if (!ok) {
+          try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {}
+        }
+      }
+
+      if (!ok) {
+        try {
+          const ta = Object.assign(document.createElement("textarea"), { value: svgStr });
+          ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+          document.body.appendChild(ta); ta.focus(); ta.select();
+          ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+        } catch {}
+      }
+
+      btn.textContent = ok ? "Copied!" : "Failed";
+      if (ok) btn.classList.add("success");
+      setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
+    }
+
+    function downloadSVG() {
+      const svgStr = buildExportSVG();
+      const blob = new Blob([svgStr], { type: "image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      Object.assign(document.createElement("a"), { href: url, download: "chart.svg" }).click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("btn-copy").addEventListener("click", copySVG);
+    document.getElementById("btn-download").addEventListener("click", downloadSVG);
+
+    // ── Edit panel ────────────────────────────────────────────────────────────
+    const editPanel = document.getElementById("edit-panel");
+    const btnEdit   = document.getElementById("btn-edit");
+    btnEdit.addEventListener("click", () => {
+      editMode = !editMode;
+      editPanel.classList.toggle("open", editMode);
+      btnEdit.classList.toggle("active", editMode);
+      btnEdit.textContent = editMode ? "Save" : "Edit";
+      g.selectAll(".area-path").style("cursor", editMode ? "pointer" : "default");
+    });
+
+    function isLightBg(hex) {
+      const r = parseInt(hex.slice(1,3), 16);
+      const g = parseInt(hex.slice(3,5), 16);
+      const b = parseInt(hex.slice(5,7), 16);
+      return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.5;
+    }
+
+    function applyTheme(light) {
+      const tc = light ? "#1e293b" : "#e2e8f0";
+      const lc = light ? "#475569" : "#64748b";
+      const ac = light ? "#cbd5e1" : "#2d3148";
+      const gc = light ? "#d1d5db" : "#1e2235";
+      titleEl.attr("fill", tc);
+      xLabelEl.attr("fill", lc); yLabelEl.attr("fill", lc);
+      xAxisG.selectAll("text").attr("fill", lc);
+      yAxisG.selectAll("text").attr("fill", lc);
+      xAxisG.selectAll("path, line").attr("stroke", ac);
+      yAxisG.selectAll("path, line").attr("stroke", ac);
+      g.selectAll(".grid line").attr("stroke", gc);
+      svg.selectAll(".legend-text").attr("fill", light ? "#334155" : "#94a3b8");
+    }
+
+    const pickBg = document.getElementById("pick-svg-bg");
+    pickBg.value = toPickerHex(svgBg);
+    pickBg.addEventListener("input", e => {
+      svgBg = e.target.value;
+      chartEl.style.background = svgBg;
+      applyTheme(isLightBg(svgBg));
+    });
+
+    const STEP = 150, MIN_SIZE = 400 + 64;
+    document.getElementById("ep-smaller").addEventListener("click", () => {
+      chartEl.style.width = Math.max(MIN_SIZE, chartEl.offsetWidth - STEP) + "px";
+    });
+    document.getElementById("ep-larger").addEventListener("click", () => {
+      chartEl.style.width = (chartEl.offsetWidth + STEP) + "px";
+    });
+
+    const editTitleEl  = document.getElementById("edit-title");
+    const editXLabelEl = document.getElementById("edit-xlabel");
+    const editYLabelEl = document.getElementById("edit-ylabel");
+    editTitleEl.value  = config.title   || "";
+    editXLabelEl.value = config.x_label || "";
+    editYLabelEl.value = config.y_label || "";
+    editTitleEl.addEventListener("input",  e => titleEl.text(e.target.value));
+    editXLabelEl.addEventListener("input", e => xLabelEl.text(e.target.value));
+    editYLabelEl.addEventListener("input", e => yLabelEl.text(e.target.value));
+  </script>
+</body>
+</html>

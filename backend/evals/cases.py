@@ -307,6 +307,25 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Stacked area chart
+    # ------------------------------------------------------------------ #
+    {
+        "name": "stacked_area: revenue composition over time by company",
+        "csv": "samples/sample.csv",
+        "prompt": "show a stacked area chart of revenue over time for each company",
+        "expect_mapping": {
+            "chart_type": "stacked_area",
+            "x_column": "date",
+            "y_column": "revenue",
+            "group_column": "company",
+            "sort_order": "none",
+        },
+        "expect_data": {
+            "grouped": True,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Pie chart
     # ------------------------------------------------------------------ #
     {

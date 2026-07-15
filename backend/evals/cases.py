@@ -325,6 +325,27 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Stacked bar chart
+    # ------------------------------------------------------------------ #
+    {
+        "name": "stacked_bar: monthly revenue by company",
+        "csv": "samples/sample.csv",
+        "prompt": "show a stacked bar chart of monthly revenue for each company",
+        "expect_mapping": {
+            "chart_type": "stacked_bar",
+            "x_column": "date",
+            "y_column": "revenue",
+            "group_column": "company",
+            "time_unit": "month",
+        },
+        "expect_data": {
+            "grouped": True,
+            "count": 3,
+            "values_count": 12,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Pie chart
     # ------------------------------------------------------------------ #
     {

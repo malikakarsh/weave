@@ -36,6 +36,7 @@ DataLoader → LLMMapper → Transformer → Templater
 | `line` | Trends over time or numeric x | x (date/numeric), y (numeric), optional group |
 | `area` | Volume or magnitude beneath a curve | x (date/numeric), y (numeric), optional group |
 | `stacked_area` | Cumulative composition over time | x (date), y (numeric), group (required) |
+| `stacked_bar` | Composition across discrete categories | x (string/bucketed date), y (numeric), group (required) |
 | `bar` | Comparing unordered categories | x (string), y (numeric), optional group |
 | `pie` | Part-of-whole across ≤ 10 categories | x (label), y (value) |
 | `bubble` | Three-variable relationships | x, y, z (size), optional label or group |
@@ -211,6 +212,18 @@ python main.py samples/airport_routes.csv \
   "show a network graph of airport routes weighted by distance" --open
 ```
 
+**Stacked bar chart — composition across months:**
+```bash
+python main.py samples/sample.csv \
+  "show a stacked bar chart of monthly revenue for each company" --open
+```
+
+**Stacked bar chart — breakdown by category:**
+```bash
+python main.py samples/nyc_restaurants.csv \
+  "stacked bar chart of inspection count by borough, broken down by critical flag" --open
+```
+
 **Facet — small multiples, columns layout:**
 ```bash
 python main.py samples/sample.csv \
@@ -263,11 +276,13 @@ backend/
 │       ├── pie_chart.html         # D3.js donut/pie chart with % labels
 │       ├── scatter_chart.html     # D3.js scatter chart
 │       ├── bubble_chart.html      # D3.js bubble chart (grouped or individually labeled)
+│       ├── stacked_area_chart.html # D3.js stacked area chart (composition over time)
+│       ├── stacked_bar_chart.html  # D3.js stacked bar chart (composition across categories)
 │       ├── heatmap_chart.html     # D3.js heatmap (sequential color scale + legend)
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # ~31 test cases covering all chart types and features
+│   ├── cases.py                   # ~33 test cases covering all chart types and features
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 └── samples/
     ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)

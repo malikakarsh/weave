@@ -8,6 +8,11 @@ AXIS_MAPPING_SYSTEM = (
     "- 'stacked_area': multiple series stacked vertically so height = total across all groups\n"
     "  (e.g. 'stacked area', 'stacked', 'composition over time', 'share over time', 'breakdown over time')\n"
     "  Requires group_column. Use when both individual trends AND the running total matter.\n"
+    "  Prefer stacked_area over stacked_bar when x is a date/time axis.\n"
+    "- 'stacked_bar': multiple series stacked into bars for each x category\n"
+    "  (e.g. 'stacked bar', 'stacked bars', 'stacked column', 'stacked bar chart', 'stacked breakdown')\n"
+    "  Requires group_column. x_column is a categorical String (or time-bucketed dates).\n"
+    "  Use when comparing composition across discrete categories; prefer stacked_area for continuous time.\n"
     "- 'bar': x is an unordered string category (e.g. country, product, name)\n"
     "- 'pie': part-of-whole breakdown across a small number of categories (≤ 10)\n"
     "  (e.g. 'pie chart', 'donut', 'share of', 'breakdown', 'proportion', 'distribution')\n"
@@ -83,7 +88,7 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|stacked_area|bar|pie|bubble|scatter|heatmap|network", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|pie|bubble|scatter|heatmap|network", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '

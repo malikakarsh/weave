@@ -23,6 +23,38 @@ def _parse_dt(s: str) -> datetime | None:
     return None
 
 
+def _parse_comparable(s: str):
+    """Return a datetime or float for range comparison, or the raw string."""
+    d = _parse_dt(s)
+    if d:
+        return d
+    try:
+        return float(s)
+    except ValueError:
+        return s
+
+
+def _in_range(raw_x: str, x_min: str | None, x_max: str | None) -> bool:
+    if not x_min and not x_max:
+        return True
+    val = _parse_comparable(raw_x)
+    if x_min:
+        lo = _parse_comparable(x_min)
+        try:
+            if val < lo:
+                return False
+        except TypeError:
+            pass
+    if x_max:
+        hi = _parse_comparable(x_max)
+        try:
+            if val > hi:
+                return False
+        except TypeError:
+            pass
+    return True
+
+
 def _truncate(s: str, unit: str) -> str | None:
     d = _parse_dt(s)
     if not d:
@@ -81,6 +113,8 @@ class Transformer:
         for row in rows:
             raw_x = row.get(mapping.x_column, "").strip()
             y = row.get(mapping.y_column, "").strip()
+            if not _in_range(raw_x, mapping.x_min, mapping.x_max):
+                continue
             x = self._x_key(raw_x, mapping.time_unit)
             if x and (allowed is None or x in allowed):
                 if x not in buckets:
@@ -103,6 +137,8 @@ class Transformer:
             raw_x = row.get(mapping.x_column,    "").strip()
             y     = row.get(mapping.y_column,     "").strip()
             group = row.get(mapping.group_column, "").strip()
+            if not _in_range(raw_x, mapping.x_min, mapping.x_max):
+                continue
             x = self._x_key(raw_x, mapping.time_unit)
             if x and group and (allowed is None or group in allowed):
                 if group not in buckets:

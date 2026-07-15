@@ -16,6 +16,8 @@ class AxisMapping(BaseModel):
     top_n: int | None = None              # keep only top N groups by aggregated y; None means all
     sort_order: str = "asc"              # asc | desc | none — sort categories by y value (bar charts)
     time_unit: str | None = None         # year | month | day — truncate date x values before bucketing
+    x_min: str | None = None             # inclusive lower bound on x (ISO date or number as string)
+    x_max: str | None = None             # inclusive upper bound on x (ISO date or number as string)
 
 
 class ChartConfig(BaseModel):

@@ -90,6 +90,18 @@ python main.py data.csv "daily signups over Q1" --open                  # groups
 
 This works regardless of how granular the source dates are — daily timestamps get rolled up to months or years as needed.
 
+### Time period filtering
+
+Narrow the x-axis to a specific range using natural language:
+
+```bash
+python main.py samples/sample.csv "show Acme revenue from March to September" --open
+python main.py samples/stocks.csv "show AAPL price since 2010" --open
+python main.py samples/nyc_restaurants.csv "inspections per year between 2022 and 2024" --open
+```
+
+The LLM converts the range to ISO date bounds (`x_min` / `x_max`) and the transformer filters rows before aggregating, so top_n and sort still operate on the filtered data.
+
 ### Aggregation + filtering
 
 The LLM picks the aggregation function from intent words in your prompt:

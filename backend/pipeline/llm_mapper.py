@@ -44,7 +44,7 @@ class LLMMapper:
             raise ValueError(f"LLM returned invalid JSON: {raw!r}") from e
 
         # LLMs sometimes return "null" as a string instead of JSON null
-        for key in ("group_column", "group_filter", "top_n", "time_unit"):
+        for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max"):
             if data.get(key) == "null":
                 data[key] = None
 

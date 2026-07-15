@@ -12,6 +12,10 @@ AXIS_MAPPING_SYSTEM = (
     "- group_filter: specific values to include, or null for all\n"
     "  - when group_column is set: filters which series are shown\n"
     "  - when group_column is null: filters which x-axis values are shown\n"
+    "  IMPORTANT: to show data for a specific entity (e.g. 'show Acme revenue'), you MUST set\n"
+    "  group_column to the column that contains that entity (e.g. 'company') AND group_filter\n"
+    "  to the desired values (e.g. ['Acme']). Never set group_filter without also setting\n"
+    "  group_column, unless you are filtering the x-axis itself.\n"
     "- aggregation: how to combine multiple y values at the same x within a group\n"
     "  - 'sum'  — totals: 'total revenue', 'cumulative sales', or any bar chart by default\n"
     "  - 'mean' — averages: 'average price', 'typical', 'per unit'\n"
@@ -32,10 +36,16 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'month' — group by month (use for 'per month', 'monthly', 'month over month')\n"
     "  - 'day'   — group by day (use for 'per day', 'daily')\n"
     "  - null    — no truncation; use the raw x value as-is (default for non-date columns)\n"
-    "  Only set time_unit when x_column is a date/datetime column AND the user wants bucketing by period.\n\n"
+    "  Only set time_unit when x_column is a date/datetime column AND the user wants bucketing by period.\n"
+    "- x_min / x_max: inclusive bounds to filter x values before aggregating\n"
+    "  - Use ISO date strings (YYYY-MM-DD) for date columns, e.g. x_min='2024-01-01', x_max='2024-07-31'\n"
+    "  - Use number strings for numeric columns, e.g. x_min='18', x_max='65'\n"
+    "  - Set from phrases like 'from Jan to July', 'between 2020 and 2022', 'in Q1', 'since 2023'\n"
+    "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
+    "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
     '{"chart_type": "line|bar|scatter", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
-    '"time_unit": "year|month|day or null"}'
+    '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>"}'
 )

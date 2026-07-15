@@ -8,11 +8,12 @@ class Transformer:
         return self._transform_flat(rows, mapping)
 
     def _transform_flat(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        allowed = set(mapping.group_filter) if mapping.group_filter else None
         result = []
         for row in rows:
             x = row.get(mapping.x_column, "").strip()
             y = row.get(mapping.y_column, "").strip()
-            if x:
+            if x and (allowed is None or x in allowed):
                 result.append({"x": x, "y": float(y) if y else None})
         return result
 

@@ -397,14 +397,35 @@
     async function copySVG() {
       const svgStr = buildExportSVG();
       const btn = document.getElementById("btn-copy");
-      try {
-        const blob = new Blob([svgStr], { type: "image/svg+xml" });
-        await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
-      } catch {
-        await navigator.clipboard.writeText(svgStr);
+      let ok = false;
+
+      // Clipboard API silently fails on file:// (not a secure context) — skip it
+      if (location.protocol !== "file:") {
+        try {
+          const blob = new Blob([svgStr], { type: "image/svg+xml" });
+          await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
+          ok = true;
+        } catch {}
+
+        if (!ok) {
+          try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {}
+        }
       }
-      btn.textContent = "Copied!";
-      btn.classList.add("success");
+
+      if (!ok) {
+        try {
+          const ta = Object.assign(document.createElement("textarea"), { value: svgStr });
+          ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+        } catch {}
+      }
+
+      btn.textContent = ok ? "Copied!" : "Failed";
+      if (ok) btn.classList.add("success");
       setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
     }
 

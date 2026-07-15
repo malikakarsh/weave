@@ -30,7 +30,8 @@ A single `.html` file with:
 - Interactive hover — vertical line, dots on each series, tooltip showing all group values at that point
 - Visible gaps where data is missing (no silent drops)
 - **− Size / + Size** — resize the chart in the browser; the SVG scales proportionally by changing the container width while keeping the viewBox fixed
-- **Copy SVG** — copies a static vector snapshot to clipboard (paste into Figma, web apps, PowerPoint on supported versions)
+- **− Bars / + Bars** — adjust bar width interactively (bar chart only)
+- **Copy SVG** — copies a static vector snapshot to clipboard; works on `file://` via `execCommand` fallback and on `http://` via the Clipboard API
 - **Download SVG** — saves an `.svg` file with all styles inlined; use Insert > Picture in PowerPoint for guaranteed vector quality
 
 ## Usage
@@ -89,6 +90,21 @@ Non-temporal x-axis:
 python main.py samples/numeric_x.csv "show how income changes with age" --open
 ```
 
+Bar chart — total per category:
+```bash
+python main.py samples/sample.csv "show total revenue per company" \
+  --title "Revenue by Company" \
+  --color "#6366f1" \
+  --open
+```
+
+Grouped bar chart — side-by-side bars per group:
+```bash
+python main.py samples/sample.csv "compare monthly revenue for each company as grouped bars" \
+  --title "Monthly Revenue by Company" \
+  --open
+```
+
 ## Configuration
 
 Copy `env.example` to `.env` and fill in your key:
@@ -117,7 +133,8 @@ backend/
 │   ├── transformer.py             # Row filtering to {x, y} pairs
 │   ├── templater.py               # HTML rendering
 │   └── templates/
-│       └── line_chart.html        # D3.js line chart template
+│       ├── line_chart.html        # D3.js line chart template
+│       └── bar_chart.html         # D3.js bar chart (flat + grouped)
 ├── samples/
 │   ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
 │   └── numeric_x.csv              # Age vs income dataset (Float x-axis)
@@ -127,7 +144,7 @@ backend/
 ## What's next (V2)
 
 **Chart types**
-- Bar and scatter chart templates
+- Scatter chart template
 
 **API + UI**
 - FastAPI backend — `POST /chart`, `GET /health`

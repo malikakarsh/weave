@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #chart {
+      position: relative;
+      padding: 32px;
+      background: #1a1d27;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+    }
+
+    .chart-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .chart-actions button {
+      background: #252836;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .chart-actions button:hover { background: #2d3148; color: #e2e8f0; }
+    .chart-actions button.success { color: #4ade80; border-color: #4ade80; }
+
+    .axis path, .axis line { stroke: #2d3148; }
+    .axis text { fill: #64748b; font-size: 12px; }
+    .grid line { stroke: #1e2235; stroke-dasharray: 4 4; }
+    .grid path { stroke: none; }
+
+    .bar { cursor: pointer; transition: opacity 0.1s; }
+    .bar:hover { opacity: 0.75; }
+
+    .tooltip {
+      position: absolute;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      min-width: 140px;
+    }
+
+    .tooltip .tip-date  { color: #64748b; font-size: 11px; margin-bottom: 6px; }
+    .tooltip .tip-row   { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .tooltip .tip-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+    .tooltip .tip-label { color: #94a3b8; flex: 1; }
+    .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="chart">
+    <div class="chart-actions">
+      <button id="btn-smaller">− Size</button>
+      <button id="btn-larger">+ Size</button>
+      <button id="btn-thinner">− Bars</button>
+      <button id="btn-wider">+ Bars</button>
+      <button id="btn-copy">Copy SVG</button>
+      <button id="btn-download">Download SVG</button>
+    </div>
+  </div>
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    const raw    = __DATA__;
+    const config = __CONFIG__;
+
+    const isGrouped = raw.length > 0 && "group" in raw[0];
+
+    // For grouped bars, collect all categories and groups
+    let categories, groups, colorScale;
+
+    const palette    = config.palette || d3.schemeTableau10;
+    colorScale = isGrouped
+      ? d3.scaleOrdinal(palette).domain(raw.map(g => g.group))
+      : () => config.color;
+
+    if (isGrouped) {
+      // Collect ordered unique x categories from first group
+      categories = raw[0].values.map(d => d.x);
+      groups     = raw.map(g => g.group);
+    } else {
+      // Aggregate duplicate x values by summing y (e.g. multiple rows per category)
+      const agg = d3.rollup(raw, vals => d3.sum(vals, v => v.y ?? 0), d => d.x);
+      const flat = Array.from(agg, ([x, y]) => ({ x, y }));
+      // Preserve original order of first occurrence
+      const seen = new Set();
+      categories = raw.map(d => d.x).filter(x => !seen.has(x) && seen.add(x));
+      // Replace raw with aggregated ordered data (reuse variable name to keep rest of code unchanged)
+      raw.length = 0;
+      categories.forEach(x => raw.push({ x, y: agg.get(x) }));
+      groups = [null];
+    }
+
+    // Dimensions
+    const legendWidth = isGrouped ? 130 : 0;
+    const margin      = { top: 32, right: 16 + legendWidth, bottom: 56, left: 72 };
+    const totalWidth  = config.width;
+    const totalHeight = config.height;
+    const width  = totalWidth  - margin.left - margin.right;
+    const height = totalHeight - margin.top  - margin.bottom;
+
+    const chartEl = document.getElementById("chart");
+    chartEl.style.width = (totalWidth + 64) + "px";
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
+      .attr("width", "100%");
+
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    let barPadding = 0.2;
+
+    const xOuter = d3.scaleBand()
+      .domain(categories)
+      .range([0, width])
+      .padding(barPadding);
+
+    const xInner = isGrouped
+      ? d3.scaleBand().domain(groups).range([0, xOuter.bandwidth()]).padding(0.05)
+      : null;
+
+    const allY = isGrouped
+      ? raw.flatMap(g => g.values.map(v => v.y).filter(y => y !== null))
+      : raw.map(d => d.y).filter(y => y !== null);
+
+    const yScale = d3.scaleLinear()
+      .domain([0, d3.max(allY) * 1.1])
+      .nice()
+      .range([height, 0]);
+
+    // Grid
+    g.append("g").attr("class", "grid")
+      .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
+      .selectAll("line").attr("stroke", "#1e2235");
+
+    // X axis — rotate labels if many categories
+    const xAxisG = g.append("g").attr("class", "axis")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(xOuter));
+
+    const rotate = categories.length > 6;
+    xAxisG.selectAll("text")
+      .attr("fill", "#64748b")
+      .attr("font-size", "12px")
+      .attr("text-anchor", rotate ? "end" : "middle")
+      .attr("transform", rotate ? "rotate(-35)" : null)
+      .attr("dy", rotate ? "0.2em" : "1.2em")
+      .attr("dx", rotate ? "-0.5em" : null);
+    xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+    // Y axis
+    const yAxisG = g.append("g").attr("class", "axis")
+      .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+    yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "12px");
+    yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+    // Labels
+    if (config.title) {
+      svg.append("text")
+        .attr("x", (totalWidth - legendWidth) / 2).attr("y", 18)
+        .attr("text-anchor", "middle")
+        .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
+        .text(config.title);
+    }
+    if (config.x_label) {
+      svg.append("text")
+        .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
+        .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+        .text(config.x_label);
+    }
+    if (config.y_label) {
+      svg.append("text")
+        .attr("transform", "rotate(-90)")
+        .attr("x", -(margin.top + height / 2)).attr("y", 14)
+        .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+        .text(config.y_label);
+    }
+
+    // Draw bars
+    const tooltip = document.getElementById("tooltip");
+    const formatY = d3.format(",.2f");
+
+    function showTooltip(event, label, rows) {
+      let html = `<div class="tip-date">${label}</div>`;
+      rows.forEach(({ name, value, color }) => {
+        html += `<div class="tip-row">
+          <span class="tip-swatch" style="background:${color}"></span>
+          <span class="tip-label">${name}</span>
+          <span class="tip-val">${value !== null ? formatY(value) : "—"}</span>
+        </div>`;
+      });
+      tooltip.innerHTML = html;
+      tooltip.style.opacity = 1;
+
+      const rect = chartEl.getBoundingClientRect();
+      const tx = event.clientX - rect.left + 12;
+      const ty = event.clientY - rect.top  - 20;
+      tooltip.style.left = `${tx}px`;
+      tooltip.style.top  = `${ty}px`;
+    }
+
+    function hideTooltip() { tooltip.style.opacity = 0; }
+
+    if (isGrouped) {
+      raw.forEach(grp => {
+        const color = colorScale(grp.group);
+        g.selectAll(`.bar-${CSS.escape(grp.group)}`)
+          .data(grp.values)
+          .join("rect")
+          .attr("class", "bar")
+          .attr("data-group", grp.group)
+          .attr("x",      d => xOuter(d.x) + xInner(grp.group))
+          .attr("y",      d => d.y !== null ? yScale(d.y) : height)
+          .attr("width",  xInner.bandwidth())
+          .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
+          .attr("fill",   color)
+          .attr("rx", 2)
+          .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: grp.group, value: d.y, color }]))
+          .on("mouseleave", hideTooltip);
+      });
+    } else {
+      g.selectAll(".bar")
+        .data(raw)
+        .join("rect")
+        .attr("class", "bar")
+        .attr("x",      d => xOuter(d.x))
+        .attr("y",      d => d.y !== null ? yScale(d.y) : height)
+        .attr("width",  xOuter.bandwidth())
+        .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
+        .attr("fill",   config.color)
+        .attr("rx", 2)
+        .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: config.color }]))
+        .on("mouseleave", hideTooltip);
+    }
+
+    // Legend (grouped only)
+    if (isGrouped) {
+      const lx = margin.left + width + 20;
+      const ly = margin.top;
+      groups.forEach((grp, i) => {
+        svg.append("rect")
+          .attr("x", lx).attr("y", ly + i * 22)
+          .attr("width", 10).attr("height", 10).attr("rx", 2)
+          .attr("fill", colorScale(grp));
+        svg.append("text")
+          .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
+          .attr("fill", "#94a3b8").attr("font-size", "12px")
+          .text(grp);
+      });
+    }
+
+    // --- SVG export ---
+    const SVG_PROPS = [
+      "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
+      "stroke-opacity", "fill-opacity", "opacity", "font-size", "font-family",
+      "font-weight", "text-anchor", "dominant-baseline",
+    ];
+
+    function toHex(color) {
+      if (!color || color === "none" || color.startsWith("#") || color.startsWith("url(")) return color;
+      const m = color.match(/\d+/g);
+      if (!m || m.length < 3) return color;
+      return "#" + m.slice(0, 3).map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+    }
+
+    function buildExportSVG() {
+      const svgEl = document.querySelector("svg");
+      const clone = svgEl.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", totalWidth);
+      clone.setAttribute("height", totalHeight);
+
+      const srcEls = [...svgEl.querySelectorAll("*")];
+      const dstEls = [...clone.querySelectorAll("*")];
+
+      srcEls.forEach((el, i) => {
+        const dst     = dstEls[i];
+        const computed = window.getComputedStyle(el);
+        SVG_PROPS.forEach(prop => {
+          const raw = el.getAttribute(prop) || computed.getPropertyValue(prop);
+          const val = toHex(raw);
+          if (val) dst.setAttribute(prop, val);
+        });
+        const fill = dst.getAttribute("fill") || "";
+        if (fill.startsWith("url(")) dst.setAttribute("fill", "none");
+      });
+
+      const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("width", "100%");
+      bg.setAttribute("height", "100%");
+      bg.setAttribute("fill", "#1a1d27");
+      clone.insertBefore(bg, clone.firstChild);
+
+      return new XMLSerializer().serializeToString(clone);
+    }
+
+    async function copySVG() {
+      const svgStr = buildExportSVG();
+      const btn = document.getElementById("btn-copy");
+      let ok = false;
+
+      // Clipboard API silently fails on file:// (not a secure context) — skip it
+      if (location.protocol !== "file:") {
+        try {
+          const blob = new Blob([svgStr], { type: "image/svg+xml" });
+          await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
+          ok = true;
+        } catch {}
+
+        if (!ok) {
+          try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {}
+        }
+      }
+
+      if (!ok) {
+        try {
+          const ta = Object.assign(document.createElement("textarea"), { value: svgStr });
+          ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+        } catch {}
+      }
+
+      btn.textContent = ok ? "Copied!" : "Failed";
+      if (ok) btn.classList.add("success");
+      setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
+    }
+
+    function downloadSVG() {
+      const svgStr = buildExportSVG();
+      const blob = new Blob([svgStr], { type: "image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url; a.download = "chart.svg"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("btn-copy").addEventListener("click", copySVG);
+    document.getElementById("btn-download").addEventListener("click", downloadSVG);
+
+    const STEP = 150, MIN_SIZE = 400 + 64;
+    function resize(delta) {
+      chartEl.style.width = Math.max(MIN_SIZE, chartEl.offsetWidth + delta) + "px";
+    }
+    document.getElementById("btn-smaller").addEventListener("click", () => resize(-STEP));
+    document.getElementById("btn-larger").addEventListener("click",  () => resize(+STEP));
+
+    const PAD_STEP = 0.08, PAD_MIN = 0.02, PAD_MAX = 0.85;
+    function adjustPadding(delta) {
+      barPadding = Math.min(PAD_MAX, Math.max(PAD_MIN, barPadding + delta));
+      xOuter.padding(barPadding);
+      if (xInner) xInner.range([0, xOuter.bandwidth()]);
+
+      // Redraw bars
+      if (isGrouped) {
+        raw.forEach(grp => {
+          g.selectAll(`rect[data-group="${grp.group}"]`)
+            .attr("x",     d => xOuter(d.x) + xInner(grp.group))
+            .attr("width", xInner.bandwidth());
+        });
+      } else {
+        g.selectAll(".bar")
+          .attr("x",     d => xOuter(d.x))
+          .attr("width", xOuter.bandwidth());
+      }
+
+      // Redraw x-axis
+      xAxisG.call(d3.axisBottom(xOuter));
+      xAxisG.selectAll("text")
+        .attr("fill", "#64748b").attr("font-size", "12px")
+        .attr("text-anchor", rotate ? "end" : "middle")
+        .attr("transform", rotate ? "rotate(-35)" : null)
+        .attr("dy", rotate ? "0.2em" : "1.2em")
+        .attr("dx", rotate ? "-0.5em" : null);
+      xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+    }
+    document.getElementById("btn-thinner").addEventListener("click", () => adjustPadding(+PAD_STEP));
+    document.getElementById("btn-wider").addEventListener("click",   () => adjustPadding(-PAD_STEP));
+  </script>
+</body>
+</html>

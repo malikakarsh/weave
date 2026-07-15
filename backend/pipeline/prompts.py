@@ -26,6 +26,7 @@ AXIS_MAPPING_SYSTEM = (
     "  (e.g. 'heatmap', 'heat map', 'intensity matrix', 'activity grid', 'correlation by X and Y')\n"
     "  x_column = first categorical dimension (columns of the grid, e.g. weekday, month, product)\n"
     "  y_column = second categorical dimension (ROWS of the grid, e.g. hour, team, region) — STRING, not numeric\n"
+    "  x_column and y_column MUST be two DIFFERENT columns — never use the same column for both.\n"
     "  z_column = numeric column for cell color intensity; leave null to color by count of rows per cell\n"
     "  aggregation = how to combine z values per (x, y) cell: mean for averages, sum for totals\n"
     "- 'scatter': both x and y are numeric with no implied ordering\n\n"

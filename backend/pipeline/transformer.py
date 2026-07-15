@@ -70,6 +70,8 @@ def _truncate(s: str, unit: str) -> str | None:
 
 class Transformer:
     def transform(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        if mapping.chart_type == "heatmap":
+            return self._transform_heatmap(rows, mapping)
         if mapping.label_column:
             return self._transform_labeled(rows, mapping)
         if mapping.group_column:
@@ -106,6 +108,41 @@ class Transformer:
         if not time_unit:
             return raw_x
         return _truncate(raw_x, time_unit)
+
+    def _transform_heatmap(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """Output one {x, y, z} cell per unique (x_column, y_column) pair."""
+        buckets: dict[tuple[str, str], list[float | None]] = {}
+        x_seen: list[str] = []
+        y_seen: list[str] = []
+
+        for row in rows:
+            raw_x = row.get(mapping.x_column, "").strip()
+            y_cat = row.get(mapping.y_column, "").strip()
+            if not raw_x or not y_cat:
+                continue
+            if not _in_range(raw_x, mapping.x_min, mapping.x_max):
+                continue
+            x = self._x_key(raw_x, mapping.time_unit) or raw_x
+            key = (x, y_cat)
+            if key not in buckets:
+                buckets[key] = []
+                if x not in x_seen:
+                    x_seen.append(x)
+                if y_cat not in y_seen:
+                    y_seen.append(y_cat)
+            if mapping.z_column:
+                z_str = row.get(mapping.z_column, "").strip()
+                buckets[key].append(float(z_str) if z_str else None)
+            else:
+                buckets[key].append(1.0)
+
+        agg = mapping.aggregation if mapping.z_column else "sum"
+        return [
+            {"x": x, "y": y, "z": self._agg(buckets[(x, y)], agg)}
+            for x in x_seen
+            for y in y_seen
+            if (x, y) in buckets
+        ]
 
     def _transform_labeled(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
         """Output one point per unique label — no cross-row aggregation."""

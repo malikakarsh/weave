@@ -16,10 +16,16 @@ AXIS_MAPPING_SYSTEM = (
     "  If each row is a distinct item (drink, country, company) that should be\n"
     "  individually labeled on the chart, set label_column to that String column.\n"
     "  Using label_column skips aggregation — each row becomes one bubble.\n"
+    "- 'heatmap': a grid of colored cells — two categorical/date axes and a numeric intensity value\n"
+    "  (e.g. 'heatmap', 'heat map', 'intensity matrix', 'activity grid', 'correlation by X and Y')\n"
+    "  x_column = first categorical dimension (columns of the grid, e.g. weekday, month, product)\n"
+    "  y_column = second categorical dimension (ROWS of the grid, e.g. hour, team, region) — STRING, not numeric\n"
+    "  z_column = numeric column for cell color intensity; leave null to color by count of rows per cell\n"
+    "  aggregation = how to combine z values per (x, y) cell: mean for averages, sum for totals\n"
     "- 'scatter': both x and y are numeric with no implied ordering\n\n"
     "Also choose:\n"
     "- x_column: the column for the x-axis (Date, Float, or String)\n"
-    "- y_column: the column for the y-axis (must be Float)\n"
+    "- y_column: the column for the y-axis (Float for most chart types; String/category for heatmap rows)\n"
     "- group_column: a String column to split into multiple series, or null\n"
     "- group_filter: specific values to include, or null for all\n"
     "  - when group_column is set: filters which series are shown\n"
@@ -56,7 +62,7 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|bar|pie|bubble|scatter", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|bar|pie|bubble|scatter|heatmap", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '

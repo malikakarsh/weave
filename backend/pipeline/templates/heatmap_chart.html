@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    #chart {
+      position: relative;
+      padding: 32px;
+      background: #1a1d27;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+    }
+
+    .chart-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .chart-actions button {
+      background: #252836;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .chart-actions button:hover { background: #2d3148; color: #e2e8f0; }
+    .chart-actions button.success { color: #4ade80; border-color: #4ade80; }
+    .chart-actions button.active  { color: #e2e8f0; background: #2d3148; }
+
+    #edit-panel {
+      display: none;
+      position: absolute;
+      top: 52px;
+      right: 16px;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px 16px;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      min-width: 200px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    #edit-panel.open { display: flex; }
+    .edit-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .edit-label { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+    .color-pick {
+      width: 32px; height: 22px;
+      padding: 1px 2px;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .edit-divider { border-top: 1px solid #2d3148; margin: 2px 0; }
+    .edit-btn-group { display: flex; gap: 4px; }
+    .edit-btn {
+      background: #1a1d27;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .edit-btn:hover { background: #2d3148; color: #e2e8f0; }
+    .edit-text {
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 12px;
+      width: 120px;
+      outline: none;
+    }
+    .edit-text:focus { border-color: #4f5680; }
+
+    .axis path, .axis line { stroke: #2d3148; }
+    .axis text { fill: #64748b; font-size: 12px; }
+
+    .cell { cursor: default; }
+    .cell:hover { stroke: rgba(255,255,255,0.6); stroke-width: 1.5px; }
+
+    .tooltip {
+      position: absolute;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      min-width: 150px;
+    }
+    .tooltip .tip-date  { color: #64748b; font-size: 11px; margin-bottom: 6px; }
+    .tooltip .tip-row   { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+    .tooltip .tip-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+    .tooltip .tip-label { color: #94a3b8; flex: 1; }
+    .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="chart">
+    <div class="chart-actions">
+      <button id="btn-edit">Edit</button>
+      <button id="btn-copy">Copy SVG</button>
+      <button id="btn-download">Download SVG</button>
+    </div>
+    <div id="edit-panel">
+      <div class="edit-row">
+        <span class="edit-label">SVG Background</span>
+        <input type="color" class="color-pick" id="pick-svg-bg">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">Hot Color</span>
+        <input type="color" class="color-pick" id="pick-hot-color">
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Chart Size</span>
+        <div class="edit-btn-group">
+          <button class="edit-btn" id="ep-smaller">−</button>
+          <button class="edit-btn" id="ep-larger">+</button>
+        </div>
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Title</span>
+        <input type="text" class="edit-text" id="edit-title" placeholder="Chart title">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">X Label</span>
+        <input type="text" class="edit-text" id="edit-xlabel" placeholder="x-axis label">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">Y Label</span>
+        <input type="text" class="edit-text" id="edit-ylabel" placeholder="y-axis label">
+      </div>
+    </div>
+  </div>
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    const raw    = __DATA__;
+    const config = __CONFIG__;
+
+    // ── Color scale ──────────────────────────────────────────────────────────
+    let svgBg    = config.svg_bg || "#1a1d27";
+    let hotColor = config.color  || "#6366f1";
+    const COLD   = "#0d1020";
+
+    const zExtent = d3.extent(raw, d => d.z);
+    const zMin = zExtent[0] ?? 0;
+    const zMax = zExtent[1] ?? 1;
+    const zRange = zMax - zMin || 1;
+
+    function colorInterp(t) {
+      return d3.interpolateRgb(COLD, hotColor)(t);
+    }
+    function cellColor(z) {
+      if (z === null || z === undefined) return "#1e2235";
+      return colorInterp(Math.max(0, Math.min(1, (z - zMin) / zRange)));
+    }
+
+    // ── Dimensions ───────────────────────────────────────────────────────────
+    const LEGEND_W = 72;
+    const margin   = { top: 40, right: LEGEND_W, bottom: 72, left: 120 };
+    const totalWidth  = config.width;
+    const totalHeight = config.height;
+    const width  = totalWidth  - margin.left - margin.right;
+    const height = totalHeight - margin.top  - margin.bottom;
+
+    const chartEl = document.getElementById("chart");
+    chartEl.style.width = (totalWidth + 64) + "px";
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
+      .attr("width", "100%");
+
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+    // ── Scales ───────────────────────────────────────────────────────────────
+    const xDomain = [...new Map(raw.map(d => [d.x, 1])).keys()];
+    const yDomain = [...new Map(raw.map(d => [d.y, 1])).keys()];
+
+    const xScale = d3.scaleBand().domain(xDomain).range([0, width]).padding(0.06);
+    const yScale = d3.scaleBand().domain(yDomain).range([0, height]).padding(0.06);
+
+    // ── X axis ───────────────────────────────────────────────────────────────
+    const rotate = xDomain.length > 6;
+    const xAxisG = g.append("g").attr("class", "axis")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(xScale).tickSizeOuter(0));
+    xAxisG.selectAll("text")
+      .attr("fill", "#64748b").attr("font-size", "11px")
+      .attr("text-anchor", rotate ? "end" : "middle")
+      .attr("transform", rotate ? "rotate(-40)" : null)
+      .attr("dy", rotate ? "0.2em" : "1.2em")
+      .attr("dx", rotate ? "-0.5em" : null);
+    xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+    // ── Y axis ───────────────────────────────────────────────────────────────
+    const yAxisG = g.append("g").attr("class", "axis")
+      .call(d3.axisLeft(yScale).tickSizeOuter(0));
+    yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "11px");
+    yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+    // ── Legend gradient ───────────────────────────────────────────────────────
+    const defs   = svg.append("defs");
+    const gradId = "hm-grad";
+    const grad   = defs.append("linearGradient")
+      .attr("id", gradId)
+      .attr("x1", "0%").attr("y1", "100%")
+      .attr("x2", "0%").attr("y2", "0%");
+
+    function updateGradStops() {
+      grad.selectAll("stop").remove();
+      for (let i = 0; i <= 10; i++) {
+        grad.append("stop")
+          .attr("offset", `${i * 10}%`)
+          .attr("stop-color", colorInterp(i / 10));
+      }
+    }
+    updateGradStops();
+
+    const lx = margin.left + width + 18;
+    svg.append("rect")
+      .attr("id", "legend-bar")
+      .attr("x", lx).attr("y", margin.top)
+      .attr("width", 12).attr("height", height)
+      .attr("fill", `url(#${gradId})`).attr("rx", 3);
+
+    const legendScale = d3.scaleLinear().domain([zMin, zMax]).range([height, 0]);
+    const legendAxisG = svg.append("g")
+      .attr("transform", `translate(${lx + 12}, ${margin.top})`)
+      .call(d3.axisRight(legendScale).ticks(5).tickFormat(d3.format(config.y_format || ",.0f")));
+    legendAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "10px");
+    legendAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+    // ── Cells ────────────────────────────────────────────────────────────────
+    const tooltip = document.getElementById("tooltip");
+    const formatZ = d3.format(config.y_format || ",.2f");
+
+    function showTooltip(event, d) {
+      tooltip.innerHTML = `
+        <div class="tip-date">${d.x}  ·  ${d.y}</div>
+        <div class="tip-row">
+          <span class="tip-swatch" style="background:${cellColor(d.z)}"></span>
+          <span class="tip-label">Value</span>
+          <span class="tip-val">${d.z !== null ? formatZ(d.z) : "—"}</span>
+        </div>`;
+      tooltip.style.opacity = 1;
+      const rect = chartEl.getBoundingClientRect();
+      tooltip.style.left = `${event.clientX - rect.left + 14}px`;
+      tooltip.style.top  = `${event.clientY - rect.top  - 20}px`;
+    }
+    function hideTooltip() { tooltip.style.opacity = 0; }
+
+    const cells = g.selectAll(".cell")
+      .data(raw)
+      .join("rect")
+      .attr("class", "cell")
+      .attr("x",      d => xScale(d.x))
+      .attr("y",      d => yScale(d.y))
+      .attr("width",  xScale.bandwidth())
+      .attr("height", yScale.bandwidth())
+      .attr("fill",   d => cellColor(d.z))
+      .attr("rx", 3)
+      .on("mousemove", (event, d) => showTooltip(event, d))
+      .on("mouseleave", hideTooltip);
+
+    // Cell value labels (only when cells are large enough)
+    const MIN_LABEL_BAND = 26;
+    let cellLabels = null;
+    if (xScale.bandwidth() > MIN_LABEL_BAND && yScale.bandwidth() > MIN_LABEL_BAND) {
+      const fontSize = Math.min(11, Math.floor(Math.min(xScale.bandwidth(), yScale.bandwidth()) * 0.3));
+      cellLabels = g.selectAll(".cell-label")
+        .data(raw)
+        .join("text")
+        .attr("class", "cell-label")
+        .attr("x", d => xScale(d.x) + xScale.bandwidth() / 2)
+        .attr("y", d => yScale(d.y) + yScale.bandwidth() / 2)
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "central")
+        .attr("font-size", fontSize + "px")
+        .attr("fill", d => {
+          const t = d.z !== null ? (d.z - zMin) / zRange : 0;
+          return t > 0.6 ? "#fff" : "#94a3b8";
+        })
+        .attr("pointer-events", "none")
+        .text(d => d.z !== null ? d3.format(",.1f")(d.z) : "");
+    }
+
+    function redrawColors() {
+      cells.attr("fill", d => cellColor(d.z));
+      if (cellLabels) {
+        cellLabels.attr("fill", d => {
+          const t = d.z !== null ? (d.z - zMin) / zRange : 0;
+          return t > 0.6 ? "#fff" : "#94a3b8";
+        });
+      }
+      updateGradStops();
+    }
+
+    // ── Title / axis labels ──────────────────────────────────────────────────
+    const titleEl = svg.append("text")
+      .attr("x", margin.left + width / 2).attr("y", 20)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
+      .text(config.title || "");
+
+    const xLabelEl = svg.append("text")
+      .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.x_label || "");
+
+    const yLabelEl = svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -(margin.top + height / 2)).attr("y", 14)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.y_label || "");
+
+    // ── SVG export ───────────────────────────────────────────────────────────
+    const SVG_PROPS = [
+      "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
+      "stroke-opacity", "fill-opacity", "opacity", "font-size", "font-family",
+      "font-weight", "text-anchor", "dominant-baseline",
+    ];
+
+    function toHex(color) {
+      if (!color || color === "none" || color.startsWith("#") || color.startsWith("url(")) return color;
+      const m = color.match(/\d+/g);
+      if (!m || m.length < 3) return color;
+      return "#" + m.slice(0, 3).map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
+    }
+
+    function buildExportSVG() {
+      const svgEl = document.querySelector("svg");
+      const clone = svgEl.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", totalWidth);
+      clone.setAttribute("height", totalHeight);
+
+      const srcEls = [...svgEl.querySelectorAll("*")];
+      const dstEls = [...clone.querySelectorAll("*")];
+      srcEls.forEach((el, i) => {
+        const dst     = dstEls[i];
+        const computed = window.getComputedStyle(el);
+        SVG_PROPS.forEach(prop => {
+          const val = toHex(el.getAttribute(prop) || computed.getPropertyValue(prop));
+          if (val) dst.setAttribute(prop, val);
+        });
+        const fill = dst.getAttribute("fill") || "";
+        if (fill.startsWith("url(")) dst.setAttribute("fill", "none");
+      });
+
+      const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      bg.setAttribute("width", "100%"); bg.setAttribute("height", "100%");
+      bg.setAttribute("fill", svgBg);
+      clone.insertBefore(bg, clone.firstChild);
+
+      return new XMLSerializer().serializeToString(clone);
+    }
+
+    async function copySVG() {
+      const svgStr = buildExportSVG();
+      const btn = document.getElementById("btn-copy");
+      let ok = false;
+
+      if (location.protocol !== "file:") {
+        try {
+          const blob = new Blob([svgStr], { type: "image/svg+xml" });
+          await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
+          ok = true;
+        } catch {}
+        if (!ok) {
+          try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {}
+        }
+      }
+
+      if (!ok) {
+        try {
+          const ta = Object.assign(document.createElement("textarea"), { value: svgStr });
+          ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+          document.body.appendChild(ta);
+          ta.focus(); ta.select();
+          ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+        } catch {}
+      }
+
+      btn.textContent = ok ? "Copied!" : "Failed";
+      if (ok) btn.classList.add("success");
+      setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
+    }
+
+    function downloadSVG() {
+      const svgStr = buildExportSVG();
+      const blob = new Blob([svgStr], { type: "image/svg+xml" });
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement("a"), { href: url, download: "chart.svg" });
+      a.click(); URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("btn-copy").addEventListener("click", copySVG);
+    document.getElementById("btn-download").addEventListener("click", downloadSVG);
+
+    // ── Edit panel ───────────────────────────────────────────────────────────
+    let editMode = false;
+    const editPanel = document.getElementById("edit-panel");
+    const btnEdit   = document.getElementById("btn-edit");
+
+    btnEdit.addEventListener("click", () => {
+      editMode = !editMode;
+      editPanel.classList.toggle("open", editMode);
+      btnEdit.classList.toggle("active", editMode);
+      btnEdit.textContent = editMode ? "Save" : "Edit";
+    });
+
+    // SVG background
+    function toPickerHex(color) {
+      if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
+      document.body.appendChild(tmp);
+      const rgb = getComputedStyle(tmp).color;
+      document.body.removeChild(tmp);
+      const m = rgb.match(/\d+/g);
+      return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#1a1d27";
+    }
+
+    function isLightBg(hex) {
+      const r = parseInt(hex.slice(1,3), 16);
+      const g = parseInt(hex.slice(3,5), 16);
+      const b = parseInt(hex.slice(5,7), 16);
+      return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.5;
+    }
+
+    function applyTheme(light) {
+      const tc = light ? "#1e293b" : "#e2e8f0";
+      const lc = light ? "#475569" : "#64748b";
+      const ac = light ? "#cbd5e1" : "#2d3148";
+      titleEl.attr("fill", tc);
+      xLabelEl.attr("fill", lc); yLabelEl.attr("fill", lc);
+      xAxisG.selectAll("text").attr("fill", lc);
+      yAxisG.selectAll("text").attr("fill", lc);
+      legendAxisG.selectAll("text").attr("fill", lc);
+      xAxisG.selectAll("path, line").attr("stroke", ac);
+      yAxisG.selectAll("path, line").attr("stroke", ac);
+      legendAxisG.selectAll("path, line").attr("stroke", ac);
+    }
+
+    const pickBg = document.getElementById("pick-svg-bg");
+    pickBg.value = toPickerHex(svgBg);
+    pickBg.addEventListener("input", e => {
+      svgBg = e.target.value;
+      chartEl.style.background = svgBg;
+      applyTheme(isLightBg(svgBg));
+    });
+
+    // Hot color
+    const pickHot = document.getElementById("pick-hot-color");
+    pickHot.value = toPickerHex(hotColor);
+    pickHot.addEventListener("input", e => {
+      hotColor = e.target.value;
+      redrawColors();
+    });
+
+    // Chart size
+    const STEP = 150, MIN_SIZE = 400 + 64;
+    document.getElementById("ep-smaller").addEventListener("click", () => {
+      chartEl.style.width = Math.max(MIN_SIZE, chartEl.offsetWidth - STEP) + "px";
+    });
+    document.getElementById("ep-larger").addEventListener("click", () => {
+      chartEl.style.width = (chartEl.offsetWidth + STEP) + "px";
+    });
+
+    // Text labels
+    const editTitleEl  = document.getElementById("edit-title");
+    const editXLabelEl = document.getElementById("edit-xlabel");
+    const editYLabelEl = document.getElementById("edit-ylabel");
+    editTitleEl.value  = config.title   || "";
+    editXLabelEl.value = config.x_label || "";
+    editYLabelEl.value = config.y_label || "";
+    editTitleEl.addEventListener("input",  e => titleEl.text(e.target.value));
+    editXLabelEl.addEventListener("input", e => xLabelEl.text(e.target.value));
+    editYLabelEl.addEventListener("input", e => yLabelEl.text(e.target.value));
+  </script>
+</body>
+</html>

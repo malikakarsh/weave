@@ -362,6 +362,41 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Heatmap
+    # ------------------------------------------------------------------ #
+    {
+        "name": "heatmap: average diamond price by cut and color",
+        "csv": "samples/diamonds.csv",
+        "prompt": "show a heatmap of average diamond price by cut and color",
+        "expect_mapping": {
+            "chart_type": "heatmap",
+            "x_column": "cut",
+            "y_column": "color",
+            "aggregation": "mean",
+        },
+        "expect_data": {
+            # heatmap transformer outputs flat [{x, y, z}] — not grouped
+            "grouped": False,
+            # 5 cuts × 7 colors = 35 cells (all combinations present in dataset)
+            "count": 35,
+        },
+    },
+    {
+        "name": "heatmap: count inspections by borough and grade",
+        "csv": "samples/nyc_restaurants.csv",
+        "prompt": "heatmap of inspection count by borough and grade",
+        "expect_mapping": {
+            "chart_type": "heatmap",
+            "x_column": "boro",
+            "y_column": "grade",
+            "aggregation": "count",
+        },
+        "expect_data": {
+            "grouped": False,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Combined: multiple features at once
     # ------------------------------------------------------------------ #
     {

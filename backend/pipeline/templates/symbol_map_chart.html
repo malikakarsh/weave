@@ -162,6 +162,15 @@
         <input type="text" class="edit-text" id="edit-title" placeholder="Chart title">
       </div>
       <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Land Color</span>
+        <input type="color" class="color-pick" id="pick-land">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">Ocean Color</span>
+        <input type="color" class="color-pick" id="pick-ocean">
+      </div>
+      <div class="edit-divider"></div>
       <div class="edit-row" id="row-symbol-color">
         <span class="edit-label">Symbol Color</span>
         <input type="color" class="color-pick" id="pick-symbol">
@@ -173,8 +182,10 @@
           <button class="edit-btn" id="ep-sym-larger">+</button>
         </div>
       </div>
+      <span class="edit-hint" id="edit-hint-group" style="display:none">Click any symbol to recolor its group</span>
     </div>
   </div>
+  <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
@@ -184,8 +195,19 @@
     const config = __CONFIG__;
 
     let svgBg    = config.svg_bg || "#1a1d27";
-    let editMode = false;
-    let symScale = 1.0;  // multiplier for symbol radius
+    let editMode    = false;
+    let symScale    = 1.0;
+    let activeSeries = null;
+
+    function toPickerHex(color) {
+      if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
+      document.body.appendChild(tmp);
+      const rgb = getComputedStyle(tmp).color;
+      document.body.removeChild(tmp);
+      const m = rgb.match(/\d+/g);
+      return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
+    }
 
     const hasGroup = raw.length > 0 && "group" in raw[0];
     const hasZ     = raw.length > 0 && "z" in raw[0];
@@ -199,6 +221,25 @@
     const accentColor  = config.color || palette[0];
     const seriesColor  = {};
     if (hasGroup) groupNames.forEach(n => { seriesColor[n] = colorScale(n); });
+
+    // ── Floating color picker (grouped mode) ──────────────────────────────────
+    const floatingPick = document.getElementById("floating-color-pick");
+    floatingPick.addEventListener("input", e => {
+      if (!activeSeries) return;
+      const color = e.target.value;
+      seriesColor[activeSeries] = color;
+      d3.selectAll(`.symbol[data-group="${CSS.escape(activeSeries)}"]`).style("fill", color);
+      d3.selectAll(`.legend-dot[data-group="${CSS.escape(activeSeries)}"]`).attr("fill", color);
+    });
+
+    function openColorPicker(currentColor, group, event) {
+      activeSeries = group;
+      floatingPick.value = toPickerHex(currentColor);
+      floatingPick.style.left = event.clientX + "px";
+      floatingPick.style.top  = event.clientY + "px";
+      floatingPick.getBoundingClientRect();
+      floatingPick.click();
+    }
 
     // ── Dimensions ────────────────────────────────────────────────────────────
     const legendWidth  = hasGroup ? 130 : 0;
@@ -312,6 +353,7 @@
         .data(sorted)
         .join("circle")
         .attr("class", "symbol")
+        .attr("data-group", d => d.group || "")
         .attr("cx", d => projection([d.x, d.y])?.[0] ?? -999)
         .attr("cy", d => projection([d.x, d.y])?.[1] ?? -999)
         .attr("r", d => getR(d))
@@ -321,14 +363,20 @@
         .attr("stroke-width", 0.8)
         .style("cursor", "default")
         .on("mousemove", showTip)
-        .on("mouseleave", () => { tooltip.style.opacity = 0; });
+        .on("mouseleave", () => { tooltip.style.opacity = 0; })
+        .on("click", function(event, d) {
+          if (!editMode || !hasGroup) return;
+          event.stopPropagation();
+          openColorPicker(seriesColor[d.group], d.group, event);
+        });
 
       // ── Legend ────────────────────────────────────────────────────────────
       if (hasGroup) {
         const lx = mapWidth + 12;
-        const ly = titlePad + 8;
+        const ly = 56; // clear the action buttons (top:16px + ~36px height + gap)
         groupNames.forEach((name, i) => {
           svg.append("circle")
+            .attr("class", "legend-dot").attr("data-group", name)
             .attr("cx", lx + 5).attr("cy", ly + i * 22 + 5)
             .attr("r", 5).attr("fill", seriesColor[name]);
           svg.append("text")
@@ -342,7 +390,7 @@
       // Size legend (if z column)
       if (hasZ) {
         const lx  = hasGroup ? mapWidth + 12 : mapWidth - 80;
-        const ly0 = hasGroup ? titlePad + 8 + groupNames.length * 22 + 14 : mapHeight - 80;
+        const ly0 = hasGroup ? 56 + groupNames.length * 22 + 14 : mapHeight - 80;
         const ticks = [zMin + (zMax - zMin) * 0.25, zMin + (zMax - zMin) * 0.6, zMax];
         const lg = svg.append("g").attr("transform", `translate(${lx}, ${ly0})`);
         if (hasGroup) {
@@ -456,32 +504,30 @@
 
       function applyTheme(light) {
         titleEl.attr("fill", light ? "#1e293b" : "#e2e8f0");
-        mapG.selectAll(".country").attr("fill", light ? "#d1d5db" : "#1e2d42")
-          .attr("stroke", light ? "#9ca3af" : "#0d1929");
-        mapG.selectAll(".sphere").attr("fill", light ? "#bfdbfe" : "#0d1929");
-        mapG.selectAll(".graticule").attr("stroke", light ? "#93c5fd" : "#162035");
-        mapG.selectAll(".sphere-border").attr("stroke", light ? "#93c5fd" : "#1e2d42");
+        mapG.selectAll(".country").style("fill", light ? "#d1d5db" : "#1e2d42")
+          .style("stroke", light ? "#9ca3af" : "#0d1929");
+        mapG.selectAll(".sphere").style("fill", light ? "#bfdbfe" : "#0d1929");
+        mapG.selectAll(".graticule").style("stroke", light ? "#93c5fd" : "#162035");
+        mapG.selectAll(".sphere-border").style("stroke", light ? "#93c5fd" : "#1e2d42");
         svg.selectAll(".legend-text").attr("fill", light ? "#334155" : "#94a3b8");
+        // Sync picker values to reflect theme change
+        pickLand.value  = toPickerHex(light ? "#d1d5db" : "#1e2d42");
+        pickOcean.value = toPickerHex(light ? "#bfdbfe" : "#0d1929");
       }
 
       const editPanel = document.getElementById("edit-panel");
       const btnEdit   = document.getElementById("btn-edit");
+      if (hasGroup) {
+        document.getElementById("edit-hint-group").style.display = "";
+      }
+
       btnEdit.addEventListener("click", () => {
         editMode = !editMode;
         editPanel.classList.toggle("open", editMode);
         btnEdit.classList.toggle("active", editMode);
         btnEdit.textContent = editMode ? "Save" : "Edit";
+        symbols.style("cursor", editMode && hasGroup ? "pointer" : "default");
       });
-
-      function toPickerHex(color) {
-        if (/^#[0-9a-f]{6}$/i.test(color)) return color;
-        const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
-        document.body.appendChild(tmp);
-        const rgb = getComputedStyle(tmp).color;
-        document.body.removeChild(tmp);
-        const m = rgb.match(/\d+/g);
-        return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
-      }
 
       const pickBg = document.getElementById("pick-svg-bg");
       pickBg.value = toPickerHex(svgBg);
@@ -489,6 +535,18 @@
         svgBg = e.target.value;
         chartEl.style.background = svgBg;
         applyTheme(isLightBg(svgBg));
+      });
+
+      const pickLand = document.getElementById("pick-land");
+      pickLand.value = toPickerHex("#1e2d42");
+      pickLand.addEventListener("input", e => {
+        mapG.selectAll(".country").style("fill", e.target.value);
+      });
+
+      const pickOcean = document.getElementById("pick-ocean");
+      pickOcean.value = toPickerHex("#0d1929");
+      pickOcean.addEventListener("input", e => {
+        mapG.selectAll(".sphere").style("fill", e.target.value);
       });
 
       const STEP = 150, MIN_SIZE = 400 + 64;

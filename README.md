@@ -70,6 +70,9 @@ A single `.html` file with:
   - **Hot Color** (heatmap) — changes the high end of the sequential color scale live
   - **Node Color** (network) — global node color; individual nodes can still be clicked to override
   - **Spread** (network) — − / + adjusts force charge strength and restarts the simulation
+  - **Land Color / Ocean Color** (symbol map) — change the country fill and ocean fill live
+  - **Symbol Size** (symbol map) — − / + scales all symbols up or down
+  - **Click any symbol** (symbol map, grouped) — recolors all symbols in that group
 - **Copy SVG** — copies a static vector snapshot; works on `file://` via `execCommand` fallback
 - **Download SVG** — saves an `.svg` file with all styles inlined; use Insert > Picture in PowerPoint for guaranteed vector quality
 - `--svg-bg COLOR` — bake a custom SVG export background at generation time (default: `#1a1d27`)

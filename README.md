@@ -36,6 +36,8 @@ A single `.html` file with:
   - **Title / X Label / Y Label** — text inputs to add or change labels live
   - **Click a bar or line** to change its color; in grouped charts, changing one bar/line recolors the whole series; clicking empty space restores all series to full opacity
 - **Copy SVG** — copies a static vector snapshot to clipboard; works on `file://` via `execCommand` fallback and on `http://` via the Clipboard API
+- Line chart x-values are always sorted left-to-right regardless of CSV row order, so lines are clean even when data is not pre-sorted
+- `--palette` accepts one color per group; if fewer colors are given than groups, the last colors repeat — always provide one color per group for best results
 - **Download SVG** — saves an `.svg` file with all styles inlined; use Insert > Picture in PowerPoint for guaranteed vector quality
 - `--svg-bg COLOR` — bake a custom SVG export background into the file at generation time (default: `#1a1d27`)
 

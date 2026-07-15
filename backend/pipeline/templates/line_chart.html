@@ -240,9 +240,13 @@
 
     function parseDate(str) {
       for (const p of parsers) { const d = p(str); if (d) return d; }
-      // Fallback for formats like "Jan 1 2000" not covered by explicit parsers
-      const d = new Date(str);
-      return isNaN(d.getTime()) ? null : d;
+      // Fallback for formats like "Jan 1 2000" — only try if string contains letters
+      // so bare integers/floats like "1" or "5.1" are not misread as years by new Date()
+      if (/[a-zA-Z]/.test(str)) {
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
     }
 
     // Detect grouped vs flat
@@ -257,6 +261,11 @@
     const groups = isGrouped
       ? raw.map(g => ({ group: g.group, values: g.values.map(d => ({ x: parseX(d.x), y: d.y })) }))
       : [{ group: null, values: raw.map(d => ({ x: parseX(d.x), y: d.y })) }];
+
+    // Sort by x so lines always run left-to-right regardless of CSV row order
+    if (isTemporal || isNumeric) {
+      groups.forEach(grp => grp.values.sort((a, b) => a.x - b.x));
+    }
 
     const allPoints = groups.flatMap(g => g.values);
 

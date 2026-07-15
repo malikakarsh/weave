@@ -35,12 +35,24 @@ DataLoader → LLMMapper → Transformer → Templater
 |---|---|---|
 | `line` | Trends over time or numeric x | x (date/numeric), y (numeric), optional group |
 | `area` | Volume or magnitude beneath a curve | x (date/numeric), y (numeric), optional group |
+| `stacked_area` | Cumulative composition over time | x (date), y (numeric), group (required) |
 | `bar` | Comparing unordered categories | x (string), y (numeric), optional group |
 | `pie` | Part-of-whole across ≤ 10 categories | x (label), y (value) |
 | `bubble` | Three-variable relationships | x, y, z (size), optional label or group |
 | `scatter` | Two-numeric-axis relationships | x (numeric), y (numeric), optional group |
 | `heatmap` | Intensity across two categorical axes | x (category), y (category), z (value or count) |
 | `network` | Node-link relationships | x (source), y (target), optional z (edge weight) |
+
+### Faceting (small multiples)
+
+Any `line`, `area`, or `scatter` chart with a `group_column` can be rendered as small multiples — one panel per group — instead of overlaid series:
+
+| Prompt phrasing | `facet_direction` |
+|---|---|
+| "facet by", "small multiples", "one chart per", "panel per" | `columns` (side by side, wraps at 3) |
+| "one per row", "stacked panels", "vertical facets" | `rows` (stacked, shared x-axis at bottom) |
+
+Add "free scale" or "independent axes" to give each panel its own y-axis range; otherwise all panels share the same scale for direct comparison.
 
 ## Output
 
@@ -60,6 +72,7 @@ A single `.html` file with:
 - **Download SVG** — saves an `.svg` file with all styles inlined; use Insert > Picture in PowerPoint for guaranteed vector quality
 - `--svg-bg COLOR` — bake a custom SVG export background at generation time (default: `#1a1d27`)
 - Network charts support drag-to-reposition nodes, scroll-to-zoom, and pan
+- **Facet panels** (line/area/scatter) — one mini-chart per group; columns or rows layout; shared or independent y scales
 
 ## Usage
 
@@ -198,6 +211,24 @@ python main.py samples/airport_routes.csv \
   "show a network graph of airport routes weighted by distance" --open
 ```
 
+**Facet — small multiples, columns layout:**
+```bash
+python main.py samples/sample.csv \
+  "show revenue over time as a line chart with small multiples, one panel per company" --open
+```
+
+**Facet — small multiples, rows layout:**
+```bash
+python main.py samples/iris.csv \
+  "facet the sepal length vs sepal width scatter plot in rows, one row per species" --open
+```
+
+**Facet — rows with independent y scales:**
+```bash
+python main.py samples/stocks.csv \
+  "show stock price over time for each symbol in rows with a free y scale" --open
+```
+
 ## Configuration
 
 Copy `env.example` to `.env` and fill in your key:
@@ -233,9 +264,10 @@ backend/
 │       ├── scatter_chart.html     # D3.js scatter chart
 │       ├── bubble_chart.html      # D3.js bubble chart (grouped or individually labeled)
 │       ├── heatmap_chart.html     # D3.js heatmap (sequential color scale + legend)
-│       └── network_chart.html     # D3.js force-directed network graph
+│       ├── network_chart.html     # D3.js force-directed network graph
+│       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # ~28 test cases covering all chart types and features
+│   ├── cases.py                   # ~31 test cases covering all chart types and features
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 └── samples/
     ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)

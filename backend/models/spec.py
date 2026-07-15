@@ -20,6 +20,8 @@ class AxisMapping(BaseModel):
     x_max: str | None = None             # inclusive upper bound on x (ISO date or number as string)
     z_column: str | None = None          # bubble size column (numeric); only used for bubble chart type
     label_column: str | None = None      # column whose value labels each individual point (bubble name, etc.)
+    facet_direction: str | None = None   # "rows" | "columns" — render as small multiples when set
+    facet_free_y: bool = False           # True → each panel gets its own y scale; False → shared
 
 
 class ChartConfig(BaseModel):
@@ -35,3 +37,5 @@ class ChartConfig(BaseModel):
     y_label: str = ""
     palette: list[str] | None = None  # custom colors per group; falls back to D3 categorical scale
     svg_bg: str = "#1a1d27"           # background rect injected into exported SVG
+    facet_direction: str | None = None  # "rows" | "columns" — passed through from AxisMapping
+    facet_free_y: bool = False          # True → each facet panel uses its own y scale

@@ -166,13 +166,17 @@ def run_cases(cases: list[dict], fast: bool = False) -> None:
             try:
                 mapping = mapper.map(schema, case["prompt"])
                 elapsed = time.time() - t0
+                facet_info = ""
+                if mapping.facet_direction:
+                    facet_info = f" facet={mapping.facet_direction!r} free_y={mapping.facet_free_y!r}"
                 print(f"  {DIM}mapped in {elapsed:.1f}s  →  "
                       f"chart={mapping.chart_type!r} x={mapping.x_column!r} "
                       f"y={mapping.y_column!r} z={mapping.z_column!r} "
                       f"group={mapping.group_column!r} agg={mapping.aggregation!r} "
                       f"top_n={mapping.top_n!r} sort={mapping.sort_order!r} "
                       f"time_unit={mapping.time_unit!r} "
-                      f"x_min={mapping.x_min!r} x_max={mapping.x_max!r}{RESET}")
+                      f"x_min={mapping.x_min!r} x_max={mapping.x_max!r}"
+                      f"{facet_info}{RESET}")
             except Exception as e:
                 print(f"  {FAIL}  LLM error: {e}")
                 failed += 1

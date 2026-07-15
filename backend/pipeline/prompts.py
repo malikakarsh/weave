@@ -65,6 +65,17 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'day'   — group by day (use for 'per day', 'daily')\n"
     "  - null    — no truncation; use the raw x value as-is (default for non-date columns)\n"
     "  Only set time_unit when x_column is a date/datetime column AND the user wants bucketing by period.\n"
+    "- facet_direction: split grouped data into small-multiple panels instead of overlaid series\n"
+    "  - 'columns' — panels arranged side by side, wrapping to new rows (default for faceting)\n"
+    "    Use when user says 'facet', 'small multiples', 'one chart per', 'panel per', 'side by side'\n"
+    "  - 'rows' — panels stacked vertically, one per row, with a shared x-axis at the bottom\n"
+    "    Use when user says 'one per row', 'stacked panels', 'vertical facets', 'rows of charts'\n"
+    "  - null — no faceting; use the standard overlaid multi-series rendering (default)\n"
+    "  IMPORTANT: facet_direction requires group_column to be set — you must also pick a group_column.\n"
+    "- facet_free_y: whether each facet panel uses its own independent y scale\n"
+    "  - true  — each panel fits its own data range; use when groups have very different magnitudes\n"
+    "    (e.g. 'free y scale', 'independent axes', 'each to its own scale', 'free scale')\n"
+    "  - false — all panels share the same y scale for direct comparison (default)\n"
     "- x_min / x_max: inclusive bounds to filter x values before aggregating\n"
     "  - Use ISO date strings (YYYY-MM-DD) for date columns, e.g. x_min='2024-01-01', x_max='2024-07-31'\n"
     "  - Use number strings for numeric columns, e.g. x_min='18', x_max='65'\n"
@@ -76,5 +87,6 @@ AXIS_MAPPING_SYSTEM = (
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
-    '"z_column": "<column name or null>", "label_column": "<column name or null>"}'
+    '"z_column": "<column name or null>", "label_column": "<column name or null>", '
+    '"facet_direction": "columns|rows|null", "facet_free_y": false}'
 )

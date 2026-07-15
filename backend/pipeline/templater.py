@@ -11,7 +11,10 @@ class Templater:
         self._templates_dir = templates_dir
 
     def render(self, data: list[dict], config: ChartConfig = ChartConfig()) -> str:
-        template_path = self._templates_dir / f"{config.chart_type}_chart.html"
+        if config.facet_direction and config.chart_type in ("line", "area", "scatter"):
+            template_path = self._templates_dir / "facet_chart.html"
+        else:
+            template_path = self._templates_dir / f"{config.chart_type}_chart.html"
         if not template_path.exists():
             print(f"  [warn] no template for chart_type={config.chart_type!r}, falling back to line")
             template_path = self._templates_dir / "line_chart.html"

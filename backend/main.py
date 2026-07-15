@@ -37,7 +37,11 @@ def run(csv_path: str, prompt: str, output: str, config: ChartConfig, sort_overr
         print(f"  {len(data)} data points")
 
     # LLM chart type decision overrides default; explicit --curve/--color etc. still apply
-    config = config.model_copy(update={"chart_type": mapping.chart_type})
+    config = config.model_copy(update={
+        "chart_type":      mapping.chart_type,
+        "facet_direction": mapping.facet_direction,
+        "facet_free_y":    mapping.facet_free_y,
+    })
     html = Templater().render(data, config)
     Path(output).write_text(html)
     print(f"\nChart written to {output!r}")

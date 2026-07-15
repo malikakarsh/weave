@@ -446,6 +446,42 @@ CASES = [
     },
 
     # ------------------------------------------------------------------ #
+    # Facet (small multiples)
+    # ------------------------------------------------------------------ #
+    {
+        "name": "facet: line small multiples by company",
+        "csv": "samples/sample.csv",
+        "prompt": "show revenue over time as a line chart with small multiples, one panel per company",
+        "expect_mapping": {
+            "chart_type": "line",
+            "x_column": "date",
+            "y_column": "revenue",
+            "group_column": "company",
+            "facet_direction": "columns",
+        },
+        "expect_data": {
+            "grouped": True,
+            "count": 3,
+        },
+    },
+    {
+        "name": "facet: scatter by species in rows",
+        "csv": "samples/iris.csv",
+        "prompt": "facet the sepal length vs sepal width scatter plot in rows, one row per species",
+        "expect_mapping": {
+            "chart_type": "scatter",
+            "x_column": "SepalLengthCm",
+            "y_column": "SepalWidthCm",
+            "group_column": "Species",
+            "facet_direction": "rows",
+        },
+        "expect_data": {
+            "grouped": True,
+            "count": 3,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
     # Combined: multiple features at once
     # ------------------------------------------------------------------ #
     {

@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f1117;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 32px 0;
+    }
+
+    #chart {
+      position: relative;
+      padding: 32px;
+      background: #1a1d27;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+    }
+
+    .chart-actions {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .chart-actions button {
+      background: #252836;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .chart-actions button:hover { background: #2d3148; color: #e2e8f0; }
+    .chart-actions button.success { color: #4ade80; border-color: #4ade80; }
+    .chart-actions button.active  { color: #e2e8f0; background: #2d3148; }
+
+    #edit-panel {
+      display: none;
+      position: absolute;
+      top: 52px;
+      right: 16px;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px 16px;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 10;
+      min-width: 180px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    #edit-panel.open { display: flex; }
+    .edit-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .edit-label { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+    .color-pick {
+      width: 32px; height: 22px;
+      padding: 1px 2px;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .edit-divider { border-top: 1px solid #2d3148; margin: 2px 0; }
+    .edit-btn-group { display: flex; gap: 4px; }
+    .edit-btn {
+      background: #1a1d27;
+      color: #94a3b8;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .edit-btn:hover { background: #2d3148; color: #e2e8f0; }
+    .edit-hint { color: #475569; font-size: 11px; font-style: italic; }
+    .edit-text {
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 12px;
+      width: 110px;
+      outline: none;
+    }
+    .edit-text:focus { border-color: #4f5680; }
+
+    .axis path, .axis line { stroke: #2d3148; }
+    .axis text { fill: #64748b; font-size: 11px; }
+    .grid line { stroke: #1e2235; stroke-dasharray: 4 4; }
+    .grid path { stroke: none; }
+    .panel-border { fill: none; stroke: #2d3148; stroke-width: 0.5; }
+    .hover-line { stroke: #475569; stroke-width: 1; stroke-dasharray: 4 4; opacity: 0; }
+    .hover-dot  { stroke: #1a1d27; stroke-width: 2; opacity: 0; }
+
+    .tooltip {
+      position: fixed;
+      background: #252836;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.1s;
+      min-width: 120px;
+      z-index: 100;
+    }
+    .tooltip .tip-label { color: #94a3b8; font-size: 11px; margin-bottom: 4px; }
+    .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; }
+    .tooltip .tip-x     { color: #64748b; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div id="chart">
+    <div class="chart-actions">
+      <button id="btn-edit">Edit</button>
+      <button id="btn-copy">Copy SVG</button>
+      <button id="btn-download">Download SVG</button>
+    </div>
+    <div id="edit-panel">
+      <div class="edit-row">
+        <span class="edit-label">SVG Background</span>
+        <input type="color" class="color-pick" id="pick-svg-bg">
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Chart Size</span>
+        <div class="edit-btn-group">
+          <button class="edit-btn" id="ep-smaller">−</button>
+          <button class="edit-btn" id="ep-larger">+</button>
+        </div>
+      </div>
+      <div class="edit-divider"></div>
+      <div class="edit-row">
+        <span class="edit-label">Title</span>
+        <input type="text" class="edit-text" id="edit-title" placeholder="Chart title">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">X Label</span>
+        <input type="text" class="edit-text" id="edit-xlabel" placeholder="x-axis label">
+      </div>
+      <div class="edit-row">
+        <span class="edit-label">Y Label</span>
+        <input type="text" class="edit-text" id="edit-ylabel" placeholder="y-axis label">
+      </div>
+      <div class="edit-divider"></div>
+      <span class="edit-hint">Click any series to recolor it</span>
+    </div>
+  </div>
+  <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script>
+    const raw    = __DATA__;
+    const config = __CONFIG__;
+
+    const facetDirection = config.facet_direction || "columns";
+    const facetFreeY     = config.facet_free_y    || false;
+    const baseType       = config.chart_type;   // "line" | "area" | "scatter"
+
+    let svgBg    = config.svg_bg || "#1a1d27";
+    let editMode = false;
+    let activeGroup = null;
+    const seriesColors = {};
+
+    const floatingPick = document.getElementById("floating-color-pick");
+    floatingPick.addEventListener("input", e => {
+      if (!activeGroup) return;
+      const color = e.target.value;
+      seriesColors[activeGroup] = color;
+      svg.selectAll(`.panel-line[data-group="${CSS.escape(activeGroup)}"]`).attr("stroke", color);
+      svg.selectAll(`.panel-area[data-group="${CSS.escape(activeGroup)}"]`).attr("fill", color);
+      svg.selectAll(`.panel-dot[data-group="${CSS.escape(activeGroup)}"]`).attr("fill", color);
+      svg.selectAll(`.panel-label[data-group="${CSS.escape(activeGroup)}"]`).attr("fill", color);
+      svg.selectAll(`.hover-dot[data-group="${CSS.escape(activeGroup)}"]`).attr("fill", color);
+    });
+
+    function openColorPicker(color, group, event) {
+      activeGroup = group;
+      floatingPick.value = toPickerHex(color);
+      floatingPick.style.left = event.clientX + "px";
+      floatingPick.style.top  = event.clientY + "px";
+      floatingPick.getBoundingClientRect();
+      floatingPick.click();
+    }
+
+    function toPickerHex(color) {
+      if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+      const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
+      document.body.appendChild(tmp);
+      const rgb = getComputedStyle(tmp).color;
+      document.body.removeChild(tmp);
+      const m = rgb.match(/\d+/g);
+      return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
+    }
+
+    // ── date parsing ────────────────────────────────────────────────────────
+    const parsers = [
+      d3.timeParse("%Y-%m-%d"), d3.timeParse("%Y/%m/%d"),
+      d3.timeParse("%d/%m/%Y"), d3.timeParse("%m/%d/%Y"),
+      d3.timeParse("%d-%m-%Y"), d3.timeParse("%Y-%m-%dT%H:%M:%S"),
+      d3.timeParse("%Y-%m-%d %H:%M:%S"),
+    ];
+    function parseDate(str) {
+      for (const p of parsers) { const d = p(str); if (d) return d; }
+      if (/[a-zA-Z]/.test(str)) { const d = new Date(str); if (!isNaN(d)) return d; }
+      return null;
+    }
+
+    // ── normalise data ──────────────────────────────────────────────────────
+    // Expects grouped format [{group, values:[{x,y}]}]
+    const isGrouped = raw.length > 0 && "group" in raw[0];
+
+    const firstX     = isGrouped ? raw[0].values[0]?.x : raw[0]?.x;
+    const isTemporal = firstX != null && parseDate(String(firstX)) !== null;
+    const isNumericX = !isTemporal && firstX != null && !isNaN(parseFloat(String(firstX)));
+    const parseX     = v => isTemporal ? parseDate(String(v)) : isNumericX ? parseFloat(v) : String(v);
+
+    const groups = isGrouped
+      ? raw.map(r => ({ group: String(r.group), values: r.values.map(d => ({ x: parseX(d.x), y: d.y })) }))
+      : [{ group: "Value", values: raw.map(d => ({ x: parseX(d.x), y: d.y })) }];
+
+    if (isTemporal || isNumericX) {
+      groups.forEach(g => g.values.sort((a, b) => a.x - b.x));
+    }
+
+    const N        = groups.length;
+    const allPts   = groups.flatMap(g => g.values);
+    const allYVals = allPts.map(d => d.y).filter(y => y !== null && !isNaN(y));
+
+    // ── layout ──────────────────────────────────────────────────────────────
+    const numCols = facetDirection === "rows" ? 1 : Math.min(N, 3);
+    const numRows = Math.ceil(N / numCols);
+
+    // Margins: same for both layouts — rows labels render inside panels
+    const mLeft   = 60;
+    const mRight  = 24;
+    const mTop    = 36;
+    const mBottom = 48;
+    const gap     = 16;
+
+    const totalWidth = config.width;
+
+    const panelW = Math.max(80, Math.floor(
+      (totalWidth - mLeft - mRight - gap * (numCols - 1)) / numCols
+    ));
+
+    let panelH, totalHeight;
+    if (facetDirection === "rows") {
+      panelH = Math.max(70, Math.round(
+        (config.height - mTop - mBottom - gap * (N - 1)) / N
+      ));
+      totalHeight = mTop + N * panelH + (N - 1) * gap + mBottom;
+    } else {
+      panelH = Math.max(60, Math.floor(
+        (config.height - mTop - mBottom - gap * (numRows - 1)) / numRows
+      ));
+      totalHeight = mTop + numRows * panelH + (numRows - 1) * gap + mBottom;
+    }
+
+    // ── color scale ─────────────────────────────────────────────────────────
+    const palette    = config.palette || d3.schemeTableau10;
+    const colorScale = d3.scaleOrdinal(palette).domain(groups.map(g => g.group));
+    groups.forEach(g => { seriesColors[g.group] = colorScale(g.group); });
+
+    // ── shared x scale ───────────────────────────────────────────────────────
+    const allXVals = allPts.map(d => d.x);
+    const xScale = isTemporal
+      ? d3.scaleTime().domain(d3.extent(allXVals)).range([0, panelW])
+      : isNumericX
+        ? d3.scaleLinear().domain([d3.min(allXVals), d3.max(allXVals) * 1.2]).range([0, panelW])
+        : d3.scalePoint().domain([...new Set(allXVals)]).range([0, panelW]).padding(0.5);
+
+    // Shared x-axis tick definition — cap ticks by panel width so narrow panels don't crowd
+    const maxXTicks = Math.max(3, Math.floor(panelW / 60));
+    let xAxisDef;
+    if (isTemporal) {
+      const [t0, t1] = xScale.domain();
+      const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
+      const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
+      xAxisDef = d3.axisBottom(xScale).ticks(maxXTicks).tickFormat(fmt).tickSize(4);
+    } else if (isNumericX) {
+      xAxisDef = d3.axisBottom(xScale).ticks(maxXTicks).tickSize(4);
+    } else {
+      const allCats = [...new Set(allXVals)];
+      const step    = allCats.length > maxXTicks ? Math.ceil(allCats.length / maxXTicks) : 1;
+      const shown   = new Set(allCats.filter((_, i) => i % step === 0));
+      xAxisDef = d3.axisBottom(xScale).tickValues(allCats.filter(x => shown.has(x))).tickSize(4);
+    }
+
+    // ── shared y scale (used unless facetFreeY) ───────────────────────────────
+    const globalYMax   = (d3.max(allYVals) || 1) * 1.2;
+    const globalYScale = d3.scaleLinear().domain([0, globalYMax]).range([panelH, 0]);
+
+    function makeYScale(vals) {
+      if (!facetFreeY) return globalYScale;
+      const localMax = (d3.max(vals.filter(y => y !== null && !isNaN(y))) || 1) * 1.2;
+      return d3.scaleLinear().domain([0, localMax]).range([panelH, 0]);
+    }
+
+    // ── curve map ────────────────────────────────────────────────────────────
+    const CURVES = {
+      monotoneX: d3.curveMonotoneX, linear: d3.curveLinear,
+      step: d3.curveStep, natural: d3.curveNatural, cardinal: d3.curveCardinal,
+    };
+    const curve = CURVES[config.curve] ?? d3.curveMonotoneX;
+
+    // ── SVG ──────────────────────────────────────────────────────────────────
+    const chartEl = document.getElementById("chart");
+    chartEl.style.width = (totalWidth + 64) + "px";
+
+    const svg = d3.select("#chart")
+      .append("svg")
+      .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
+      .attr("width", "100%");
+
+    // ── title / labels ───────────────────────────────────────────────────────
+    const titleEl = svg.append("text")
+      .attr("x", totalWidth / 2).attr("y", 18)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
+      .text(config.title || "");
+
+    const xLabelEl = svg.append("text")
+      .attr("x", mLeft + (panelW * numCols + gap * (numCols - 1)) / 2)
+      .attr("y", totalHeight - 4)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.x_label || "");
+
+    const yLabelEl = svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -(mTop + (panelH * numRows + gap * (numRows - 1)) / 2))
+      .attr("y", facetDirection === "rows" ? 14 : 14)
+      .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
+      .text(config.y_label || "");
+
+    const tooltip  = document.getElementById("tooltip");
+    const formatY  = d3.format(",.2f");
+    const formatXD = isTemporal ? d3.timeFormat("%b %d, %Y") : d => String(d);
+    const bisect   = d3.bisector(d => d.x).center;
+
+    // ── draw panels ──────────────────────────────────────────────────────────
+    const allAxisGs = [];  // for theme updates
+
+    groups.forEach((grp, i) => {
+      const col = facetDirection === "rows" ? 0 : (i % numCols);
+      const row = facetDirection === "rows" ? i : Math.floor(i / numCols);
+
+      const tx = mLeft + col * (panelW + gap);
+      const ty = mTop  + row * (panelH + gap);
+
+      const yScale = makeYScale(grp.values.map(d => d.y));
+      const color  = colorScale(grp.group);
+
+      const panel = svg.append("g").attr("transform", `translate(${tx},${ty})`);
+
+      // Panel border
+      panel.append("rect")
+        .attr("class", "panel-border")
+        .attr("width", panelW).attr("height", panelH);
+
+      // Horizontal grid
+      const gridG = panel.append("g").attr("class", "grid")
+        .call(d3.axisLeft(yScale).tickSize(-panelW).tickFormat("").ticks(4));
+      gridG.selectAll("line").attr("stroke", "#1e2235");
+      gridG.select(".domain").remove();
+
+      // Y-axis: for columns layout only on first col; for rows always
+      const showYAxis = facetDirection === "rows" || col === 0;
+      if (showYAxis) {
+        const yAxisG = panel.append("g").attr("class", "axis")
+          .call(d3.axisLeft(yScale).ticks(4).tickFormat(d => d3.format(config.y_format)(d)).tickSize(4));
+        yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "10px");
+        yAxisG.selectAll("path,line").attr("stroke", "#2d3148");
+        allAxisGs.push(yAxisG);
+      }
+
+      // X-axis: last row (columns) or last panel (rows)
+      const isLastRow   = row === numRows - 1;
+      const isLastPanel = i === N - 1;
+      const showXAxis   = facetDirection === "rows" ? isLastPanel : isLastRow;
+
+      if (showXAxis) {
+        const xAxisG = panel.append("g").attr("class", "axis")
+          .attr("transform", `translate(0,${panelH})`)
+          .call(xAxisDef);
+        xAxisG.selectAll("text")
+          .attr("fill", "#64748b").attr("font-size", "10px").attr("dy", "1.2em");
+        xAxisG.selectAll("path,line").attr("stroke", "#2d3148");
+        allAxisGs.push(xAxisG);
+      }
+
+      // Panel label
+      if (facetDirection === "columns") {
+        // Columns: centered label above the panel
+        panel.append("text")
+          .attr("class", "panel-label").attr("data-group", grp.group)
+          .attr("x", panelW / 2).attr("y", -6)
+          .attr("text-anchor", "middle")
+          .attr("fill", color).attr("font-size", "12px").attr("font-weight", "600")
+          .text(grp.group);
+      } else {
+        // Rows: label inside the panel, top-left corner — keeps it away from y-axis tick values
+        panel.append("text")
+          .attr("class", "panel-label").attr("data-group", grp.group)
+          .attr("x", 6).attr("y", 14)
+          .attr("text-anchor", "start")
+          .attr("fill", color).attr("font-size", "11px").attr("font-weight", "600")
+          .text(grp.group);
+      }
+
+      // ── data rendering ────────────────────────────────────────────────────
+      if (baseType === "scatter") {
+        panel.selectAll(".panel-dot")
+          .data(grp.values.filter(d => d.y !== null && !isNaN(d.y)))
+          .join("circle")
+          .attr("class", "panel-dot").attr("data-group", grp.group)
+          .attr("cx", d => xScale(d.x))
+          .attr("cy", d => yScale(d.y))
+          .attr("r", 4)
+          .attr("fill", color)
+          .attr("fill-opacity", 0.72)
+          .attr("stroke", "#1a1d27").attr("stroke-width", 0.5)
+          .style("cursor", "default")
+          .on("mouseover", function(event, d) {
+            tooltip.innerHTML = `
+              <div class="tip-label">${grp.group}</div>
+              <div class="tip-x">${formatXD(d.x)}</div>
+              <div class="tip-val">${formatY(d.y)}</div>`;
+            tooltip.style.left    = (event.clientX + 14) + "px";
+            tooltip.style.top     = (event.clientY - 28) + "px";
+            tooltip.style.opacity = 1;
+          })
+          .on("mousemove", function(event) {
+            tooltip.style.left = (event.clientX + 14) + "px";
+            tooltip.style.top  = (event.clientY - 28) + "px";
+          })
+          .on("mouseleave", function() {
+            tooltip.style.opacity = 0;
+          })
+          .on("click", function(event) {
+            if (!editMode) return;
+            event.stopPropagation();
+            openColorPicker(seriesColors[grp.group], grp.group, event);
+          });
+
+      } else {
+        // line or area
+        const lineGen = d3.line()
+          .defined(d => d.y !== null)
+          .x(d => xScale(d.x))
+          .y(d => yScale(d.y))
+          .curve(curve);
+
+        if (baseType === "area") {
+          const areaGen = d3.area()
+            .defined(d => d.y !== null)
+            .x(d => xScale(d.x))
+            .y0(panelH).y1(d => yScale(d.y))
+            .curve(curve);
+
+          panel.append("path").datum(grp.values)
+            .attr("class", "panel-area").attr("data-group", grp.group)
+            .attr("fill", color)
+            .attr("fill-opacity", 0.18)
+            .attr("d", areaGen);
+        }
+
+        panel.append("path").datum(grp.values)
+          .attr("class", "panel-line").attr("data-group", grp.group)
+          .attr("fill", "none")
+          .attr("stroke", color)
+          .attr("stroke-width", 2)
+          .attr("d", lineGen);
+
+        // Wide transparent hit target for click-to-recolor in edit mode
+        panel.append("path").datum(grp.values)
+          .attr("fill", "none")
+          .attr("stroke", "transparent")
+          .attr("stroke-width", 16)
+          .attr("d", lineGen)
+          .style("cursor", "default")
+          .on("click", function(event) {
+            if (!editMode) return;
+            event.stopPropagation();
+            openColorPicker(seriesColors[grp.group], grp.group, event);
+          });
+
+        // Hover: vertical line + dot per panel
+        const hoverLine = panel.append("line")
+          .attr("class", "hover-line").attr("y1", 0).attr("y2", panelH);
+
+        const hoverDot = panel.append("circle")
+          .attr("class", "hover-dot").attr("data-group", grp.group)
+          .attr("r", 5)
+          .attr("fill", color);
+
+        panel.append("rect")
+          .attr("width", panelW).attr("height", panelH)
+          .attr("fill", "none").attr("pointer-events", "all")
+          .on("mousemove", function(event) {
+            const [mx] = d3.pointer(event);
+            const pts  = grp.values;
+            if (!pts.length) return;
+
+            let pt;
+            if (isTemporal || isNumericX) {
+              const xVal = xScale.invert(mx);
+              const idx  = Math.max(0, Math.min(bisect(pts, xVal), pts.length - 1));
+              pt = pts[idx];
+            } else {
+              const idx = Math.round((mx / panelW) * (pts.length - 1));
+              pt = pts[Math.max(0, Math.min(idx, pts.length - 1))];
+            }
+            if (!pt || pt.y === null) return;
+
+            const cx = xScale(pt.x);
+            const cy = yScale(pt.y);
+            hoverLine.attr("x1", cx).attr("x2", cx).attr("opacity", 1);
+            hoverDot.attr("cx", cx).attr("cy", cy).attr("opacity", 1);
+
+            tooltip.innerHTML = `
+              <div class="tip-label">${grp.group}</div>
+              <div class="tip-x">${formatXD(pt.x)}</div>
+              <div class="tip-val">${formatY(pt.y)}</div>`;
+
+            // Position tooltip in viewport coords (svg may scroll)
+            const chartRect = chartEl.getBoundingClientRect();
+            tooltip.style.left    = (chartRect.left + tx + cx + 14) + "px";
+            tooltip.style.top     = (chartRect.top  + ty + cy - 28) + "px";
+            tooltip.style.opacity = 1;
+          })
+          .on("mouseleave", function() {
+            hoverLine.attr("opacity", 0);
+            hoverDot.attr("opacity", 0);
+            tooltip.style.opacity = 0;
+          });
+      }
+    });
+
+    // ── SVG export ───────────────────────────────────────────────────────────
+    const SVG_PROPS = [
+      "fill","stroke","stroke-width","stroke-dasharray","stroke-linecap",
+      "stroke-opacity","fill-opacity","opacity","font-size","font-family",
+      "font-weight","text-anchor","dominant-baseline",
+    ];
+
+    function toHex(color) {
+      if (!color || color === "none" || color.startsWith("#") || color.startsWith("url(")) return color;
+      const m = color.match(/\d+/g);
+      if (!m || m.length < 3) return color;
+      return "#" + m.slice(0,3).map(v => parseInt(v).toString(16).padStart(2,"0")).join("");
+    }
+
+    function buildExportSVG() {
+      const svgEl = document.querySelector("svg");
+      const clone = svgEl.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width",  totalWidth);
+      clone.setAttribute("height", totalHeight);
+
+      const srcEls = [...svgEl.querySelectorAll("*")];
+      const dstEls = [...clone.querySelectorAll("*")];
+      srcEls.forEach((el, i) => {
+        const dst     = dstEls[i];
+        const computed = window.getComputedStyle(el);
+        SVG_PROPS.forEach(prop => {
+          const raw = el.getAttribute(prop) || computed.getPropertyValue(prop);
+          const val = toHex(raw);
+          if (val) dst.setAttribute(prop, val);
+        });
+      });
+
+      const bg = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      bg.setAttribute("width","100%"); bg.setAttribute("height","100%");
+      bg.setAttribute("fill", svgBg);
+      clone.insertBefore(bg, clone.firstChild);
+      clone.querySelectorAll(".hover-line,.hover-dot").forEach(el => el.remove());
+      return new XMLSerializer().serializeToString(clone);
+    }
+
+    async function copySVG() {
+      const svgStr = buildExportSVG();
+      const btn    = document.getElementById("btn-copy");
+      let ok = false;
+      if (location.protocol !== "file:") {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({"image/svg+xml": new Blob([svgStr],{type:"image/svg+xml"})})]);
+          ok = true;
+        } catch {}
+        if (!ok) { try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {} }
+      }
+      if (!ok) {
+        try {
+          const ta = Object.assign(document.createElement("textarea"),{value:svgStr});
+          ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+          document.body.appendChild(ta); ta.focus(); ta.select();
+          ok = document.execCommand("copy"); document.body.removeChild(ta);
+        } catch {}
+      }
+      btn.textContent = ok ? "Copied!" : "Failed";
+      if (ok) btn.classList.add("success");
+      setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
+    }
+
+    function downloadSVG() {
+      const blob = new Blob([buildExportSVG()], {type:"image/svg+xml"});
+      const a    = Object.assign(document.createElement("a"), {href:URL.createObjectURL(blob), download:"chart.svg"});
+      a.click(); URL.revokeObjectURL(a.href);
+    }
+
+    document.getElementById("btn-copy").addEventListener("click", copySVG);
+    document.getElementById("btn-download").addEventListener("click", downloadSVG);
+
+    // ── edit panel ───────────────────────────────────────────────────────────
+    const editPanel = document.getElementById("edit-panel");
+    const btnEdit   = document.getElementById("btn-edit");
+    btnEdit.addEventListener("click", () => {
+      editMode = !editMode;
+      editPanel.classList.toggle("open", editMode);
+      btnEdit.classList.toggle("active", editMode);
+      btnEdit.textContent = editMode ? "Save" : "Edit";
+    });
+
+    function isLightBg(hex) {
+      const r = parseInt(hex.slice(1,3),16);
+      const g = parseInt(hex.slice(3,5),16);
+      const b = parseInt(hex.slice(5,7),16);
+      return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.5;
+    }
+
+    function applyTheme(light) {
+      const titleColor  = light ? "#1e293b" : "#e2e8f0";
+      const labelColor  = light ? "#475569" : "#64748b";
+      const axisColor   = light ? "#cbd5e1" : "#2d3148";
+      const gridColor   = light ? "#d1d5db" : "#1e2235";
+      titleEl.attr("fill", titleColor);
+      xLabelEl.attr("fill", labelColor);
+      yLabelEl.attr("fill", labelColor);
+      allAxisGs.forEach(ag => {
+        ag.selectAll("text").attr("fill", labelColor);
+        ag.selectAll("path,line").attr("stroke", axisColor);
+      });
+      svg.selectAll(".grid line").attr("stroke", gridColor);
+      svg.selectAll(".panel-border").attr("stroke", axisColor);
+    }
+
+    const pickBg = document.getElementById("pick-svg-bg");
+    pickBg.value = toPickerHex(svgBg);
+    pickBg.addEventListener("input", e => {
+      svgBg = e.target.value;
+      chartEl.style.background = svgBg;
+      applyTheme(isLightBg(svgBg));
+    });
+
+    const STEP = 150, MIN_SIZE = 400 + 64;
+    function resize(delta) {
+      chartEl.style.width = Math.max(MIN_SIZE, chartEl.offsetWidth + delta) + "px";
+    }
+    document.getElementById("ep-smaller").addEventListener("click", () => resize(-STEP));
+    document.getElementById("ep-larger").addEventListener("click",  () => resize(+STEP));
+
+    const editTitleEl  = document.getElementById("edit-title");
+    const editXLabelEl = document.getElementById("edit-xlabel");
+    const editYLabelEl = document.getElementById("edit-ylabel");
+    editTitleEl.value  = config.title   || "";
+    editXLabelEl.value = config.x_label || "";
+    editYLabelEl.value = config.y_label || "";
+    editTitleEl.addEventListener("input",  e => titleEl.text(e.target.value));
+    editXLabelEl.addEventListener("input", e => xLabelEl.text(e.target.value));
+    editYLabelEl.addEventListener("input", e => yLabelEl.text(e.target.value));
+  </script>
+</body>
+</html>

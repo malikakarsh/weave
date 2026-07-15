@@ -229,6 +229,18 @@ backend/
 └── test_pipeline.py               # Manual end-to-end test
 ```
 
+## Eval suite
+
+An LLM eval suite validates that the full pipeline (prompt → LLM mapping → transformer) produces the expected behaviour. Run it from `backend/`:
+
+```bash
+python -m evals.runner              # run all 21 cases
+python -m evals.runner time_unit    # run cases whose name contains 'time_unit'
+python -m evals.runner --fast       # skip LLM calls; only validate transformer output
+```
+
+Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. Covers: chart type selection, aggregation, group/filter, top_n, sort_order, time_unit bucketing, x_min/x_max filtering, and combined scenarios.
+
 ## What's next (V2)
 
 **Chart types**

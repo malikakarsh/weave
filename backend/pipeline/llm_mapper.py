@@ -43,6 +43,11 @@ class LLMMapper:
         except json.JSONDecodeError as e:
             raise ValueError(f"LLM returned invalid JSON: {raw!r}") from e
 
+        # LLMs sometimes return "null" as a string instead of JSON null
+        for key in ("group_column", "group_filter", "top_n", "time_unit"):
+            if data.get(key) == "null":
+                data[key] = None
+
         mapping = AxisMapping(**data)
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping

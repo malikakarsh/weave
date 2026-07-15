@@ -185,9 +185,10 @@
     const floatingPick = document.getElementById("floating-color-pick");
     floatingPick.addEventListener("input", e => {
       const color = e.target.value;
-      if (activeSeries === null) {
-        g.selectAll(".bar").attr("fill", color);
-      } else {
+      if (activeSeries && activeSeries.startsWith("__x__")) {
+        // flat bar — recolor only the clicked bar by its x value
+        g.selectAll(`rect[data-x="${CSS.escape(activeSeries.slice(5))}"]`).attr("fill", color);
+      } else if (activeSeries) {
         g.selectAll(`rect[data-group="${CSS.escape(activeSeries)}"]`).attr("fill", color);
         svg.selectAll(`.legend-swatch[data-group="${CSS.escape(activeSeries)}"]`).attr("fill", color);
       }
@@ -381,6 +382,7 @@
         .data(raw)
         .join("rect")
         .attr("class", "bar")
+        .attr("data-x", d => d.x)
         .attr("x",      d => xOuter(d.x))
         .attr("y",      d => d.y !== null ? yScale(d.y) : height)
         .attr("width",  xOuter.bandwidth())
@@ -389,10 +391,10 @@
         .attr("rx", 2)
         .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: config.color }]))
         .on("mouseleave", hideTooltip)
-        .on("click", function(event) {
+        .on("click", function(event, d) {
           if (!editMode) return;
           event.stopPropagation();
-          openColorPicker(d3.select(this).attr("fill"), null, event);
+          openColorPicker(d3.select(this).attr("fill"), "__x__" + d.x, event);
         });
     }
 

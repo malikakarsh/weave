@@ -16,9 +16,9 @@ DataLoader → LLMMapper → Transformer → Templater
 
 1. **DataLoader** — reads the CSV, auto-detects delimiter, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column.
 
-2. **LLMMapper** — sends the schema and your prompt to Claude Haiku, which decides the chart type (line, bar, scatter), picks the x/y/group columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, and optionally limits to the top N groups by aggregated value.
+2. **LLMMapper** — sends the schema and your prompt to Claude Haiku, which decides the chart type (line, bar, scatter), picks the x/y/group columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, and sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns.
 
-3. **Transformer** — aggregates rows by (group, x) using the chosen function, strips them down to `{x, y}` pairs (single series) or `{group, values}` objects (multi-series), and filters to the top N groups when requested. Missing values are kept as `null` so gaps are visible rather than silently dropped.
+3. **Transformer** — optionally truncates date x-values to a period (year → `2024-01-01`, month → `2024-03-01`, day → `2024-03-15`) before bucketing, then aggregates rows by (group, x) using the chosen function, strips them down to `{x, y}` pairs (single series) or `{group, values}` objects (multi-series), and filters to the top N groups when requested. Missing values are kept as `null` so gaps are visible rather than silently dropped.
 
 4. **Templater** — injects the data and a `ChartConfig` into the matching D3.js template. Falls back to the line chart if the decided chart type doesn't have a template yet.
 
@@ -65,6 +65,30 @@ python main.py <csv> "<prompt>" [options]
 | `--curve` | `monotoneX` | Line curve: `monotoneX`, `linear`, `step`, `natural`, `cardinal` |
 | `--no-area` | off | Hide the gradient area fill |
 | `--svg-bg` | `#1a1d27` | SVG export background color |
+| `--sort` | LLM decides | Override bar sort order: `asc`, `desc`, or `none` |
+
+### Sorting
+
+Bar charts are sorted ascending by default. Override with `--sort`:
+
+```bash
+python main.py sales.csv "top 10 products by revenue" --sort desc --open
+python main.py data.csv "revenue by region" --sort none --open  # preserve CSV order
+```
+
+The LLM also infers sort direction from the prompt — "top", "highest", "most" → descending; "bottom", "lowest" → ascending.
+
+### Date bucketing
+
+When the prompt mentions a time period, the LLM automatically buckets date x-values before aggregating:
+
+```bash
+python main.py data.csv "how has revenue changed per year?" --open     # groups by year
+python main.py data.csv "show monthly active users per product" --open  # groups by month
+python main.py data.csv "daily signups over Q1" --open                  # groups by day
+```
+
+This works regardless of how granular the source dates are — daily timestamps get rolled up to months or years as needed.
 
 ### Aggregation + filtering
 
@@ -128,6 +152,13 @@ python main.py samples/sample.csv "show total revenue per company" \
 Grouped bar chart — side-by-side bars per group:
 ```bash
 python main.py samples/sample.csv "compare monthly revenue for each company as grouped bars" \
+  --title "Monthly Revenue by Company" \
+  --open
+```
+
+Date bucketing — monthly trends per group:
+```bash
+python main.py samples/sample.csv "what is the average monthly revenue for each company?" \
   --title "Monthly Revenue by Company" \
   --open
 ```

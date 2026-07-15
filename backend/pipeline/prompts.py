@@ -21,9 +21,21 @@ AXIS_MAPPING_SYSTEM = (
     "  Default to 'sum' for bar charts and 'mean' for line/scatter when ambiguous.\n"
     "- top_n: keep only the top N groups ranked by their total aggregated y, or null for all\n"
     "  Set this when the user says 'top N', 'best N', 'largest N', 'highest N', etc.\n"
-    "  top_n ranks by the same aggregation function chosen above.\n\n"
+    "  top_n ranks by the same aggregation function chosen above.\n"
+    "- sort_order: how to order x categories for bar charts\n"
+    "  - 'asc'  — smallest y first (default for bar charts)\n"
+    "  - 'desc' — largest y first (use when user says 'top', 'highest', 'most', 'ranked')\n"
+    "  - 'none' — keep original CSV order (use for line/scatter, or when category order is meaningful)\n"
+    "  Always use 'none' for line and scatter charts.\n"
+    "- time_unit: truncate date x values into buckets before aggregating\n"
+    "  - 'year'  — group by year (use for 'per year', 'annually', 'year over year', 'by year')\n"
+    "  - 'month' — group by month (use for 'per month', 'monthly', 'month over month')\n"
+    "  - 'day'   — group by day (use for 'per day', 'daily')\n"
+    "  - null    — no truncation; use the raw x value as-is (default for non-date columns)\n"
+    "  Only set time_unit when x_column is a date/datetime column AND the user wants bucketing by period.\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
     '{"chart_type": "line|bar|scatter", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
-    '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>}'
+    '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
+    '"time_unit": "year|month|day or null"}'
 )

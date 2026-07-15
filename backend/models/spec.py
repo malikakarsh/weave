@@ -14,6 +14,8 @@ class AxisMapping(BaseModel):
     group_filter: list[str] | None = None  # specific group values to include; None means all
     aggregation: str = "sum"              # sum | mean | count | min | max
     top_n: int | None = None              # keep only top N groups by aggregated y; None means all
+    sort_order: str = "asc"              # asc | desc | none — sort categories by y value (bar charts)
+    time_unit: str | None = None         # year | month | day — truncate date x values before bucketing
 
 
 class ChartConfig(BaseModel):

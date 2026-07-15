@@ -14,7 +14,7 @@ from pipeline.transformer import Transformer
 from pipeline.templater import Templater
 
 
-def run(csv_path: str, prompt: str, output: str, config: ChartConfig) -> None:
+def run(csv_path: str, prompt: str, output: str, config: ChartConfig, sort_override: str | None = None) -> None:
     print(f"Loading {csv_path!r}...")
     schema, rows = DataLoader().load(csv_path)
     for col in schema.columns:
@@ -22,7 +22,10 @@ def run(csv_path: str, prompt: str, output: str, config: ChartConfig) -> None:
 
     print(f"\nMapping axes for: {prompt!r}")
     mapping = LLMMapper().map(schema, prompt)
-    print(f"  chart={mapping.chart_type!r}  x={mapping.x_column!r}  y={mapping.y_column!r}")
+    if sort_override:
+        mapping = mapping.model_copy(update={"sort_order": sort_override})
+    print(f"  chart={mapping.chart_type!r}  x={mapping.x_column!r}  y={mapping.y_column!r}  "
+          f"sort={mapping.sort_order!r}  time_unit={mapping.time_unit!r}")
 
     data = Transformer().transform(rows, mapping)
     print(f"  {len(data)} data points")
@@ -66,6 +69,8 @@ def main() -> None:
                         help="Hide the gradient area fill")
     parser.add_argument("--svg-bg",   default="#1a1d27", metavar="COLOR",
                         help="SVG export background color (default: #1a1d27)")
+    parser.add_argument("--sort",     default=None, choices=["asc", "desc", "none"],
+                        help="Sort bar categories by y value: asc, desc, or none (default: LLM decides, usually asc)")
 
     args = parser.parse_args()
 
@@ -83,7 +88,7 @@ def main() -> None:
         svg_bg=args.svg_bg,
     )
 
-    run(args.csv, args.prompt, args.output, config)
+    run(args.csv, args.prompt, args.output, config, sort_override=args.sort)
 
     if args.open:
         subprocess.run(["open", args.output])

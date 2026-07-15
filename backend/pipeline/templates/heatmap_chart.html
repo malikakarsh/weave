@@ -179,7 +179,7 @@
     const zRange = zMax - zMin || 1;
 
     function colorInterp(t) {
-      return d3.interpolateRgb(COLD, hotColor)(t);
+      return d3.interpolateHcl(COLD, hotColor)(t);
     }
     function cellColor(z) {
       if (z === null || z === undefined) return "#1e2235";

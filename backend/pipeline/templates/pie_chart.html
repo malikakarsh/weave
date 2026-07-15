@@ -159,7 +159,7 @@
     const total = d3.sum(raw, d => d.y);
 
     // Color per slice
-    const palette    = config.palette || d3.schemeTableau10;
+    const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const colorScale = d3.scaleOrdinal(palette).domain(raw.map(d => d.x));
     const sliceColor = {};
     raw.forEach(d => { sliceColor[d.x] = colorScale(d.x); });

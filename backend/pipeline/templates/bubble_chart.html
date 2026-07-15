@@ -181,7 +181,7 @@
 
     // Color: continuous sequential scale when z drives color (labeled mode),
     //        categorical scale when grouping by series.
-    const palette    = config.palette || d3.schemeTableau10;
+    const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const colorByZ   = isLabeled && hasZ;
     const groups     = isGrouped ? raw.map(g => g.group) : [...new Set(allPoints.map(d => d.label))];
     const catColor   = d3.scaleOrdinal(palette).domain(groups);

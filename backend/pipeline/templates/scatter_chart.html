@@ -213,6 +213,24 @@
       return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
     }
 
+    // ── x-type detection (scatter x can be date when time_unit is set) ──────
+    const _parsers = [
+      d3.timeParse("%Y-%m-%d"), d3.timeParse("%Y/%m/%d"),
+      d3.timeParse("%d/%m/%Y"), d3.timeParse("%m/%d/%Y"),
+      d3.timeParse("%d-%m-%Y"), d3.timeParse("%Y-%m-%dT%H:%M:%S"),
+      d3.timeParse("%Y-%m-%d %H:%M:%S"),
+    ];
+    function _parseDate(str) {
+      for (const p of _parsers) { const d = p(str); if (d) return d; }
+      if (/[a-zA-Z]/.test(str)) { const d = new Date(str); if (!isNaN(d)) return d; }
+      return null;
+    }
+    const _firstX = raw.length > 0
+      ? (("group" in raw[0]) ? raw[0].values[0]?.x : raw[0]?.x)
+      : null;
+    const isTemporal = _firstX != null && _parseDate(String(_firstX)) !== null;
+    const parseX     = v => isTemporal ? _parseDate(String(v)) : +v;
+
     // Detect grouped vs flat
     const isGrouped = raw.length > 0 && "group" in raw[0];
 
@@ -221,9 +239,9 @@
           group: g.group,
           values: g.values
             .filter(d => d.x !== null && d.y !== null)
-            .map(d => ({ x: +d.x, y: +d.y }))
+            .map(d => ({ x: parseX(d.x), y: +d.y }))
         }))
-      : [{ group: null, values: raw.filter(d => d.x !== null && d.y !== null).map(d => ({ x: +d.x, y: +d.y })) }];
+      : [{ group: null, values: raw.filter(d => d.x !== null && d.y !== null).map(d => ({ x: parseX(d.x), y: +d.y })) }];
 
     const allPoints = groups.flatMap(grp => grp.values.map(d => ({ ...d, group: grp.group })));
 
@@ -247,7 +265,7 @@
       .attr("width", "100%");
 
     // Color scale
-    const palette    = config.palette || d3.schemeTableau10;
+    const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const colorScale = isGrouped
       ? d3.scaleOrdinal(palette).domain(groups.map(g => g.group))
       : () => config.color;
@@ -258,13 +276,18 @@
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Scales — both axes numeric
-    const xPad = (d3.max(allPoints, d => d.x) - d3.min(allPoints, d => d.x)) * 0.04 || 1;
+    // Scales
     const yPad = (d3.max(allPoints, d => d.y) - d3.min(allPoints, d => d.y)) * 0.04 || 1;
 
-    const xScale = d3.scaleLinear()
-      .domain([d3.min(allPoints, d => d.x) - xPad, d3.max(allPoints, d => d.x) * 1.2])
-      .range([0, width]);
+    let xScale;
+    if (isTemporal) {
+      xScale = d3.scaleTime().domain(d3.extent(allPoints, d => d.x)).range([0, width]);
+    } else {
+      const xPad = (d3.max(allPoints, d => d.x) - d3.min(allPoints, d => d.x)) * 0.04 || 1;
+      xScale = d3.scaleLinear()
+        .domain([d3.min(allPoints, d => d.x) - xPad, d3.max(allPoints, d => d.x) * 1.2])
+        .range([0, width]);
+    }
 
     const yScale = d3.scaleLinear()
       .domain([d3.min(allPoints, d => d.y) - yPad, d3.max(allPoints, d => d.y) * 1.2])
@@ -279,9 +302,18 @@
       .call(d3.axisBottom(xScale).tickSize(height).tickFormat(""))
       .selectAll("line").attr("stroke", "#1e2235");
 
+    let xAxisCall;
+    if (isTemporal) {
+      const [t0, t1] = xScale.domain();
+      const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
+      const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
+      xAxisCall = d3.axisBottom(xScale).ticks(6).tickFormat(fmt);
+    } else {
+      xAxisCall = d3.axisBottom(xScale).ticks(6).tickFormat(d => d3.format(",.2~f")(d));
+    }
     const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(xScale).ticks(6).tickFormat(d => d3.format(",.2~f")(d)));
+      .call(xAxisCall);
     xAxisG.selectAll("text").attr("dy", "1.2em").attr("fill", "#64748b").attr("font-size", "12px");
     xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 

@@ -279,7 +279,7 @@
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
     // ── Scales ────────────────────────────────────────────────────────────────
-    const palette    = config.palette || d3.schemeTableau10;
+    const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const colorScale = d3.scaleOrdinal(palette).domain(groupNames);
     groupNames.forEach(n => { seriesColor[n] = colorScale(n); });
 

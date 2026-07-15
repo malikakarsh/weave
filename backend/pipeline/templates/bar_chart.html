@@ -233,7 +233,7 @@
     // For grouped bars, collect all categories and groups
     let categories, groups, colorScale;
 
-    const palette    = config.palette || d3.schemeTableau10;
+    const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     colorScale = isGrouped
       ? d3.scaleOrdinal(palette).domain(raw.map(g => g.group))
       : () => config.color;

@@ -9,6 +9,8 @@ class DataLoader:
     DATE_FORMATS = [
         # date only
         "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%d-%m-%Y",
+        # Month Day Year (e.g. "Jan 1 2000", "Aug 19 2004")
+        "%b %d %Y",
         # datetime
         "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S",
         # time only

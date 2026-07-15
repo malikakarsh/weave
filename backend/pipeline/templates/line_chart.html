@@ -228,15 +228,21 @@
 
     const parsers = [
       d3.timeParse("%Y-%m-%d"),
+      d3.timeParse("%Y/%m/%d"),
       d3.timeParse("%d/%m/%Y"),
       d3.timeParse("%m/%d/%Y"),
+      d3.timeParse("%d-%m-%Y"),
       d3.timeParse("%Y-%m-%dT%H:%M:%S"),
       d3.timeParse("%Y-%m-%d %H:%M:%S"),
+      d3.timeParse("%d/%m/%Y %H:%M:%S"),
+      d3.timeParse("%m/%d/%Y %H:%M:%S"),
     ];
 
     function parseDate(str) {
       for (const p of parsers) { const d = p(str); if (d) return d; }
-      return null;
+      // Fallback for formats like "Jan 1 2000" not covered by explicit parsers
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
     }
 
     // Detect grouped vs flat
@@ -308,13 +314,36 @@
       .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
       .selectAll("line").attr("stroke", "#1e2235");
 
+    // For temporal axes, pick a tick interval based on the actual date span
+    // so we always get ~6 readable ticks regardless of range
+    let xAxis;
+    if (isTemporal) {
+      const [t0, t1] = xScale.domain();
+      const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
+      const interval = years > 20 ? d3.timeYear.every(5)
+        : years > 10 ? d3.timeYear.every(2)
+        : years > 4  ? d3.timeYear.every(1)
+        : years > 1  ? d3.timeMonth.every(3)
+        : d3.timeMonth.every(1);
+      const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
+      xAxis = d3.axisBottom(xScale).ticks(interval).tickFormat(fmt);
+    } else if (isNumeric) {
+      xAxis = d3.axisBottom(xScale).ticks(6);
+    } else {
+      // For categorical x, show at most ~8 evenly spaced tick labels
+      const allX = [...new Set(allPoints.map(d => d.x))];
+      if (allX.length > 8) {
+        const step = Math.ceil(allX.length / 8);
+        const shown = new Set(allX.filter((_, i) => i % step === 0));
+        xAxis = d3.axisBottom(xScale).tickValues(allX.filter(x => shown.has(x)));
+      } else {
+        xAxis = d3.axisBottom(xScale);
+      }
+    }
+
     const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
-      .call(isTemporal
-        ? d3.axisBottom(xScale).ticks(6).tickFormat(d3.timeFormat("%b %Y"))
-        : isNumeric
-          ? d3.axisBottom(xScale).ticks(6)
-          : d3.axisBottom(xScale));
+      .call(xAxis);
     xAxisG.selectAll("text")
       .attr("dy", "1.2em")
       .attr("fill", "#64748b")
@@ -443,7 +472,7 @@
         const [mx] = d3.pointer(event);
         const xVal = (isTemporal || isNumeric) ? xScale.invert(mx) : null;
 
-        // Find nearest index in first group (all groups share the same x domain)
+        // Reference group drives the hover line position and tooltip date label
         const ref = groups[0].values;
         const idx = (isTemporal || isNumeric)
           ? bisect(ref, xVal)
@@ -453,9 +482,22 @@
         const cx = xScale(ref[safeIdx].x);
         hoverLine.attr("x1", cx).attr("x2", cx).attr("opacity", 1);
 
+        // Per-group bisect: return null when hovered x is outside the group's data range
+        const groupPts = groups.map(grp => {
+          if (!grp.values.length) return null;
+          if (isTemporal || isNumeric) {
+            const minX = grp.values[0].x;
+            const maxX = grp.values[grp.values.length - 1].x;
+            if (xVal < minX || xVal > maxX) return null;
+            const gi = Math.max(0, Math.min(bisect(grp.values, xVal), grp.values.length - 1));
+            return grp.values[gi];
+          }
+          return grp.values[safeIdx] ?? null;
+        });
+
         // Position dots
         groups.forEach((grp, i) => {
-          const pt = grp.values[safeIdx];
+          const pt = groupPts[i];
           if (pt && pt.y !== null) {
             hoverDots[i].attr("cx", cx).attr("cy", yScale(pt.y)).attr("opacity", 1);
           } else {
@@ -465,8 +507,8 @@
 
         // Build tooltip
         let html = `<div class="tip-date">${formatX(ref[safeIdx].x)}</div>`;
-        groups.forEach(grp => {
-          const pt  = grp.values[safeIdx];
+        groups.forEach((grp, i) => {
+          const pt  = groupPts[i];
           const val = pt && pt.y !== null ? formatY(pt.y) : "—";
           const col = colorScale(grp.group);
           const lbl = isGrouped ? grp.group : "Value";

@@ -652,6 +652,7 @@
       editMode = !editMode;
       editPanel.classList.toggle("open", editMode);
       btnEdit.classList.toggle("active", editMode);
+      btnEdit.textContent = editMode ? "Save" : "Edit";
       hoverOverlay.attr("pointer-events", editMode ? "none" : "all");
       g.selectAll(".line-hit").style("cursor", editMode ? "pointer" : "default");
       if (!editMode) clearHighlight();

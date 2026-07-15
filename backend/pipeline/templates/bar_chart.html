@@ -515,6 +515,7 @@
       editMode = !editMode;
       editPanel.classList.toggle("open", editMode);
       btnEdit.classList.toggle("active", editMode);
+      btnEdit.textContent = editMode ? "Save" : "Edit";
       g.selectAll(".bar").style("cursor", editMode ? "pointer" : "default");
       if (!editMode) clearHighlight();
     });

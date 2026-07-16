@@ -1,41 +1,25 @@
 import json
-import os
-
-import anthropic
-from dotenv import load_dotenv
-
-load_dotenv()
 
 from models import AxisMapping, Schema
 from pipeline.prompts import AXIS_MAPPING_SYSTEM
-
-DEFAULT_MODEL = "claude-haiku-4-5"
+from pipeline.providers import LLMProvider, AnthropicProvider
 
 
 class LLMMapper:
-    def __init__(self, system_prompt: str = AXIS_MAPPING_SYSTEM):
-        self._client = anthropic.Anthropic()
-        self._model = os.getenv("CLAUDE_MODEL", DEFAULT_MODEL)
-        self._system_prompt = system_prompt
+    def __init__(self, provider: LLMProvider | None = None):
+        self._provider = provider or AnthropicProvider()
+        self._system_prompt = AXIS_MAPPING_SYSTEM
+
+    @property
+    def provider(self) -> LLMProvider:
+        return self._provider
 
     def map(self, schema: Schema, prompt: str) -> AxisMapping:
-        response = self._client.messages.create(
-            model=self._model,
-            max_tokens=256,
-            system=self._system_prompt,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Dataset schema:\n{self._describe_schema(schema)}\n\n"
-                        f"User intent: {prompt}\n\n"
-                        "Pick the best x_column (Date) and y_column (Float)."
-                    ),
-                }
-            ],
+        user_msg = (
+            f"Dataset schema:\n{self._describe_schema(schema)}\n\n"
+            f"User intent: {prompt}"
         )
-
-        raw = response.content[0].text.strip()
+        raw = self._provider.complete(self._system_prompt, user_msg)
         raw = self._strip_fences(raw)
 
         try:
@@ -44,11 +28,12 @@ class LLMMapper:
             raise ValueError(f"LLM returned invalid JSON: {raw!r}") from e
 
         # LLMs sometimes return "null" as a string instead of JSON null
-        for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max", "z_column", "label_column", "facet_direction"):
+        for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
+                    "z_column", "label_column", "facet_direction"):
             if data.get(key) == "null":
                 data[key] = None
 
-        # y_column must always be a string; if LLM omitted it, fall back to first numeric column
+        # y_column must always be a string; fall back to first numeric column if omitted
         if not data.get("y_column"):
             numeric_cols = [c.name for c in schema.columns if c.type.value == "Float"]
             data["y_column"] = numeric_cols[0] if numeric_cols else schema.columns[-1].name

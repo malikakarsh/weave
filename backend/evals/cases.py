@@ -249,6 +249,13 @@ CASES = [
             "time_unit": "year",
             "aggregation": "count",
         },
+        "stub_mapping": {
+            "chart_type": "line",
+            "x_column": "inspection_date",
+            "y_column": "record_date",
+            "time_unit": "year",
+            "aggregation": "count",
+        },
         "expect_data": {
             "grouped": False,
             # 1900 dirty sentinel will appear as "1900-01-01" since no date filter is applied
@@ -260,6 +267,14 @@ CASES = [
         "csv": "samples/sample.csv",
         "prompt": "what is the average monthly revenue for each company?",
         "expect_mapping": {
+            "time_unit": "month",
+            "aggregation": "mean",
+            "group_column": "company",
+        },
+        "stub_mapping": {
+            "chart_type": "line",
+            "x_column": "date",
+            "y_column": "revenue",
             "time_unit": "month",
             "aggregation": "mean",
             "group_column": "company",

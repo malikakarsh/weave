@@ -325,6 +325,29 @@ python -m evals.runner --fast       # skip LLM calls; only validate transformer 
 
 Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. Covers: all eight chart types, aggregation, group/filter, top_n, sort_order, time_unit bucketing, x_min/x_max filtering, bubble z/label columns, heatmap cell counts, network node/link counts, and combined scenarios.
 
+## Provider benchmarks
+
+Run the eval suite against any provider with:
+
+```bash
+python -m evals.runner                                        # uses LLM_PROVIDER env var
+python -m evals.runner --provider anthropic --model claude-haiku-4-5
+python -m evals.runner --provider ollama --model gemma4:latest
+```
+
+Results across 34 cases covering all chart types, aggregation, date filtering, faceting, and top-N logic:
+
+| Provider | Model | Passed | Failed | Pass rate | Avg latency | Total time |
+|---|---|---|---|---|---|---|
+| Anthropic | claude-haiku-4-5 | 34 | 0 | 100% | 1.6s | 53s |
+| Ollama | qwen2.5-coder:7b | 28 | 6 | 82% | 3.3s | 108s |
+| Ollama | gemma4:latest | 20 | 14 | 59% | 13.7s | 342s |
+
+**Notes:**
+- Gemma4 fails primarily on nuanced intent: date-range filtering (`x_min`/`x_max`), `top_n` extraction, and multi-column disambiguation
+- Local models are faster per-token but load cold on each eval run; Haiku is faster end-to-end for short prompts
+- Eval cases were written against Claude's behavior — a model that makes a different but valid chart choice will still fail
+
 ## What's next
 
 **API + UI**

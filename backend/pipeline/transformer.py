@@ -253,7 +253,7 @@ class Transformer:
                     buckets[x] = []
                     z_buckets[x] = []
                     order.append(x)
-                buckets[x].append(float(y) if y else None)
+                buckets[x].append(1.0 if mapping.aggregation == "count" else (float(y) if y else None))
                 if mapping.z_column:
                     z = row.get(mapping.z_column, "").strip()
                     z_buckets[x].append(float(z) if z else None)
@@ -290,7 +290,7 @@ class Transformer:
                     buckets[group][x] = []
                     z_buckets[group][x] = []
                     x_order[group].append(x)
-                buckets[group][x].append(float(y) if y else None)
+                buckets[group][x].append(1.0 if mapping.aggregation == "count" else (float(y) if y else None))
                 if mapping.z_column:
                     z = row.get(mapping.z_column, "").strip()
                     z_buckets[group][x].append(float(z) if z else None)

@@ -2,9 +2,11 @@
 UAT eval runner for the Weave pipeline.
 
 Usage:
-  python -m evals.runner              # run all cases
-  python -m evals.runner time_unit    # run cases whose name contains 'time_unit'
-  python -m evals.runner --fast       # skip LLM; only run transformer checks
+  python -m evals.runner                                  # run all cases
+  python -m evals.runner time_unit                        # filter by name
+  python -m evals.runner --fast                           # skip LLM calls
+  python -m evals.runner --provider ollama --model llama3.2
+  python -m evals.runner --provider anthropic --model claude-haiku-4-5
 """
 
 import sys
@@ -18,8 +20,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from evals.cases import CASES
+from models import AxisMapping
 from pipeline.data_loader import DataLoader
 from pipeline.llm_mapper import LLMMapper
+from pipeline.providers import get_provider
 from pipeline.transformer import Transformer
 
 # ── Terminal colours ───────────────────────────────────────────────────────────
@@ -141,11 +145,23 @@ def _check_data(data, expect: dict) -> list[str]:
 
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
-def run_cases(cases: list[dict], fast: bool = False) -> None:
+def run_cases(
+    cases: list[dict],
+    fast: bool = False,
+    provider_name: str | None = None,
+    model: str | None = None,
+) -> None:
     passed = failed = skipped = 0
-    loader    = DataLoader()
-    mapper    = LLMMapper()
+    latencies: list[float] = []
+    loader = DataLoader()
     transformer = Transformer()
+
+    if not fast:
+        provider = get_provider(provider_name, model)
+        mapper = LLMMapper(provider)
+        print(f"{DIM}Provider: {type(provider).__name__}  Model: {provider.model}{RESET}\n")
+    else:
+        mapper = None
 
     for case in cases:
         name = case["name"]
@@ -163,14 +179,26 @@ def run_cases(cases: list[dict], fast: bool = False) -> None:
         map_failures = []
 
         if fast:
-            print(f"  {SKIP}  LLM mapping (--fast mode)")
-            skipped += 1
+            stub = case.get("stub_mapping") or case.get("expect_mapping")
+            if stub:
+                try:
+                    mapping = AxisMapping(**stub)
+                    print(f"  {DIM}fast: using stub mapping{RESET}")
+                except Exception as e:
+                    print(f"  {SKIP}  cannot build stub mapping: {e}")
+                    skipped += 1
+                    continue
+            else:
+                print(f"  {SKIP}  no stub_mapping defined (--fast mode)")
+                skipped += 1
+                continue
         else:
             # LLM mapping
             t0 = time.time()
             try:
                 mapping = mapper.map(schema, case["prompt"])
                 elapsed = time.time() - t0
+                latencies.append(elapsed)
                 facet_info = ""
                 if mapping.facet_direction:
                     facet_info = f" facet={mapping.facet_direction!r} free_y={mapping.facet_free_y!r}"
@@ -207,14 +235,13 @@ def run_cases(cases: list[dict], fast: bool = False) -> None:
                 print(f"{RED}  transformer error: {e}{RESET}")
 
         all_failures = map_failures + data_failures
-        if fast:
-            pass  # already counted as skipped
-        elif all_failures:
+        if all_failures:
             print(f"  {FAIL}  {len(all_failures)} assertion(s) failed")
             failed += 1
         else:
             print(f"  {PASS}")
             passed += 1
+
 
     # Summary
     total = passed + failed + skipped
@@ -223,6 +250,12 @@ def run_cases(cases: list[dict], fast: bool = False) -> None:
           f"{GREEN}{passed} passed{RESET}  "
           f"{RED}{failed} failed{RESET}  "
           f"{YELLOW}{skipped} skipped{RESET}{RESET}")
+    if latencies:
+        avg = sum(latencies) / len(latencies)
+        print(f"{DIM}LLM latency — avg: {avg:.1f}s  "
+              f"min: {min(latencies):.1f}s  "
+              f"max: {max(latencies):.1f}s  "
+              f"total: {sum(latencies):.1f}s{RESET}")
     if failed:
         sys.exit(1)
 
@@ -230,7 +263,26 @@ def run_cases(cases: list[dict], fast: bool = False) -> None:
 def main():
     args = sys.argv[1:]
     fast = "--fast" in args
-    filters = [a for a in args if not a.startswith("--")]
+
+    # Extract --provider and --model values
+    provider_name = None
+    model = None
+    clean_args = []
+    i = 0
+    while i < len(args):
+        if args[i] in ("--provider", "--model") and i + 1 < len(args):
+            if args[i] == "--provider":
+                provider_name = args[i + 1]
+            else:
+                model = args[i + 1]
+            i += 2
+        elif args[i].startswith("--"):
+            i += 1  # skip flags like --fast
+        else:
+            clean_args.append(args[i])
+            i += 1
+
+    filters = clean_args
 
     cases = CASES
     if filters:
@@ -241,7 +293,7 @@ def main():
             sys.exit(0)
         print(f"{DIM}Running {len(cases)} case(s) matching {keyword!r}{RESET}")
 
-    run_cases(cases, fast=fast)
+    run_cases(cases, fast=fast, provider_name=provider_name, model=model)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 import argparse
 import subprocess
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,16 +11,26 @@ from pipeline.data_loader import DataLoader
 from pipeline.llm_mapper import LLMMapper
 from pipeline.transformer import Transformer
 from pipeline.templater import Templater
+from pipeline.providers import get_provider
 
 
-def run(csv_path: str, prompt: str, output: str, config: ChartConfig, sort_override: str | None = None) -> None:
+def run(
+    csv_path: str,
+    prompt: str,
+    output: str,
+    config: ChartConfig,
+    sort_override: str | None = None,
+    provider_name: str | None = None,
+    model: str | None = None,
+) -> None:
     print(f"Loading {csv_path!r}...")
     schema, rows = DataLoader().load(csv_path)
     for col in schema.columns:
         print(f"  {col.name} ({col.type.value})")
 
-    print(f"\nMapping axes for: {prompt!r}")
-    mapping = LLMMapper().map(schema, prompt)
+    provider = get_provider(provider_name, model)
+    print(f"\nMapping axes via {type(provider).__name__} ({provider.model}) for: {prompt!r}")
+    mapping = LLMMapper(provider).map(schema, prompt)
     if sort_override:
         mapping = mapping.model_copy(update={"sort_order": sort_override})
     print(f"  chart={mapping.chart_type!r}  x={mapping.x_column!r}  y={mapping.y_column!r}  "
@@ -36,7 +45,6 @@ def run(csv_path: str, prompt: str, output: str, config: ChartConfig, sort_overr
     else:
         print(f"  {len(data)} data points")
 
-    # LLM chart type decision overrides default; explicit --curve/--color etc. still apply
     config = config.model_copy(update={
         "chart_type":      mapping.chart_type,
         "facet_direction": mapping.facet_direction,
@@ -61,6 +69,13 @@ def main() -> None:
     parser.add_argument("--open", action="store_true",
                         help="Open the chart in the browser after generation")
 
+    # Provider flags
+    parser.add_argument("--provider", default=None,
+                        choices=["anthropic", "ollama", "gemini"],
+                        help="LLM provider (default: LLM_PROVIDER env var or 'anthropic')")
+    parser.add_argument("--model", default=None,
+                        help="Model override (e.g. claude-haiku-4-5, llama3.2, gemini-2.0-flash)")
+
     # ChartConfig flags
     parser.add_argument("--title",    default="",        help="Chart title")
     parser.add_argument("--x-label",  default="",        help="X-axis label")
@@ -80,7 +95,7 @@ def main() -> None:
     parser.add_argument("--svg-bg",   default="#1a1d27", metavar="COLOR",
                         help="SVG export background color (default: #1a1d27)")
     parser.add_argument("--sort",     default=None, choices=["asc", "desc", "none"],
-                        help="Sort bar categories by y value: asc, desc, or none (default: LLM decides, usually asc)")
+                        help="Sort bar categories by y value: asc, desc, or none (default: LLM decides)")
 
     args = parser.parse_args()
 
@@ -98,7 +113,10 @@ def main() -> None:
         svg_bg=args.svg_bg,
     )
 
-    run(args.csv, args.prompt, args.output, config, sort_override=args.sort)
+    run(args.csv, args.prompt, args.output, config,
+        sort_override=args.sort,
+        provider_name=args.provider,
+        model=args.model)
 
     if args.open:
         subprocess.run(["open", args.output])

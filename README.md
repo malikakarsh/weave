@@ -388,14 +388,47 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - ~~`POST /refine` — iterative chart refinement with conversation history~~
 - ~~Universal prompt bar — single input drives both generation and refinement~~
 - ~~Responsive hero landing page~~
-- Deployed with a live URL (Railway / Render / Fly.io)
+- ~~Multi-chart dashboard — `POST /dashboard` SSE endpoint; LLM decomposes one prompt into N focused sub-prompts, runs N pipelines in parallel via `asyncio.as_completed`, streams each chart to the browser as it finishes~~
+- ~~Per-chart session state — each chart has its own isolated conversation history, mapping, and refine bar; refinements in one chart never affect another~~
+- ~~"Add chart" button — append new charts to the dashboard at any time without clearing existing ones~~
+- ~~CSV validation — size limit (10 MB), encoding check, null-byte detection, parse verification, formula injection guard~~
+- Deployed with a live URL (Digital Ocean)
 
 **Test suite**
 - pytest coverage for DataLoader, Transformer, and LLMMapper
 
-**Multi-plot**
-- Orchestrator that decomposes a single prompt into N plot specs
-- Parallel rendering via `asyncio.gather()`
+**Streaming**
+- SSE progress stream — show live feedback while the LLM + pipeline runs instead of a blank wait
+
+**Multi-CSV joins**
+The single biggest feature gap. Uploading multiple CSVs (e.g. an F1 dataset split across races, results, drivers, constructors) and visualising across them requires a join stage before the existing pipeline.
+
+Architecture:
+- Load all CSVs into an in-memory SQLite database
+- Auto-detect join candidates using **value-overlap sampling** — compare column value sets across tables (e.g. `results.driverId` vs `drivers.driverId` → 90%+ overlap → high-confidence FK). Pure name-matching is unreliable in practice; value overlap is the only signal that survives `id` / `user_id` / `order_id` ambiguity
+- Present high-confidence join candidates to the user for confirmation (Metabase/Looker do the same — no production BI tool fully auto-detects schema relationships)
+- LLM fills a **structured join spec** (JSON: which tables, which key pairs, optional row filters) rather than writing raw SQL — the code executes SQL from the spec so the LLM can only reference columns that exist (validation rejects and retries with a clear error on hallucinated columns)
+- Executed result is a flat table that drops into the existing LLMMapper → Transformer → Templater pipeline unchanged
+
+**Canvas / dashboard view**
+- Multiple charts on one page, each independently generated from its own CSV + prompt
+- "Add chart" button — pick a CSV, write a prompt, generate a new chart into the canvas
+- Each chart has its own chat-style refinement thread
+- Provider / model switcher per chart (Claude vs Ollama, haiku vs sonnet)
+
+**Chart sharing**
+- Store generated HTML server-side (UUID key → blob storage or DB)
+- Serve at `GET /chart/{id}` — returns self-contained HTML
+- Give users an `<iframe src="https://weave.app/chart/{id}">` embed snippet; all interactivity (tooltips, edit panel, export) works client-side with no server dependency after load
+
+**Speech to text**
+- Microphone button on the prompt bar — hold to record, release to transcribe
+- Use the browser-native `webkitSpeechRecognition` / `SpeechRecognition` API (zero backend changes, works in Chrome/Edge out of the box) or pipe to Whisper via the backend for broader browser support and better accuracy on domain-specific terms (column names, chart types, company names)
+- Transcribed text drops into the existing prompt input so the rest of the flow is unchanged
+
+**Session persistence**
+- Save CSVs, mappings, generated HTML, and conversation history across page reloads
+- Session history sidebar — past sessions clickable to restore full state
 
 **Data storytelling**
 - Intelligent peer selection — when a user focuses on one entity, the LLM picks structurally similar peers based on scale, sector, and growth trajectory

@@ -326,8 +326,8 @@
       const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
       const interval = years > 20 ? d3.timeYear.every(5)
         : years > 10 ? d3.timeYear.every(2)
-        : years > 4  ? d3.timeYear.every(1)
-        : years > 1  ? d3.timeMonth.every(3)
+        : years > 1  ? d3.timeYear.every(1)
+        : years > 0.5 ? d3.timeMonth.every(2)
         : d3.timeMonth.every(1);
       const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
       xAxis = d3.axisBottom(xScale).ticks(interval).tickFormat(fmt);

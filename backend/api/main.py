@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -10,9 +11,12 @@ load_dotenv()
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 from models import AxisMapping, ChartConfig
+from pipeline.csv_validator import validate_csv
 from pipeline.data_loader import DataLoader
+from pipeline.decomposer import Decomposer
 from pipeline.pipeline import Pipeline
 from pipeline.providers import get_provider
 
@@ -191,6 +195,11 @@ async def generate_chart(
 
     csv_bytes = await file.read()
 
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
         tmp_path = tmp.name
@@ -237,6 +246,11 @@ async def refine_chart(
 ):
     csv_bytes = await file.read()
 
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
         tmp_path = tmp.name
@@ -281,6 +295,11 @@ async def generate_insights(
 ):
     csv_bytes = await file.read()
 
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
         tmp_path = tmp.name
@@ -323,5 +342,76 @@ async def generate_insights(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         os.unlink(tmp_path)
+
+
+@app.post("/dashboard")
+async def generate_dashboard(
+    file: UploadFile = File(..., description="CSV file to visualise"),
+    prompt: str = Form(..., description="Plain-English description — single chart or multi-chart intent"),
+    provider: str | None = Form(default=None),
+    model: str | None = Form(default=None),
+):
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv")
+
+    csv_bytes = await file.read()
+
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(csv_bytes)
+        tmp_path = tmp.name
+
+    try:
+        llm_provider = get_provider(provider, model)
+        schema, _ = DataLoader().load(tmp_path)
+        sub_prompts = Decomposer(llm_provider).decompose(prompt, schema)
+        pipeline = Pipeline(llm_provider)
+        config = ChartConfig()
+    except Exception as e:
+        os.unlink(tmp_path)
+        logger.exception("Dashboard setup error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    async def stream():
+        loop = asyncio.get_event_loop()
+
+        async def run_one(index: int, sub_prompt: str) -> dict:
+            try:
+                html, mapping = await loop.run_in_executor(
+                    None, pipeline.run, tmp_path, sub_prompt, config
+                )
+                return {
+                    "ok": True,
+                    "index": index,
+                    "sub_prompt": sub_prompt,
+                    "html": _inject(html),
+                    "mapping": mapping.model_dump(),
+                }
+            except Exception as e:
+                logger.exception("Chart %d failed: %s", index, sub_prompt)
+                return {"ok": False, "index": index, "sub_prompt": sub_prompt, "detail": str(e)}
+
+        try:
+            # tell the client how many charts to expect and their sub-prompts up front
+            yield {
+                "event": "start",
+                "data": json.dumps({"count": len(sub_prompts), "sub_prompts": sub_prompts}),
+            }
+
+            tasks = [run_one(i, sp) for i, sp in enumerate(sub_prompts)]
+            for coro in asyncio.as_completed(tasks):
+                result = await coro
+                event = "chart" if result["ok"] else "error"
+                yield {"event": event, "data": json.dumps(result)}
+
+            yield {"event": "done", "data": "{}"}
+        finally:
+            os.unlink(tmp_path)
+
+    return EventSourceResponse(stream())
 
 

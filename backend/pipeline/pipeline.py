@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from models import AxisMapping, ChartConfig
 from pipeline.data_loader import DataLoader
 from pipeline.llm_mapper import LLMMapper
@@ -21,13 +23,21 @@ class Pipeline:
         prompt: str,
         config: ChartConfig,
         sort_override: str | None = None,
+        on_progress: Callable[[str], None] | None = None,
     ) -> tuple[str, AxisMapping]:
         """
         Run the full pipeline and return (html, mapping).
         Raises on any stage failure — no side effects (no printing, no file I/O).
+        on_progress(stage) is called before each stage: loading, mapping, transforming, rendering.
         """
+        def _emit(stage: str) -> None:
+            if on_progress:
+                on_progress(stage)
+
+        _emit("loading")
         schema, rows = self._loader.load(csv_path)
 
+        _emit("mapping")
         mapping = self._mapper.map(schema, prompt)
         if sort_override:
             mapping = mapping.model_copy(update={"sort_order": sort_override})
@@ -44,7 +54,10 @@ class Pipeline:
             **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
         })
 
+        _emit("transforming")
         data = self._transformer.transform(rows, mapping)
+
+        _emit("rendering")
         html = self._templater.render(data, config)
 
         return html, mapping
@@ -56,10 +69,17 @@ class Pipeline:
         history: list[dict],
         instruction: str,
         config: ChartConfig,
+        on_progress: Callable[[str], None] | None = None,
     ) -> tuple[str, AxisMapping]:
         """Apply a refinement instruction to an existing mapping and re-render."""
+        def _emit(stage: str) -> None:
+            if on_progress:
+                on_progress(stage)
+
+        _emit("loading")
         _, rows = self._loader.load(csv_path)
 
+        _emit("mapping")
         mapping = self._mapper.refine(current_mapping, history, instruction)
 
         config = config.model_copy(update={
@@ -74,6 +94,9 @@ class Pipeline:
             **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
         })
 
+        _emit("transforming")
         data = self._transformer.transform(rows, mapping)
+
+        _emit("rendering")
         html = self._templater.render(data, config)
         return html, mapping

@@ -78,10 +78,21 @@ interface ChartSession {
   id: string;
   subPrompt: string;
   status: "pending" | "done" | "error";
+  stage: string | null;
   html: string | null;
   mapping: Record<string, unknown> | null;
   history: HistoryMessage[];
   error: string | null;
+}
+
+function stageLabel(stage: string | null): string {
+  switch (stage) {
+    case "loading":     return "Loading CSV…";
+    case "mapping":     return "Mapping columns…";
+    case "transforming": return "Transforming data…";
+    case "rendering":   return "Rendering chart…";
+    default:            return "Generating…";
+  }
 }
 
 // ── Per-chart card ────────────────────────────────────────────────────────────
@@ -98,6 +109,7 @@ interface ChartCardProps {
 function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: ChartCardProps) {
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
+  const [refineStage, setRefineStage] = useState<string | null>(null);
   const [insights, setInsights] = useState<string[] | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -143,6 +155,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
     }
 
     setRefining(true);
+    setRefineStage(null);
     setRefinePrompt("");
 
     const nextHistory: HistoryMessage[] = [
@@ -158,20 +171,50 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
     body.append("instruction", instruction);
 
     try {
-      const res = await fetch(`${API}/refine`, { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ?? "Unknown error");
-      onUpdate(session.id, {
-        html: data.html,
-        mapping: data.mapping,
-        history: [...nextHistory, { role: "assistant", content: JSON.stringify(data.mapping) }],
-      });
-      setInsights(null);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+      const res = await fetch(`${API}/refine/stream`, { method: "POST", body });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail ?? "Unknown error");
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n");
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop()!;
+        for (const block of blocks) {
+          const lines = block.split("\n");
+          let dataStr = "";
+          for (const line of lines) {
+            if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
+          }
+          if (!dataStr || dataStr === "{}") continue;
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.stage === "done") {
+              onUpdate(session.id, {
+                html: data.html,
+                mapping: data.mapping,
+                history: [...nextHistory, { role: "assistant", content: JSON.stringify(data.mapping) }],
+              });
+              setInsights(null);
+              setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+            } else if (data.stage === "error") {
+              onUpdate(session.id, { history: session.history });
+            } else {
+              setRefineStage(data.stage);
+            }
+          } catch { /* malformed SSE — skip */ }
+        }
+      }
     } catch {
       onUpdate(session.id, { history: session.history });
     } finally {
       setRefining(false);
+      setRefineStage(null);
     }
   }
 
@@ -231,12 +274,30 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
 
       {/* Pending */}
       {session.status === "pending" && (
-        <div className="flex items-center justify-center h-64 gap-3 text-sm text-gray-400 dark:text-white/30">
-          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-          Generating…
+        <div className="flex flex-col items-center justify-center h-64 gap-3">
+          <div className="flex items-center gap-3 text-sm text-gray-400 dark:text-white/30">
+            <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            {stageLabel(session.stage)}
+          </div>
+          {session.stage && (
+            <div className="flex gap-1.5">
+              {(["loading", "mapping", "transforming", "rendering"] as const).map((s) => (
+                <div
+                  key={s}
+                  className="h-1 w-10 rounded-full transition-colors duration-300"
+                  style={{
+                    background: ["loading", "mapping", "transforming", "rendering"].indexOf(s) <=
+                      ["loading", "mapping", "transforming", "rendering"].indexOf(session.stage ?? "")
+                      ? (dark ? "#6366f1" : "#dc2626")
+                      : (dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"),
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -296,10 +357,13 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
               disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 shrink-0`}
           >
             {refining
-              ? <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
+              ? <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  {refineStage === "mapping" && <span className="text-xs text-white/80 hidden sm:block">Mapping…</span>}
+                </div>
               : <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
                 </svg>
@@ -425,17 +489,46 @@ export default function Home() {
 
   async function regenerateSession(id: string, prompt: string) {
     if (!file) return;
-    updateSession(id, { status: "pending", html: null, mapping: null, error: null, history: [] });
+    updateSession(id, { status: "pending", stage: null, html: null, mapping: null, error: null, history: [] });
     const body = new FormData();
     body.append("file", file);
     body.append("prompt", prompt);
     try {
-      const res = await fetch(`${API}/chart`, { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ?? "Unknown error");
-      updateSession(id, { status: "done", html: data.html, mapping: data.mapping, history: [{ role: "user", content: prompt }] });
+      const res = await fetch(`${API}/chart/stream`, { method: "POST", body });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail ?? "Unknown error");
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n");
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop()!;
+        for (const block of blocks) {
+          const lines = block.split("\n");
+          let dataStr = "";
+          for (const line of lines) {
+            if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
+          }
+          if (!dataStr || dataStr === "{}") continue;
+          try {
+            const data = JSON.parse(dataStr);
+            if (data.stage === "done") {
+              updateSession(id, { status: "done", stage: null, html: data.html, mapping: data.mapping, history: [{ role: "user", content: prompt }] });
+            } else if (data.stage === "error") {
+              updateSession(id, { status: "error", stage: null, error: data.detail ?? "Regeneration failed", history: [] });
+            } else {
+              updateSession(id, { stage: data.stage });
+            }
+          } catch { /* malformed SSE — skip */ }
+        }
+      }
     } catch (e: unknown) {
-      updateSession(id, { status: "error", error: e instanceof Error ? e.message : "Regeneration failed", history: [] });
+      updateSession(id, { status: "error", stage: null, error: e instanceof Error ? e.message : "Regeneration failed", history: [] });
     }
   }
 
@@ -485,18 +578,27 @@ export default function Home() {
                 (data.sub_prompts as string[]).map((sp, i) => ({
                   id: `session-${i}`,
                   subPrompt: sp,
-                  status: "pending",
+                  status: "pending" as const,
+                  stage: null,
                   html: null,
                   mapping: null,
                   history: [],
                   error: null,
                 }))
               );
+            } else if (eventType === "progress") {
+              setSessions(prev =>
+                prev.map(s =>
+                  s.id === `session-${data.index}`
+                    ? { ...s, stage: data.stage }
+                    : s
+                )
+              );
             } else if (eventType === "chart") {
               setSessions(prev =>
                 prev.map(s =>
                   s.id === `session-${data.index}`
-                    ? { ...s, status: "done", html: data.html, mapping: data.mapping, history: [{ role: "user", content: data.sub_prompt }] }
+                    ? { ...s, status: "done", stage: null, html: data.html, mapping: data.mapping, history: [{ role: "user", content: data.sub_prompt }] }
                     : s
                 )
               );
@@ -504,7 +606,7 @@ export default function Home() {
               setSessions(prev =>
                 prev.map(s =>
                   s.id === `session-${data.index}`
-                    ? { ...s, status: "error", error: data.detail }
+                    ? { ...s, status: "error", stage: null, error: data.detail }
                     : s
                 )
               );
@@ -596,17 +698,26 @@ export default function Home() {
                   id: `session-${offset + i}`,
                   subPrompt: sp,
                   status: "pending" as const,
+                  stage: null,
                   html: null,
                   mapping: null,
                   history: [],
                   error: null,
                 })),
               ]);
+            } else if (eventType === "progress") {
+              setSessions(prev =>
+                prev.map(s =>
+                  s.id === `session-${offset + data.index}`
+                    ? { ...s, stage: data.stage }
+                    : s
+                )
+              );
             } else if (eventType === "chart") {
               setSessions(prev =>
                 prev.map(s =>
                   s.id === `session-${offset + data.index}`
-                    ? { ...s, status: "done", html: data.html, mapping: data.mapping, history: [{ role: "user" as const, content: data.sub_prompt }] }
+                    ? { ...s, status: "done", stage: null, html: data.html, mapping: data.mapping, history: [{ role: "user" as const, content: data.sub_prompt }] }
                     : s
                 )
               );
@@ -614,7 +725,7 @@ export default function Home() {
               setSessions(prev =>
                 prev.map(s =>
                   s.id === `session-${offset + data.index}`
-                    ? { ...s, status: "error", error: data.detail }
+                    ? { ...s, status: "error", stage: null, error: data.detail }
                     : s
                 )
               );

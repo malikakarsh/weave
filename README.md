@@ -447,8 +447,8 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 **Test suite** ✓
 - ~~pytest unit tests — DataLoader (type detection, CSV loading, validation), Transformer (all six transform modes, sort, date bucketing, range filtering), LLMMapper (fence stripping, schema description, validate, map/refine with mocked provider)~~
 
-**Streaming**
-- SSE progress stream — show live feedback while the LLM + pipeline runs instead of a blank wait
+**Streaming** ✓
+- ~~SSE progress stream — `POST /chart/stream` and `POST /refine/stream` emit `loading → mapping → transforming → rendering → done` stage events; dashboard SSE emits per-chart `progress` events; frontend shows a 4-step progress bar and stage label in each pending card~~
 
 **Multi-CSV joins**
 The single biggest feature gap. Uploading multiple CSVs (e.g. an F1 dataset split across races, results, drivers, constructors) and visualising across them requires a join stage before the existing pipeline.

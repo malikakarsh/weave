@@ -292,6 +292,154 @@ async def generate_chart(
         os.unlink(tmp_path)
 
 
+@app.post("/chart/stream")
+async def generate_chart_stream(
+    file: UploadFile = File(..., description="CSV file to visualize"),
+    prompt: str = Form(..., description="Plain-English description of the chart"),
+    provider: str | None = Form(default=None),
+    model: str | None = Form(default=None),
+    title: str = Form(default=""),
+    x_label: str = Form(default=""),
+    y_label: str = Form(default=""),
+    width: int = Form(default=836),
+    height: int = Form(default=420),
+    color: str = Form(default="#6366f1"),
+    y_format: str = Form(default=",.0f"),
+    sort: str | None = Form(default=None),
+):
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv")
+
+    csv_bytes = await file.read()
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(csv_bytes)
+        tmp_path = tmp.name
+
+    try:
+        config = ChartConfig(title=title, x_label=x_label, y_label=y_label,
+                             width=width, height=height, color=color, y_format=y_format)
+        llm_provider = get_provider(provider, model)
+        pipeline = Pipeline(llm_provider)
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    async def stream():
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def on_progress(stage: str) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, {"stage": stage})
+
+        async def run_pipeline() -> None:
+            try:
+                html, mapping = await loop.run_in_executor(
+                    None,
+                    lambda: pipeline.run(tmp_path, prompt, config,
+                                         sort_override=sort, on_progress=on_progress),
+                )
+                await queue.put({"stage": "done", "html": _inject(html), "mapping": mapping.model_dump()})
+            except Exception as e:
+                logger.exception("Stream chart error")
+                await queue.put({"stage": "error", "detail": str(e)})
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        task = asyncio.create_task(run_pipeline())
+        try:
+            while True:
+                event = await queue.get()
+                yield {"event": "progress", "data": json.dumps(event)}
+                if event["stage"] in ("done", "error"):
+                    break
+        finally:
+            await task
+
+    return EventSourceResponse(stream())
+
+
+@app.post("/refine/stream")
+async def refine_chart_stream(
+    file: UploadFile = File(...),
+    mapping: str = Form(...),
+    history: str = Form(default="[]"),
+    instruction: str = Form(...),
+    provider: str | None = Form(default=None),
+    model: str | None = Form(default=None),
+):
+    csv_bytes = await file.read()
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(csv_bytes)
+        tmp_path = tmp.name
+
+    try:
+        current_mapping = AxisMapping(**json.loads(mapping))
+        history_list: list[dict] = json.loads(history)
+        llm_provider = get_provider(provider, model)
+        pipeline = Pipeline(llm_provider)
+        config = ChartConfig(
+            title=current_mapping.title or "",
+            x_label=current_mapping.x_label or "",
+            y_label=current_mapping.y_label or "",
+        )
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(status_code=400, detail=str(e))
+
+    async def stream():
+        queue: asyncio.Queue[dict] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def on_progress(stage: str) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, {"stage": stage})
+
+        async def run_pipeline() -> None:
+            try:
+                html, updated_mapping = await loop.run_in_executor(
+                    None,
+                    lambda: pipeline.refine(tmp_path, current_mapping, history_list,
+                                            instruction, config, on_progress=on_progress),
+                )
+                await queue.put({
+                    "stage": "done",
+                    "html": _inject(html),
+                    "mapping": updated_mapping.model_dump(),
+                })
+            except Exception as e:
+                logger.exception("Stream refine error")
+                await queue.put({"stage": "error", "detail": str(e)})
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        task = asyncio.create_task(run_pipeline())
+        try:
+            while True:
+                event = await queue.get()
+                yield {"event": "progress", "data": json.dumps(event)}
+                if event["stage"] in ("done", "error"):
+                    break
+        finally:
+            await task
+
+    return EventSourceResponse(stream())
+
+
 @app.post("/refine", response_model=ChartResponse)
 async def refine_chart(
     file: UploadFile = File(..., description="Same CSV used for the original chart"),
@@ -436,10 +584,15 @@ async def generate_dashboard(
     async def stream():
         loop = asyncio.get_event_loop()
 
-        async def run_one(index: int, sub_prompt: str) -> dict:
+        async def run_one(index: int, sub_prompt: str, progress_queue: asyncio.Queue) -> dict:
+            def on_progress(stage: str) -> None:
+                loop.call_soon_threadsafe(
+                    progress_queue.put_nowait, {"index": index, "stage": stage}
+                )
             try:
                 html, mapping = await loop.run_in_executor(
-                    None, pipeline.run, tmp_path, sub_prompt, config
+                    None,
+                    lambda: pipeline.run(tmp_path, sub_prompt, config, on_progress=on_progress),
                 )
                 return {
                     "ok": True,
@@ -459,11 +612,35 @@ async def generate_dashboard(
                 "data": json.dumps({"count": len(sub_prompts), "sub_prompts": sub_prompts}),
             }
 
-            tasks = [run_one(i, sp) for i, sp in enumerate(sub_prompts)]
-            for coro in asyncio.as_completed(tasks):
-                result = await coro
-                event = "chart" if result["ok"] else "error"
-                yield {"event": event, "data": json.dumps(result)}
+            progress_queue: asyncio.Queue[dict] = asyncio.Queue()
+            tasks: list[asyncio.Task] = [
+                asyncio.create_task(run_one(i, sp, progress_queue))
+                for i, sp in enumerate(sub_prompts)
+            ]
+
+            while tasks:
+                # Drain any queued progress events before waiting for the next task
+                try:
+                    while True:
+                        prog = progress_queue.get_nowait()
+                        yield {"event": "progress", "data": json.dumps(prog)}
+                except asyncio.QueueEmpty:
+                    pass
+
+                done_set, _ = await asyncio.wait(tasks, timeout=0.05,
+                                                  return_when=asyncio.FIRST_COMPLETED)
+                for task in done_set:
+                    tasks.remove(task)
+                    result = task.result()
+                    # Flush progress events for this chart before its completion event
+                    try:
+                        while True:
+                            prog = progress_queue.get_nowait()
+                            yield {"event": "progress", "data": json.dumps(prog)}
+                    except asyncio.QueueEmpty:
+                        pass
+                    event_name = "chart" if result["ok"] else "error"
+                    yield {"event": event_name, "data": json.dumps(result)}
 
             yield {"event": "done", "data": "{}"}
         finally:

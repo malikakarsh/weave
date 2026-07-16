@@ -78,6 +78,20 @@ def _check_mapping(mapping, expect: dict) -> list[str]:
     return failures
 
 
+def _check_mapping_custom(mapping, expect_custom: dict) -> list[str]:
+    """Handle assertions that can't be expressed as simple equality."""
+    failures = []
+    if expect_custom.get("color_is_set"):
+        if not mapping.color:
+            failures.append("  mapping.color: expected a color value, got None/empty")
+    if "category_color_key" in expect_custom:
+        key = expect_custom["category_color_key"]
+        cc = mapping.category_colors or {}
+        if key not in cc:
+            failures.append(f"  mapping.category_colors: key {key!r} not found (got {cc})")
+    return failures
+
+
 def _check_data(data, expect: dict) -> list[str]:
     failures = []
 
@@ -177,9 +191,16 @@ def run_cases(
 
         mapping = None
         map_failures = []
+        is_refine = "refine_from" in case
 
         if fast:
-            stub = case.get("stub_mapping") or case.get("expect_mapping")
+            if is_refine:
+                # Simulate refined mapping: start from refine_from, overlay expect_mapping
+                base = dict(case["refine_from"])
+                base.update({k: v for k, v in case.get("expect_mapping", {}).items() if v is not None})
+                stub = base
+            else:
+                stub = case.get("stub_mapping") or case.get("expect_mapping")
             if stub:
                 try:
                     mapping = AxisMapping(**stub)
@@ -193,20 +214,26 @@ def run_cases(
                 skipped += 1
                 continue
         else:
-            # LLM mapping
             t0 = time.time()
             try:
-                mapping = mapper.map(schema, case["prompt"])
+                if is_refine:
+                    current = AxisMapping(**case["refine_from"])
+                    mapping = mapper.refine(current, [], case["refine_instruction"])
+                    label = "refined"
+                else:
+                    mapping = mapper.map(schema, case["prompt"])
+                    label = "mapped"
                 elapsed = time.time() - t0
                 latencies.append(elapsed)
                 facet_info = ""
                 if mapping.facet_direction:
                     facet_info = f" facet={mapping.facet_direction!r} free_y={mapping.facet_free_y!r}"
-                print(f"  {DIM}mapped in {elapsed:.1f}s  →  "
+                print(f"  {DIM}{label} in {elapsed:.1f}s  →  "
                       f"chart={mapping.chart_type!r} x={mapping.x_column!r} "
                       f"y={mapping.y_column!r} z={mapping.z_column!r} "
                       f"group={mapping.group_column!r} agg={mapping.aggregation!r} "
                       f"top_n={mapping.top_n!r} sort={mapping.sort_order!r} "
+                      f"color={mapping.color!r} cat_colors={mapping.category_colors!r} "
                       f"time_unit={mapping.time_unit!r} "
                       f"x_min={mapping.x_min!r} x_max={mapping.x_max!r}"
                       f"{facet_info}{RESET}")
@@ -217,9 +244,11 @@ def run_cases(
 
             if "expect_mapping" in case:
                 map_failures = _check_mapping(mapping, case["expect_mapping"])
-                if map_failures:
-                    for f in map_failures:
-                        print(f"{RED}{f}{RESET}")
+            if "expect_mapping_custom" in case:
+                map_failures += _check_mapping_custom(mapping, case["expect_mapping_custom"])
+            if map_failures:
+                for f in map_failures:
+                    print(f"{RED}{f}{RESET}")
 
         # Transformer
         data_failures = []

@@ -42,6 +42,15 @@ CASES = [
             "x_column": "date",
             "y_column": "revenue",
         },
+        "stub_mapping": {
+            "chart_type": "area",
+            "x_column": "date",
+            "y_column": "revenue",
+            "group_column": "company",
+            "group_filter": ["Acme"],
+            "aggregation": "sum",
+            "sort_order": "none",
+        },
         "expect_data": {
             "grouped": True,
             "count": 1,
@@ -581,5 +590,196 @@ CASES = [
         "expect_data": {
             "grouped": True,
         },
+    },
+
+    # ------------------------------------------------------------------ #
+    # Box plot fallback
+    # ------------------------------------------------------------------ #
+    {
+        "name": "box plot fallback: request box plot → bar + mean",
+        "csv": "samples/diamonds.csv",
+        "prompt": "show a box plot of diamond price distribution by cut",
+        "expect_mapping": {
+            "chart_type": "bar",
+            "x_column": "cut",
+            "y_column": "price",
+            "aggregation": "mean",
+        },
+        "expect_data": {
+            "grouped": False,
+            "count": 5,
+        },
+    },
+    {
+        "name": "box plot fallback: violin request → bar",
+        "csv": "samples/iris.csv",
+        "prompt": "show a violin plot of sepal length per species",
+        "expect_mapping": {
+            "chart_type": "bar",
+            "x_column": "Species",
+            "y_column": "SepalLengthCm",
+        },
+        "expect_data": {
+            "grouped": False,
+            "count": 3,
+        },
+    },
+
+    # ------------------------------------------------------------------ #
+    # Refine cases
+    # Each has a `refine_from` mapping and a `refine_instruction`.
+    # The runner calls mapper.refine() instead of mapper.map().
+    # ------------------------------------------------------------------ #
+    {
+        "name": "refine: sort descending",
+        "csv": "samples/sample.csv",
+        "prompt": "total revenue per company",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+            "sort_order": "asc",
+        },
+        "refine_instruction": "sort by descending",
+        "expect_mapping": {
+            "sort_order": "desc",
+            "chart_type": "bar",
+        },
+        "expect_data": {},
+    },
+    {
+        "name": "refine: sort ascending",
+        "csv": "samples/sample.csv",
+        "prompt": "total revenue per company",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+            "sort_order": "desc",
+        },
+        "refine_instruction": "sort ascending",
+        "expect_mapping": {
+            "sort_order": "asc",
+            "chart_type": "bar",
+        },
+        "expect_data": {},
+    },
+    {
+        "name": "refine: change overall color",
+        "csv": "samples/sample.csv",
+        "prompt": "total revenue per company",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+        },
+        "refine_instruction": "change color to red",
+        "expect_mapping": {
+            "chart_type": "bar",
+            # color should be set to some red value — checked by runner as non-null
+        },
+        "expect_mapping_custom": {
+            "color_is_set": True,
+        },
+        "expect_data": {},
+    },
+    {
+        "name": "refine: per-category color",
+        "csv": "samples/sample.csv",
+        "prompt": "total revenue per company",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+        },
+        "refine_instruction": "change Acme to yellow",
+        "expect_mapping": {
+            "chart_type": "bar",
+        },
+        "expect_mapping_custom": {
+            "category_color_key": "Acme",
+        },
+        "expect_data": {},
+    },
+    {
+        "name": "refine: change chart type",
+        "csv": "samples/sample.csv",
+        "prompt": "total revenue per company",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+        },
+        "refine_instruction": "change to a pie chart",
+        "expect_mapping": {
+            "chart_type": "pie",
+        },
+        "expect_data": {},
+    },
+    {
+        "name": "refine: reduce to top 5",
+        "csv": "samples/nyc_restaurants.csv",
+        "prompt": "show inspections by neighborhood",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "dba",
+            "y_column": "score",
+            "aggregation": "count",
+            "top_n": None,
+        },
+        "refine_instruction": "show only the top 5",
+        "expect_mapping": {
+            "top_n": 5,
+        },
+        "expect_data": {
+            "grouped": False,
+            "count": 5,
+        },
+    },
+    {
+        "name": "refine: add group filter",
+        "csv": "samples/stocks.csv",
+        "prompt": "show stock prices over time",
+        "refine_from": {
+            "chart_type": "line",
+            "x_column": "date",
+            "y_column": "price",
+            "group_column": "symbol",
+            "sort_order": "none",
+        },
+        "refine_instruction": "show only AAPL and MSFT",
+        "expect_mapping": {
+            "group_filter": ["AAPL", "MSFT"],
+        },
+        "expect_data": {
+            "grouped": True,
+            "count": 2,
+        },
+    },
+    {
+        "name": "refine: fields not mentioned stay unchanged",
+        "csv": "samples/sample.csv",
+        "prompt": "total revenue per company",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+            "sort_order": "desc",
+            "top_n": 2,
+        },
+        "refine_instruction": "change color to blue",
+        "expect_mapping": {
+            "chart_type": "bar",
+            "sort_order": "desc",
+            "top_n": 2,
+            "aggregation": "sum",
+        },
+        "expect_data": {},
     },
 ]

@@ -355,7 +355,7 @@ backend/
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # ~34 test cases covering all chart types and features
+│   ├── cases.py                   # 44 test cases covering all chart types, refine, and fallbacks
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 └── samples/
     ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
@@ -379,7 +379,26 @@ python -m evals.runner heatmap      # run cases whose name contains 'heatmap'
 python -m evals.runner --fast       # skip LLM calls; only validate transformer output
 ```
 
-Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. Covers: all eight chart types, aggregation, group/filter, top_n, sort_order, time_unit bucketing, x_min/x_max filtering, bubble z/label columns, heatmap cell counts, network node/link counts, and combined scenarios.
+Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 44 cases covering:
+
+| Category | What's tested |
+|---|---|
+| Chart type selection | line, area, stacked_area, stacked_bar, bar, pie, bubble, scatter, heatmap, network, symbol_map, facet |
+| Aggregation | sum, mean, count — triggered by intent words in the prompt |
+| Group / filter | multi-series grouping, single and multi-value group_filter |
+| Top N | top_n ranking by aggregated y value |
+| Sort order | asc, desc, none — including "highest first" phrasing |
+| Date bucketing | time_unit year / month / day |
+| Date range filtering | x_min / x_max bounds |
+| Box plot fallback | box plot / violin / histogram → bar + mean |
+| Refine: sort | "sort descending" / "sort ascending" changes only sort_order |
+| Refine: color | overall color change and per-category color override |
+| Refine: chart type | switching chart type mid-conversation |
+| Refine: top N | reducing to top N via refine instruction |
+| Refine: group filter | narrowing to specific series via refine |
+| Refine: field stability | fields not mentioned in instruction stay unchanged |
+
+In `--fast` mode the LLM is skipped: refine cases merge `expect_mapping` onto `refine_from` to simulate the refined result, and transformer assertions still run. Cases that only assert LLM behavior (partial `expect_mapping` without required columns) are skipped in fast mode — they require a real LLM call.
 
 ## Provider benchmarks
 

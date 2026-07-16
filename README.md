@@ -32,9 +32,10 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 - **Edit panel** — in-chart controls for title, axis labels, colors, and SVG background
 - **Analyze chart** — sends the chart mapping + data sample to Claude for key insights
 - **SVG export** — HD, Full HD, Social, Square presets plus custom dimensions
-- **Light / dark mode** — toggle in the navbar; the chart template adapts automatically
+- **Light / dark mode** — toggle in the navbar; the chart template and map label colors adapt automatically
 - **Auto-sizing iframe** — the chart container grows to fit its content with no empty space
-- **Responsive landing page** — hero punchline scales from mobile through desktop; single universal prompt bar drives both chart generation and refinement
+- **Responsive landing page** — hero punchline scales from mobile through desktop; needle + thread SVG decoration; woven texture background
+- **Readable map labels** — city/point labels use paint-order stroke halo so they're legible on both dark land and light ocean in any theme
 
 ## How it works
 

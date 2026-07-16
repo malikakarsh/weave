@@ -174,9 +174,21 @@ export default function Home() {
     <main
       className="min-h-screen text-gray-900 dark:text-white flex flex-col overflow-x-hidden"
       style={dark ? {
-        background: "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.13) 0%, transparent 100%), #0f1117",
+        backgroundColor: "#0f1117",
+        backgroundImage: [
+          "repeating-linear-gradient(0deg,   rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 6px)",
+          "repeating-linear-gradient(90deg,  rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 6px)",
+          "repeating-linear-gradient(45deg,  rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 8px)",
+          "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.14) 0%, transparent 100%)",
+        ].join(", "),
       } : {
-        background: "linear-gradient(180deg, #f0f2f5 0%, #f7f8fa 100%)",
+        backgroundColor: "#f0f2f5",
+        backgroundImage: [
+          "repeating-linear-gradient(0deg,  rgba(0,0,0,0.045) 0px, rgba(0,0,0,0.045) 1px, transparent 1px, transparent 6px)",
+          "repeating-linear-gradient(90deg, rgba(0,0,0,0.045) 0px, rgba(0,0,0,0.045) 1px, transparent 1px, transparent 6px)",
+          "repeating-linear-gradient(45deg, rgba(0,0,0,0.015) 0px, rgba(0,0,0,0.015) 1px, transparent 1px, transparent 8px)",
+          "linear-gradient(180deg, #f0f2f5 0%, #f7f8fa 100%)",
+        ].join(", "),
       }}
     >
 
@@ -233,7 +245,50 @@ export default function Home() {
       {/* ── Landing state: vertically centered ── */}
       {!html && (
         <div className="flex flex-col flex-1 items-center justify-center px-6 py-12 text-center">
-          <div className="flex flex-col gap-5 w-full max-w-4xl">
+
+          <div className="relative flex flex-col gap-5 w-full max-w-4xl">
+              {/* Decorative needle + thread — behind all 3 punchline containers */}
+              <svg
+                className="absolute pointer-events-none"
+                viewBox="0 0 1400 520"
+                preserveAspectRatio="xMidYMid meet"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                style={{ width: "105%", height: "340px", left: "-2.5%", top: "-145px", pointerEvents: "none" }}
+              >
+                {/* Thread — sweeps from lower-left, big arc + loop, bumps to needle eye */}
+                <path
+                  d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1204 90,1235 82,1264 78"
+                  stroke={dark ? "rgba(167,139,250,0.55)" : "rgba(99,102,241,0.45)"}
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+                {/* Needle body */}
+                <path
+                  d="M 1272 68 L 1031 357 L 1035 361 L 1276 74 Z"
+                  fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"}
+                />
+                {/* Tip */}
+                <path
+                  d="M 1031 357 L 1033 367 L 1035 361 Z"
+                  fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"}
+                />
+                {/* Needle eye */}
+                <ellipse
+                  cx="1264"
+                  cy="78"
+                  rx="3.5"
+                  ry="9"
+                  transform="rotate(-46 1264 78)"
+                  fill={dark ? "#0f1117" : "#f0f2f5"}
+                />
+              </svg>
+
+            {/* Content lifted above SVG */}
+            <div className="relative flex flex-col gap-5" style={{ zIndex: 1 }}>
+
             {/* Heading */}
             <div className="mb-1" style={{ fontFamily: "var(--font-sora), sans-serif" }}>
 
@@ -244,7 +299,7 @@ export default function Home() {
                 </p>
                 <div className="flex items-baseline gap-2">
                   <span className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={{ background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>we can</span>
-                  <span className="text-4xl sm:text-6xl font-extrabold uppercase tracking-tight leading-none" style={{ color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" }}>WEAVE</span>
+                  <span className="text-4xl sm:text-6xl font-extrabold uppercase tracking-tight leading-none" style={{ ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#1e293b", textShadow: "0 0 40px rgba(30,41,59,0.15), 0 0 80px rgba(30,41,59,0.08)" }) }}>WEAVE</span>
                   <span className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={{ background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>it.</span>
                 </div>
               </div>
@@ -260,7 +315,7 @@ export default function Home() {
                   </p>
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-                  <span className="text-5xl lg:text-8xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" }}>WEAVE</span>
+                  <span className="text-5xl lg:text-8xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#1e293b", textShadow: "0 0 40px rgba(30,41,59,0.15), 0 0 80px rgba(30,41,59,0.08)" }) }}>WEAVE</span>
                   <span className="text-2xl lg:text-4xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>it.</span>
                 </div>
               </div>
@@ -272,10 +327,11 @@ export default function Home() {
 
             {/* CSV upload — full width bar */}
             <div
+              style={{ background: dragging ? "rgba(99,102,241,0.15)" : dark ? "rgba(20,22,35,0.8)" : "rgba(255,255,255,0.9)" }}
               className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-5 py-3.5 cursor-pointer transition-colors
                 ${dragging
-                  ? "border-indigo-400 bg-indigo-400/5"
-                  : "border-gray-300 dark:border-white/10 hover:border-indigo-400/60 dark:hover:border-indigo-500/40"}`}
+                  ? "border-indigo-400"
+                  : "border-white/25 hover:border-indigo-400/60"}`}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
@@ -295,11 +351,12 @@ export default function Home() {
               )}
             </div>
 
-            {/* Prompt + send — side by side */}
+            {/* Prompt + send */}
             <div className="flex gap-2">
               <input
-                className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl
-                  px-5 py-4 text-base placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
+                style={{ background: dark ? "rgba(20,22,35,0.8)" : "rgba(255,255,255,0.9)" }}
+                className="flex-1 border border-white/25 rounded-xl
+                  px-5 py-4 text-base placeholder-gray-400 dark:placeholder-white/40 text-gray-900 dark:text-white
                   focus:outline-none focus:border-indigo-400"
                 placeholder="e.g. show revenue over time for each company"
                 value={refinePrompt}
@@ -331,6 +388,7 @@ export default function Home() {
                 {error}
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
@@ -378,9 +436,8 @@ export default function Home() {
           <div
             className="w-full rounded-xl py-8"
             style={dark ? {
-              background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
-              border: "1px solid rgba(255,255,255,0.07)",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+              background: "#0d1018",
+              border: "1px solid rgba(255,255,255,0.08)",
             } : {
               background: "#f9fafb",
               border: "1px solid #f3f4f6",
@@ -419,27 +476,25 @@ export default function Home() {
           </div>
         )}
 
-        {/* Universal prompt bar — always visible */}
+        {/* Prompt bar — chart state */}
         <div className="flex gap-2">
           <input
             className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl
               px-4 py-3 text-sm placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
               focus:outline-none focus:border-indigo-400"
-            placeholder={html
-              ? "Refine the chart… e.g. make it a bar chart, filter to 2023, sort descending"
-              : "Describe your chart… e.g. show revenue over time for each company"}
+            placeholder="Refine the chart… e.g. make it a bar chart, filter to 2023, sort descending"
             value={refinePrompt}
             onChange={(e) => setRefinePrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-            disabled={loading || refining}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); refine(); } }}
+            disabled={refining}
           />
           <button
-            onClick={handleSubmit}
-            disabled={!file || !refinePrompt.trim() || loading || refining}
+            onClick={refine}
+            disabled={!refinePrompt.trim() || refining}
             className="flex items-center gap-2 rounded-xl bg-indigo-500 hover:bg-indigo-400
               disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 py-3 text-sm font-medium text-white shrink-0"
           >
-            {(loading || refining)
+            {refining
               ? <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -523,6 +578,7 @@ export default function Home() {
         )}
       </div>
       )}
+
     </main>
   );
 }

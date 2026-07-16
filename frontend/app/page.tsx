@@ -91,9 +91,10 @@ interface ChartCardProps {
   file: File;
   dark: boolean;
   onUpdate: (id: string, updates: Partial<ChartSession>) => void;
+  onDelete: (id: string) => void;
 }
 
-function ChartCard({ session, file, dark, onUpdate }: ChartCardProps) {
+function ChartCard({ session, file, dark, onUpdate, onDelete }: ChartCardProps) {
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [insights, setInsights] = useState<string[] | null>(null);
@@ -199,10 +200,27 @@ function ChartCard({ session, file, dark, onUpdate }: ChartCardProps) {
         background: "#0d1018",
         border: "1px solid rgba(255,255,255,0.08)",
       } : {
-        background: "#f9fafb",
+        background: "#ffffff",
         border: "1px solid #e5e7eb",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.13), 0 2px 8px rgba(0,0,0,0.07)",
       }}
     >
+      {/* Delete button */}
+      <div className="flex justify-end -mb-1">
+        <button
+          onClick={() => onDelete(session.id)}
+          title="Delete chart"
+          className="shrink-0 flex items-center justify-center w-8 h-8 rounded-md transition-colors cursor-pointer"
+          style={{ color: dark ? "rgba(255,255,255,0.25)" : "#d1d5db" }}
+          onMouseEnter={e => (e.currentTarget.style.color = dark ? "rgba(239,68,68,0.8)" : "#ef4444")}
+          onMouseLeave={e => (e.currentTarget.style.color = dark ? "rgba(255,255,255,0.25)" : "#d1d5db")}
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
       {/* Pending */}
       {session.status === "pending" && (
         <div className="flex items-center justify-center h-64 gap-3 text-sm text-gray-400 dark:text-white/30">
@@ -391,6 +409,10 @@ export default function Home() {
 
   function updateSession(id: string, updates: Partial<ChartSession>) {
     setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  }
+
+  function deleteSession(id: string) {
+    setSessions(prev => prev.filter(s => s.id !== id));
   }
 
   async function generateWith(f: File, p: string) {
@@ -878,6 +900,7 @@ export default function Home() {
                 file={file!}
                 dark={dark}
                 onUpdate={updateSession}
+                onDelete={deleteSession}
               />
             ))}
           </div>

@@ -357,6 +357,11 @@ backend/
 ├── evals/
 │   ├── cases.py                   # 44 test cases covering all chart types, refine, and fallbacks
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
+├── tests/
+│   ├── conftest.py                # shared fixtures (tmp_csv, flat_mapping)
+│   ├── test_data_loader.py        # DataLoader unit tests (type detection, load, validate)
+│   ├── test_transformer.py        # Transformer unit tests (all transform modes, sort, bucketing, range)
+│   └── test_llm_mapper.py         # LLMMapper unit tests (deterministic helpers + mocked provider)
 └── samples/
     ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
     ├── numeric_x.csv              # Age vs income dataset (Float x-axis)
@@ -439,8 +444,8 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - ~~Playground — sample dataset picker on landing page; backend serves CSVs via `GET /playground/csv/{id}`; reuses dashboard SSE pipeline; resets on own CSV upload~~
 - Deployed with a live URL (Digital Ocean)
 
-**Test suite**
-- pytest coverage for DataLoader, Transformer, and LLMMapper
+**Test suite** ✓
+- ~~pytest unit tests — DataLoader (type detection, CSV loading, validation), Transformer (all six transform modes, sort, date bucketing, range filtering), LLMMapper (fence stripping, schema description, validate, map/refine with mocked provider)~~
 
 **Streaming**
 - SSE progress stream — show live feedback while the LLM + pipeline runs instead of a blank wait

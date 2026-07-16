@@ -6,6 +6,33 @@ Turn a CSV file and a plain-English prompt into an interactive D3.js chart — n
 python main.py data.csv "show me revenue over time" --open
 ```
 
+## Web UI
+
+A Next.js frontend and FastAPI backend are included for browser-based chart generation.
+
+**Start the backend:**
+```bash
+cd backend
+uvicorn api.main:app --reload
+```
+
+**Start the frontend:**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Generate.
+
+### Web UI features
+- **Chart generation** — same pipeline as the CLI, rendered live in the browser
+- **Edit panel** — in-chart controls for title, axis labels, colors, and SVG background
+- **Analyze chart** — sends the chart mapping + data sample to Claude for key insights
+- **SVG export** — HD, Full HD, Social, Square presets plus custom dimensions
+- **Light / dark mode** — toggle in the navbar; the chart template adapts automatically
+- **Auto-sizing iframe** — the chart container grows to fit its content with no empty space
+
 ## How it works
 
 Weave runs a four-stage pipeline:
@@ -350,9 +377,9 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 
 ## What's next
 
-**API + UI**
-- FastAPI backend — `POST /chart`, `GET /health`
-- Frontend — file upload + prompt input + rendered chart in browser
+**API + UI** ✓
+- ~~FastAPI backend — `POST /chart`, `GET /health`~~
+- ~~Frontend — file upload + prompt input + rendered chart in browser~~
 - Deployed with a live URL (Railway / Render / Fly.io)
 
 **Test suite**

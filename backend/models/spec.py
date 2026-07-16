@@ -17,6 +17,9 @@ class AxisMapping(BaseModel):
     label_column: str | None = None      # column whose value labels each individual point (bubble name, etc.)
     facet_direction: str | None = None   # "rows" | "columns" — render as small multiples when set
     facet_free_y: bool = False           # True → each panel gets its own y scale; False → shared
+    title: str = ""
+    x_label: str = ""
+    y_label: str = ""
 
 
 class ChartConfig(BaseModel):

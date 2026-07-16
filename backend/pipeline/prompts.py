@@ -43,7 +43,7 @@ AXIS_MAPPING_SYSTEM = (
     "  x_column = longitude column (Float) — look for names like 'longitude', 'lon', 'lng', 'long'\n"
     "  y_column = latitude column (Float) — look for names like 'latitude', 'lat'\n"
     "  z_column = numeric column for symbol size (optional — larger value → bigger circle)\n"
-    "  label_column = string column for the place/location name shown in the tooltip (recommended)\n"
+    "  label_column = string column for the place/location name — shown as text on the map AND in the tooltip (set this when user says 'label each', 'show city names', etc.)\n"
     "  group_column = categorical column to color symbols by (optional)\n"
     "  aggregation is irrelevant for symbol_map — every row becomes one symbol, no aggregation.\n\n"
     "Also choose:\n"
@@ -95,11 +95,16 @@ AXIS_MAPPING_SYSTEM = (
     "  - Set from phrases like 'from Jan to July', 'between 2020 and 2022', 'in Q1', 'since 2023'\n"
     "  - 'from Jan to July' with no year → use the year present in the data (check samples)\n"
     "  - null means no bound on that side\n\n"
+    "Also generate human-readable labels:\n"
+    "- title: a concise chart title (e.g. 'Revenue by Company Over Time')\n"
+    "- x_label: a clean label for the x-axis (e.g. 'Year', 'Age', 'Country') — not the raw column name\n"
+    "- y_label: a clean label for the y-axis (e.g. 'Total Revenue ($)', 'Average Price', 'Count') — include units if inferable\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
     '{"chart_type": "line|area|stacked_area|stacked_bar|bar|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
     '"z_column": "<column name or null>", "label_column": "<column name or null>", '
-    '"facet_direction": "columns|rows|null", "facet_free_y": false}'
+    '"facet_direction": "columns|rows|null", "facet_free_y": false, '
+    '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>"}'
 )

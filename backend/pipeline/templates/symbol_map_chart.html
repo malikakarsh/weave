@@ -211,16 +211,20 @@
 
     const hasGroup = raw.length > 0 && "group" in raw[0];
     const hasZ     = raw.length > 0 && "z" in raw[0];
+    const hasLabel = raw.length > 0 && "label" in raw[0];
 
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const groupNames = hasGroup ? [...new Set(raw.map(d => d.group))] : [];
+    // When no group_column but label_column exists, color each symbol by its label
+    const labelNames = (!hasGroup && hasLabel) ? [...new Set(raw.map(d => d.label))] : [];
     const colorScale = hasGroup
       ? d3.scaleOrdinal(palette).domain(groupNames)
-      : null;
+      : (hasLabel ? d3.scaleOrdinal(palette).domain(labelNames) : null);
 
     const accentColor  = config.color || palette[0];
     const seriesColor  = {};
     if (hasGroup) groupNames.forEach(n => { seriesColor[n] = colorScale(n); });
+    if (!hasGroup && hasLabel) labelNames.forEach(n => { seriesColor[n] = colorScale(n); });
 
     // ── Floating color picker (grouped mode) ──────────────────────────────────
     const floatingPick = document.getElementById("floating-color-pick");
@@ -242,7 +246,7 @@
     }
 
     // ── Dimensions ────────────────────────────────────────────────────────────
-    const legendWidth  = hasGroup ? 130 : 0;
+    const legendWidth  = hasGroup ? 130 : (hasZ ? 110 : 0);
     const totalWidth   = config.width;
     const totalHeight  = config.height;
     const mapWidth     = totalWidth  - legendWidth;
@@ -357,7 +361,7 @@
         .attr("cx", d => projection([d.x, d.y])?.[0] ?? -999)
         .attr("cy", d => projection([d.x, d.y])?.[1] ?? -999)
         .attr("r", d => getR(d))
-        .attr("fill", d => hasGroup ? seriesColor[d.group] : accentColor)
+        .attr("fill", d => hasGroup ? seriesColor[d.group] : (hasLabel ? seriesColor[d.label] : accentColor))
         .attr("fill-opacity", 0.78)
         .attr("stroke", "#0d1929")
         .attr("stroke-width", 0.8)
@@ -369,6 +373,20 @@
           event.stopPropagation();
           openColorPicker(seriesColor[d.group], d.group, event);
         });
+
+      // ── City name labels ─────────────────────────────────────────────────
+      if (hasLabel) {
+        mapG.selectAll(".point-label")
+          .data(sorted)
+          .join("text")
+          .attr("class", "point-label")
+          .attr("x", d => (projection([d.x, d.y])?.[0] ?? -999) + getR(d) + 3)
+          .attr("y", d => (projection([d.x, d.y])?.[1] ?? -999) + 3)
+          .attr("fill", "#cbd5e1")
+          .attr("font-size", "8px")
+          .attr("pointer-events", "none")
+          .text(d => d.label || "");
+      }
 
       // ── Legend ────────────────────────────────────────────────────────────
       if (hasGroup) {
@@ -389,28 +407,26 @@
 
       // Size legend (if z column)
       if (hasZ) {
-        const lx  = hasGroup ? mapWidth + 12 : mapWidth - 80;
-        const ly0 = hasGroup ? 56 + groupNames.length * 22 + 14 : mapHeight - 80;
+        const lx  = mapWidth + 12;
+        const ly0 = hasGroup ? 56 + groupNames.length * 22 + 14 : 56;
         const ticks = [zMin + (zMax - zMin) * 0.25, zMin + (zMax - zMin) * 0.6, zMax];
         const lg = svg.append("g").attr("transform", `translate(${lx}, ${ly0})`);
-        if (hasGroup) {
-          lg.append("text")
-            .attr("x", 0).attr("y", 0)
-            .attr("fill", "#64748b").attr("font-size", "11px")
-            .text(config.y_label || "Size");
-        }
+        lg.append("text")
+          .attr("x", 0).attr("y", 0)
+          .attr("fill", "#64748b").attr("font-size", "11px")
+          .text(config.y_label || "Size");
         ticks.forEach((v, i) => {
           const r = rBase(v);
-          const yOff = hasGroup ? 16 + i * (r * 2 + 8) : i * 32;
+          const yOff = 16 + i * (r * 2 + 8);
           lg.append("circle")
-            .attr("cx", hasGroup ? 5 : r)
+            .attr("cx", 5)
             .attr("cy", yOff + r)
             .attr("r", r)
             .attr("fill", "none")
             .attr("stroke", "#475569")
             .attr("stroke-width", 0.8);
           lg.append("text")
-            .attr("x", hasGroup ? 16 : r * 2 + 6)
+            .attr("x", 16)
             .attr("y", yOff + r + 4)
             .attr("fill", "#64748b")
             .attr("font-size", "10px")

@@ -251,7 +251,7 @@
     // Margins: same for both layouts — rows labels render inside panels
     const mLeft   = 60;
     const mRight  = 24;
-    const mTop    = 36;
+    const mTop    = 56;
     const mBottom = 48;
     const gap     = 16;
 
@@ -411,7 +411,7 @@
         // Columns: centered label above the panel
         panel.append("text")
           .attr("class", "panel-label").attr("data-group", grp.group)
-          .attr("x", panelW / 2).attr("y", -6)
+          .attr("x", panelW / 2).attr("y", -10)
           .attr("text-anchor", "middle")
           .attr("fill", color).attr("font-size", "12px").attr("font-weight", "600")
           .text(grp.group);

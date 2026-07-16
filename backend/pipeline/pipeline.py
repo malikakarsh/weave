@@ -36,6 +36,9 @@ class Pipeline:
             "chart_type":      mapping.chart_type,
             "facet_direction": mapping.facet_direction,
             "facet_free_y":    mapping.facet_free_y,
+            "title":           mapping.title or config.title,
+            "x_label":         mapping.x_label or config.x_label,
+            "y_label":         mapping.y_label or config.y_label,
         })
 
         data = self._transformer.transform(rows, mapping)

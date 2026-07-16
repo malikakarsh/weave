@@ -92,10 +92,9 @@ interface ChartCardProps {
   dark: boolean;
   onUpdate: (id: string, updates: Partial<ChartSession>) => void;
   onDelete: (id: string) => void;
-  onRegenerate: (id: string, prompt: string) => void;
 }
 
-function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: ChartCardProps) {
+function ChartCard({ session, file, dark, onUpdate, onDelete }: ChartCardProps) {
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [insights, setInsights] = useState<string[] | null>(null);
@@ -135,13 +134,6 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
   async function refine() {
     if (!refinePrompt.trim() || !session.mapping) return;
     const instruction = refinePrompt.trim();
-
-    if (/^regenerate$/i.test(instruction)) {
-      setRefinePrompt("");
-      onRegenerate(session.id, session.subPrompt);
-      return;
-    }
-
     setRefining(true);
     setRefinePrompt("");
 
@@ -421,22 +413,6 @@ export default function Home() {
 
   function deleteSession(id: string) {
     setSessions(prev => prev.filter(s => s.id !== id));
-  }
-
-  async function regenerateSession(id: string, prompt: string) {
-    if (!file) return;
-    updateSession(id, { status: "pending", html: null, mapping: null, error: null, history: [] });
-    const body = new FormData();
-    body.append("file", file);
-    body.append("prompt", prompt);
-    try {
-      const res = await fetch(`${API}/chart`, { method: "POST", body });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail ?? "Unknown error");
-      updateSession(id, { status: "done", html: data.html, mapping: data.mapping, history: [{ role: "user", content: prompt }] });
-    } catch (e: unknown) {
-      updateSession(id, { status: "error", error: e instanceof Error ? e.message : "Regeneration failed", history: [] });
-    }
   }
 
   async function generateWith(f: File, p: string) {
@@ -925,7 +901,6 @@ export default function Home() {
                 dark={dark}
                 onUpdate={updateSession}
                 onDelete={deleteSession}
-                onRegenerate={regenerateSession}
               />
             ))}
           </div>

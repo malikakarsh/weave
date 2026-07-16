@@ -56,7 +56,7 @@ def health():
 async def generate_chart(
     file: UploadFile = File(..., description="CSV file to visualize"),
     prompt: str = Form(..., description="Plain-English description of the chart"),
-    provider: str = Form(default="anthropic"),
+    provider: str | None = Form(default=None),
     model: str | None = Form(default=None),
     title: str = Form(default=""),
     x_label: str = Form(default=""),
@@ -226,7 +226,7 @@ async def generate_insights(
     file: UploadFile = File(...),
     mapping: str = Form(...),
     prompt: str = Form(default=""),
-    provider: str = Form(default="anthropic"),
+    provider: str | None = Form(default=None),
     model: str | None = Form(default=None),
 ):
     csv_bytes = await file.read()

@@ -82,6 +82,25 @@ DataLoader → LLMMapper → Transformer → Templater
 | `network` | Node-link relationships | x (source), y (target), optional z (edge weight) |
 | `symbol_map` | Geographic point data on a world map | x (longitude), y (latitude), optional z (size), label, group |
 
+### Planned chart types
+
+These are not yet supported. Weave currently falls back to the closest available alternative (noted below) when these are requested.
+
+| Type | Best for | Planned fallback today |
+|---|---|---|
+| `box_plot` | Distribution summary (median, quartiles, outliers) per category | bar + mean |
+| `violin` | Full distribution shape per category (kernel density) | bar + mean |
+| `histogram` | Frequency distribution of a single numeric variable | bar + count with binning |
+| `candlestick` | OHLC financial price data over time | line |
+| `waterfall` | Cumulative change — running total with positive/negative bars | bar |
+| `funnel` | Step-by-step conversion / drop-off rates | bar (sorted desc) |
+| `treemap` | Hierarchical part-of-whole with nested rectangles | pie / bar |
+| `sankey` | Flow of values between stages or nodes | network |
+| `calendar_heatmap` | Daily value intensity across a full year (like GitHub activity) | heatmap |
+| `radar` / `spider` | Multi-metric comparison across categories on a radial axis | grouped bar |
+| `bump` | Rank over time — how entities rise and fall in position (y = rank, x = time, one line per entity) | line |
+| `streamgraph` | Flowing stacked area centered on a baseline — shows volume and composition over time with an organic, river-like shape | stacked_area |
+
 ### Faceting (small multiples)
 
 Any `line`, `area`, or `scatter` chart with a `group_column` can be rendered as small multiples — one panel per group — instead of overlaid series:

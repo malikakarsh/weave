@@ -272,7 +272,7 @@
 
     // ── Dimensions ────────────────────────────────────────────────────────────
     const legendWidth = isGrouped ? 130 : 0;
-    const margin = { top: 32, right: 16 + legendWidth, bottom: 56, left: 72 };
+    const margin = { top: 32, right: 16 + legendWidth, bottom: xKeys.length > 6 ? 90 : 56, left: 72 };
     const totalWidth  = config.width;
     const totalHeight = config.height;
     const width  = totalWidth  - margin.left - margin.right;

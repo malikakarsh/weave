@@ -23,6 +23,14 @@ def _parse_dt(s: str) -> datetime | None:
     return None
 
 
+def _to_float(s: str) -> float | None:
+    """Parse a row value as float; return None if it can't be converted."""
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
 def _parse_comparable(s: str):
     """Return a datetime or float for range comparison, or the raw string."""
     d = _parse_dt(s)
@@ -131,7 +139,7 @@ class Transformer:
                 buckets[key] = []
             if mapping.z_column:
                 w = row.get(mapping.z_column, "").strip()
-                buckets[key].append(float(w) if w else None)
+                buckets[key].append(_to_float(w) if w else None)
             else:
                 buckets[key].append(1.0)
 
@@ -177,7 +185,7 @@ class Transformer:
                     y_seen.append(y_cat)
             if mapping.z_column:
                 z_str = row.get(mapping.z_column, "").strip()
-                buckets[key].append(float(z_str) if z_str else None)
+                buckets[key].append(_to_float(z_str) if z_str else None)
             else:
                 buckets[key].append(1.0)
 
@@ -197,15 +205,14 @@ class Transformer:
             lat_str = row.get(mapping.y_column, "").strip()
             if not lon_str or not lat_str:
                 continue
-            try:
-                lon = float(lon_str)
-                lat = float(lat_str)
-            except ValueError:
+            lon = _to_float(lon_str)
+            lat = _to_float(lat_str)
+            if lon is None or lat is None:
                 continue
             point: dict = {"x": lon, "y": lat}
             if mapping.z_column:
                 z_str = row.get(mapping.z_column, "").strip()
-                point["z"] = float(z_str) if z_str else None
+                point["z"] = _to_float(z_str) if z_str else None
             if mapping.label_column:
                 point["label"] = row.get(mapping.label_column, "").strip()
             if mapping.group_column:
@@ -229,10 +236,10 @@ class Transformer:
                 x_val = float(x)
             except (ValueError, TypeError):
                 x_val = x
-            point: dict = {"x": x_val, "y": float(y_str) if y_str else None, "label": label}
+            point: dict = {"x": x_val, "y": _to_float(y_str) if y_str else None, "label": label}
             if mapping.z_column:
                 z_str = row.get(mapping.z_column, "").strip()
-                point["z"] = float(z_str) if z_str else None
+                point["z"] = _to_float(z_str) if z_str else None
             result.append(point)
         return result
 
@@ -253,10 +260,10 @@ class Transformer:
                     buckets[x] = []
                     z_buckets[x] = []
                     order.append(x)
-                buckets[x].append(1.0 if mapping.aggregation == "count" else (float(y) if y else None))
+                buckets[x].append(1.0 if mapping.aggregation == "count" else (_to_float(y) if y else None))
                 if mapping.z_column:
                     z = row.get(mapping.z_column, "").strip()
-                    z_buckets[x].append(float(z) if z else None)
+                    z_buckets[x].append(_to_float(z) if z else None)
 
         result = [{"x": x, "y": self._agg(buckets[x], mapping.aggregation)} for x in order]
         if mapping.z_column:
@@ -290,10 +297,10 @@ class Transformer:
                     buckets[group][x] = []
                     z_buckets[group][x] = []
                     x_order[group].append(x)
-                buckets[group][x].append(1.0 if mapping.aggregation == "count" else (float(y) if y else None))
+                buckets[group][x].append(1.0 if mapping.aggregation == "count" else (_to_float(y) if y else None))
                 if mapping.z_column:
                     z = row.get(mapping.z_column, "").strip()
-                    z_buckets[group][x].append(float(z) if z else None)
+                    z_buckets[group][x].append(_to_float(z) if z else None)
 
         # Aggregate y (and optional z) values per (group, x)
         result = []

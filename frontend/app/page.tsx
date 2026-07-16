@@ -792,7 +792,7 @@ export default function Home() {
           {hasSessions && (
             <button
               onClick={() => { setSessions([]); setPrompt(""); setError(null); setFile(null); setIsPlayground(false); setPlaygroundName(""); }}
-              className="text-xs text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 transition-colors mr-3"
+              className="text-xs text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 transition-colors mr-3 cursor-pointer"
             >
               ← New
             </button>
@@ -801,7 +801,7 @@ export default function Home() {
           <button
             onClick={() => setDark(!dark)}
             className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10
-              bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors px-1 py-1"
+              bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors px-1 py-1 cursor-pointer"
             title="Toggle theme"
           >
             <span className={`flex items-center justify-center w-7 h-7 rounded-full transition-all

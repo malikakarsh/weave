@@ -442,6 +442,7 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - ~~CSV validation — size limit (10 MB), encoding check, null-byte detection, parse verification, formula injection guard~~
 - ~~Color refinement — `color` and `category_colors` fields in `AxisMapping`; overall color and per-category overrides via natural language~~
 - ~~Playground — sample dataset picker on landing page; backend serves CSVs via `GET /playground/csv/{id}`; reuses dashboard SSE pipeline; resets on own CSV upload~~
+- ~~Navbar cursor fix — pointer cursor on theme toggle and "← New" button~~
 - Deployed with a live URL (Digital Ocean)
 
 **Test suite** ✓

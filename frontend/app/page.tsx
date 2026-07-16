@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { get, set, del } from "idb-keyval";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -38,7 +39,7 @@ const PLAYGROUND_DATASETS = [
     name: "Diamonds",
     description: "Prices and attributes: cut, color, clarity, carat",
     emoji: "💎",
-    prompt: "show average diamond price by cut as a bar chart, and price distribution by cut as a box-style bar chart",
+    prompt: "show average diamond price by cut as a bar chart, and show average diamond price with diamond color on the x-axis and cut as the group column as a bar chart (not stacked)",
   },
   {
     id: "restaurants",
@@ -462,12 +463,75 @@ export default function Home() {
   const [playgroundName, setPlaygroundName] = useState("");
   const [loadingPlayground, setLoadingPlayground] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hydrated = useRef(false);
 
   useEffect(() => {
     const root = document.documentElement;
     if (dark) root.classList.add("dark");
     else root.classList.remove("dark");
   }, [dark]);
+
+  // ── Restore persisted state on mount ────────────────────────────────────────
+  useEffect(() => {
+    async function restore() {
+      try {
+        const [storedDark, storedFile, storedSessions, storedPlayground] = await Promise.all([
+          get<boolean>("weave:dark"),
+          get<{ name: string; type: string; bytes: ArrayBuffer }>("weave:file"),
+          get<ChartSession[]>("weave:sessions"),
+          get<{ isPlayground: boolean; playgroundName: string }>("weave:playground"),
+        ]);
+
+        if (storedDark !== undefined) setDark(storedDark);
+
+        if (storedFile) {
+          const f = new File([storedFile.bytes], storedFile.name, { type: storedFile.type });
+          setFile(f);
+        }
+
+        if (storedSessions?.length) {
+          // Any session that was mid-generation when the page closed becomes an error
+          setSessions(storedSessions.map(s =>
+            s.status === "pending"
+              ? { ...s, status: "error", stage: null, error: "Generation interrupted — please regenerate" }
+              : s
+          ));
+        }
+
+        if (storedPlayground) {
+          setIsPlayground(storedPlayground.isPlayground);
+          setPlaygroundName(storedPlayground.playgroundName);
+        }
+      } catch { /* IndexedDB unavailable (private browsing, etc.) — silent */ }
+      hydrated.current = true;
+    }
+    restore();
+  }, []);
+
+  // ── Persist on change (skip until hydration is complete) ────────────────────
+  useEffect(() => {
+    if (!hydrated.current) return;
+    set("weave:dark", dark).catch(() => {});
+  }, [dark]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (!file) { del("weave:file").catch(() => {}); return; }
+    file.arrayBuffer().then(bytes =>
+      set("weave:file", { name: file.name, type: file.type, bytes }).catch(() => {})
+    );
+  }, [file]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (!sessions.length) { del("weave:sessions").catch(() => {}); return; }
+    set("weave:sessions", sessions).catch(() => {});
+  }, [sessions]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    set("weave:playground", { isPlayground, playgroundName }).catch(() => {});
+  }, [isPlayground, playgroundName]);
 
   function handleFile(f: File | null) {
     if (!f) return;

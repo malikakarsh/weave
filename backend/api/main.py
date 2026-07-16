@@ -67,7 +67,7 @@ PLAYGROUND_DATASETS = [
         "description": "Diamond prices and attributes including cut, color, clarity, and carat.",
         "emoji": "💎",
         "csv": "diamonds.csv",
-        "prompt": "show average diamond price by cut as a bar chart, and show a heatmap of average diamond price by cut and color",
+        "prompt": "show average diamond price by cut as a bar chart, and show average diamond price with diamond color on the x-axis and cut as the group column as a bar chart (not stacked)",
     },
     {
         "id": "restaurants",

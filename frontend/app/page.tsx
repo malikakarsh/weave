@@ -120,10 +120,29 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-white dark:bg-[#13151f] text-gray-900 dark:text-white flex flex-col">
+    <main
+      className="min-h-screen text-gray-900 dark:text-white flex flex-col"
+      style={dark ? {
+        background: "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.13) 0%, transparent 100%), #0f1117",
+      } : {
+        background: "linear-gradient(180deg, #f0f2f5 0%, #f7f8fa 100%)",
+      }}
+    >
 
       <div className="sticky top-0 z-10">
-      <header className="w-full bg-white dark:bg-[#0d0f17] border-b border-gray-200 dark:border-white/10 shadow-sm dark:shadow-[0_4px_24px_rgba(0,0,0,0.4)] flex items-center gap-4 px-8 h-[76px]">
+      <header
+        className="w-full flex items-center gap-4 px-8 h-[76px] border-b"
+        style={dark ? {
+          background: "linear-gradient(to bottom, #161822, #0f1117)",
+          borderColor: "rgba(255,255,255,0.07)",
+          boxShadow: "0 1px 0 rgba(255,255,255,0.03), 0 4px 24px rgba(0,0,0,0.4)",
+        } : {
+          background: "rgba(255,255,255,0.82)",
+          backdropFilter: "blur(12px)",
+          borderColor: "#e4e6ea",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        }}
+      >
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center shrink-0">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -168,7 +187,7 @@ export default function Home() {
             className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 cursor-pointer transition-colors
               ${dragging
                 ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-400/5"
-                : "border-gray-300 dark:border-white/20 hover:border-gray-400 dark:hover:border-white/40"}`}
+                : "border-gray-300 dark:border-white/10 hover:border-gray-400 dark:hover:border-indigo-500/40"}`}
             onClick={() => fileInputRef.current?.click()}
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
@@ -217,7 +236,17 @@ export default function Home() {
 
         {/* Chart */}
         {html && (
-          <div className="w-full rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50 dark:bg-transparent py-8">
+          <div
+            className="w-full rounded-xl py-8"
+            style={dark ? {
+              background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+            } : {
+              background: "#f9fafb",
+              border: "1px solid #f3f4f6",
+            }}
+          >
             <iframe
               ref={iframeRef}
               srcDoc={html}
@@ -229,7 +258,7 @@ export default function Home() {
                 border: "none",
                 display: "block",
                 borderRadius: "12px",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
               }}
               sandbox="allow-scripts allow-same-origin"
             />

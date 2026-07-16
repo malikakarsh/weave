@@ -258,7 +258,7 @@
       : raw.map(d => d.y).filter(y => y !== null);
     const maxY = (d3.max(allY) || 0) * 1.2;
     const widestTick = d3.format(config.y_format)(maxY);
-    const leftMargin = Math.max(56, Math.min(widestTick.length * 7.5 + 20, 150));
+    const leftMargin = Math.max(64, Math.min(widestTick.length * 7.5 + 40, 160));
 
     // Dimensions
     const legendWidth = isGrouped ? 130 : 0;
@@ -337,7 +337,7 @@
 
     const yLabelEl = svg.append("text")
       .attr("transform", "rotate(-90)")
-      .attr("x", -(margin.top + height / 2)).attr("y", 16)
+      .attr("x", -(margin.top + height / 2)).attr("y", 14)
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(config.y_label || "");
 

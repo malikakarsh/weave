@@ -1,7 +1,7 @@
 import json
 
 from models import AxisMapping, Schema
-from pipeline.prompts import AXIS_MAPPING_SYSTEM
+from pipeline.prompts import AXIS_MAPPING_SYSTEM, REFINE_SYSTEM
 from pipeline.providers import LLMProvider, AnthropicProvider
 
 
@@ -41,6 +41,38 @@ class LLMMapper:
         mapping = AxisMapping(**data)
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping
+
+    def refine(self, current_mapping: AxisMapping, history: list[dict], instruction: str) -> AxisMapping:
+        """Return an updated AxisMapping by applying a natural-language instruction to the current one."""
+        history_text = "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in history
+        )
+        user_msg = (
+            f"Current mapping:\n{current_mapping.model_dump_json(indent=2)}\n\n"
+            f"Conversation history:\n{history_text}\n\n"
+            f"New instruction: {instruction}"
+        )
+        raw = self._provider.complete(REFINE_SYSTEM, user_msg)
+        raw = self._strip_fences(raw)
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"LLM returned invalid JSON: {raw!r}") from e
+
+        for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
+                    "z_column", "label_column", "facet_direction"):
+            if data.get(key) == "null":
+                data[key] = None
+
+        # Required string fields must never be None — fall back to current mapping
+        current = current_mapping.model_dump()
+        for key in ("aggregation", "sort_order", "chart_type", "x_column", "y_column"):
+            if not data.get(key):
+                data[key] = current[key]
+
+        return AxisMapping(**data)
 
     def _strip_fences(self, text: str) -> str:
         if text.startswith("```"):

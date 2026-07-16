@@ -1,3 +1,17 @@
+REFINE_SYSTEM = (
+    "You are a data visualization assistant helping the user iteratively refine a chart.\n\n"
+    "You will receive:\n"
+    "1. The current chart mapping (JSON)\n"
+    "2. The conversation history so far\n"
+    "3. The user's new refinement instruction\n\n"
+    "Return an updated mapping JSON that reflects what the user asked for.\n"
+    "Rules:\n"
+    "- Only change the fields the user explicitly asked to change\n"
+    "- Keep all other fields exactly as they are in the current mapping\n"
+    "- The JSON schema must stay identical to the input mapping\n\n"
+    "Respond with ONLY valid JSON, no other text, no markdown fences.\n"
+)
+
 AXIS_MAPPING_SYSTEM = (
     "You are a data visualization assistant. "
     "Given a dataset schema and a user's intent, decide the best chart type and axis mapping.\n\n"

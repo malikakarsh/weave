@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from models import ChartConfig
+from models import AxisMapping, ChartConfig
 from pipeline.data_loader import DataLoader
 from pipeline.pipeline import Pipeline
 from pipeline.providers import get_provider
@@ -45,6 +45,112 @@ _INSIGHTS_PROMPT = (
     "Each insight should be one sentence. Be specific — mention actual values, names, or dates where relevant. "
     "Respond with a JSON array of strings, no other text. Example: [\"insight one\", \"insight two\"]"
 )
+
+
+def _inject(html: str) -> str:
+    """Inject iframe helpers: width reset, ResizeObserver, theme handler, SVG export."""
+    injected = (
+        "<style>"
+        "html,body{display:block!important;margin:0!important;padding:0!important;"
+        "min-height:0!important;height:auto!important;overflow:hidden!important;}"
+        "#chart{width:100%!important;padding:20px 24px!important;margin:0!important;"
+        "border-radius:0!important;box-shadow:none!important;"
+        "box-sizing:border-box!important;}"
+        "svg{display:block!important;width:100%!important;height:auto!important;}"
+        "</style>"
+        "<script>"
+        "(function(){"
+        "var ch=document.getElementById('chart');"
+        "if(ch){ch.style.width='';}"
+        "var sv=document.querySelector('svg');"
+        "if(sv){sv.style.width='';sv.style.height='';}"
+        "})();"
+        "window.addEventListener('load',function(){"
+        "document.querySelectorAll('button').forEach(function(b){"
+        "if(/Copy SVG|Download SVG/.test(b.textContent))b.style.display='none';});"
+        "document.querySelectorAll('.edit-label').forEach(function(el){"
+        "if(el.textContent.trim()==='Chart Size'){"
+        "var row=el.closest('.edit-row');if(row){"
+        "var sib=row.nextElementSibling;"
+        "row.style.display='none';"
+        "if(sib&&sib.classList.contains('edit-divider'))sib.style.display='none';"
+        "}}});"
+        "function observe(){"
+        "var sv=document.querySelector('svg');"
+        "var target=sv||document.getElementById('chart')||document.body;"
+        "var ro=new ResizeObserver(function(){"
+        "var h=target.getBoundingClientRect().height||target.offsetHeight;"
+        "if(h>10)window.parent.postMessage({type:'weave-height',height:Math.ceil(h)},'*');"
+        "});ro.observe(target);"
+        "}"
+        "observe();"
+        "var _mo=new MutationObserver(function(ms,obs){"
+        "if(document.querySelector('svg')){obs.disconnect();observe();}"
+        "});_mo.observe(document.body,{childList:true,subtree:true});"
+        "});"
+        "window.addEventListener('message',function(e){"
+        "if(e.data&&e.data.type==='weave-theme'){"
+        "var sid='weave-light';var ex=document.getElementById(sid);"
+        "if(ex)ex.remove();"
+        "var bgRect=document.querySelector('rect.background');"
+        "if(window._weaveBgObs){window._weaveBgObs.disconnect();window._weaveBgObs=null;}"
+        "if(!e.data.dark){"
+        "var s=document.createElement('style');s.id=sid;"
+        "s.textContent="
+        "'html,body{background:#f8f9fb!important}'"
+        "+'text{fill:#1f2937!important}'"
+        "+'path.land{fill:#d6dde5!important}'"
+        "+'path.graticule,.graticule{stroke:#c4cdd6!important}'"
+        "+'path.sphere,.sphere{fill:#dbe9f4!important;stroke:#b8d0e8!important}'"
+        "+'line.grid-line,.grid line{stroke:#e2e8f0!important}'"
+        "+'path.axis-line,.axis .domain,.axis line{stroke:#cbd5e1!important}'"
+        "+'path.bar{opacity:0.9}'"
+        "+'#edit-panel,.edit-panel{background:#ffffff!important;border-color:#e2e8f0!important;color:#1f2937!important}'"
+        "+'#edit-panel input,.edit-panel input{background:#f1f5f9!important;border-color:#cbd5e1!important;color:#1f2937!important}'"
+        "+'#edit-panel input::placeholder,.edit-panel input::placeholder{color:#94a3b8!important}'"
+        "+'#edit-panel label,.edit-label,.edit-hint{color:#475569!important}'"
+        "+'#btn-save,button#btn-save,#btn-edit,button#btn-edit,.chart-actions button{background:#e2e8f0!important;color:#1e293b!important;border-color:#cbd5e1!important}'"
+        "+'#edit-panel .edit-divider{border-color:#e2e8f0!important}';"
+        "document.head.appendChild(s);"
+        "var ch=document.getElementById('chart');"
+        "if(ch)ch.style.background='#f8f9fb';"
+        "if(bgRect){bgRect.style.fill='#f0f2f5';"
+        "window._weaveBgObs=new MutationObserver(function(ms){"
+        "ms.forEach(function(m){if(m.attributeName==='fill')"
+        "m.target.style.fill=m.target.getAttribute('fill');});});"
+        "window._weaveBgObs.observe(bgRect,{attributes:true,attributeFilter:['fill']});}"
+        "}else{"
+        "var ch=document.getElementById('chart');"
+        "if(ch)ch.style.background='';"
+        "if(bgRect)bgRect.style.fill='';"
+        "}"
+        "return;}"
+        "if(!e.data||e.data.type!=='weave-export')return;"
+        "var sv=document.querySelector('svg');if(!sv)return;"
+        "var cl=sv.cloneNode(true);"
+        "cl.setAttribute('width',e.data.width);"
+        "cl.setAttribute('height',e.data.height);"
+        "var css='';"
+        "try{for(var i=0;i<document.styleSheets.length;i++){"
+        "try{var r=document.styleSheets[i].cssRules||[];"
+        "for(var j=0;j<r.length;j++)css+=r[j].cssText+'\\n';"
+        "}catch(x){}}}catch(x){};"
+        "if(css){var st=document.createElementNS('http://www.w3.org/2000/svg','style');"
+        "st.textContent=css;cl.insertBefore(st,cl.firstChild);};"
+        "var bg=cl.querySelector('rect.background,rect[class=\"background\"],.sphere');"
+        "var chartEl=document.getElementById('chart');"
+        "var liveBg=(chartEl&&window.getComputedStyle(chartEl).backgroundColor)||window.getComputedStyle(document.body).backgroundColor||'#1a1d27';"
+        "if(bg){bg.setAttribute('fill',liveBg);}else{"
+        "var bgr=document.createElementNS('http://www.w3.org/2000/svg','rect');"
+        "bgr.setAttribute('width','100%');bgr.setAttribute('height','100%');"
+        "bgr.setAttribute('fill',liveBg);"
+        "cl.insertBefore(bgr,cl.firstChild);};"
+        "var s=new XMLSerializer().serializeToString(cl);"
+        "window.parent.postMessage({type:'weave-svg',content:s,w:e.data.width,h:e.data.height},'*');"
+        "});"
+        "</script>"
+    )
+    return html.replace("</body>", injected + "</body>")
 
 
 @app.get("/health")
@@ -93,121 +199,7 @@ async def generate_chart(
         pipeline = Pipeline(llm_provider)
         html, mapping = pipeline.run(tmp_path, prompt, config, sort_override=sort)
 
-        # Inject helper script: report height after D3 renders + handle export requests + hide duplicate buttons
-        injected = (
-            "<style>"
-            # Strip card chrome, keep breathing room around SVG
-            "html,body{display:block!important;margin:0!important;padding:0!important;"
-            "min-height:0!important;height:auto!important;overflow:hidden!important;}"
-            "#chart{width:100%!important;padding:20px 24px!important;margin:0!important;"
-            "border-radius:0!important;box-shadow:none!important;"
-            "box-sizing:border-box!important;}"
-            "svg{display:block!important;width:100%!important;height:auto!important;}"
-            "</style>"
-            "<script>"
-            # Clear any inline px width the template JS sets so CSS 100% takes over
-            "(function(){"
-            "var ch=document.getElementById('chart');"
-            "if(ch){ch.style.width='';}"
-            "var sv=document.querySelector('svg');"
-            "if(sv){sv.style.width='';sv.style.height='';}"
-            "})();"
-            # On load: hide duplicate buttons and chart-size controls
-            "window.addEventListener('load',function(){"
-            "document.querySelectorAll('button').forEach(function(b){"
-            "if(/Copy SVG|Download SVG/.test(b.textContent))b.style.display='none';});"
-            "document.querySelectorAll('.edit-label').forEach(function(el){"
-            "if(el.textContent.trim()==='Chart Size'){"
-            "var row=el.closest('.edit-row');if(row){"
-            "var sib=row.nextElementSibling;"
-            "row.style.display='none';"
-            "if(sib&&sib.classList.contains('edit-divider'))sib.style.display='none';"
-            "}}});"
-            # ResizeObserver on the SVG — fires once it renders (including after async d3.json)
-            "function observe(){"
-            "var sv=document.querySelector('svg');"
-            "var target=sv||document.getElementById('chart')||document.body;"
-            "var ro=new ResizeObserver(function(){"
-            "var h=target.getBoundingClientRect().height||target.offsetHeight;"
-            "if(h>10)window.parent.postMessage({type:'weave-height',height:Math.ceil(h)},'*');"
-            "});ro.observe(target);"
-            "}"
-            "observe();"
-            # symbol_map renders asynchronously — re-observe once SVG appears
-            "var _mo=new MutationObserver(function(ms,obs){"
-            "if(document.querySelector('svg')){obs.disconnect();observe();}"
-            "});_mo.observe(document.body,{childList:true,subtree:true});"
-            "});"
-            # Handle theme toggle and export via postMessage
-            "window.addEventListener('message',function(e){"
-            "if(e.data&&e.data.type==='weave-theme'){"
-            "var sid='weave-light';var ex=document.getElementById(sid);"
-            "if(ex)ex.remove();"
-            "var bgRect=document.querySelector('rect.background');"
-            # Always disconnect any previous bg observer
-            "if(window._weaveBgObs){window._weaveBgObs.disconnect();window._weaveBgObs=null;}"
-            "if(!e.data.dark){"
-            "var s=document.createElement('style');s.id=sid;"
-            "s.textContent="
-            "'html,body{background:#f8f9fb!important}'"
-            "+'text{fill:#1f2937!important}'"
-            "+'path.land{fill:#d6dde5!important}'"
-            "+'path.graticule,.graticule{stroke:#c4cdd6!important}'"
-            "+'path.sphere,.sphere{fill:#dbe9f4!important;stroke:#b8d0e8!important}'"
-            "+'line.grid-line,.grid line{stroke:#e2e8f0!important}'"
-            "+'path.axis-line,.axis .domain,.axis line{stroke:#cbd5e1!important}'"
-            "+'path.bar{opacity:0.9}'"
-            "+'#edit-panel,.edit-panel{background:#ffffff!important;border-color:#e2e8f0!important;color:#1f2937!important}'"
-            "+'#edit-panel input,.edit-panel input{background:#f1f5f9!important;border-color:#cbd5e1!important;color:#1f2937!important}'"
-            "+'#edit-panel input::placeholder,.edit-panel input::placeholder{color:#94a3b8!important}'"
-            "+'#edit-panel label,.edit-label,.edit-hint{color:#475569!important}'"
-            "+'#btn-save,button#btn-save,#btn-edit,button#btn-edit,.chart-actions button{background:#e2e8f0!important;color:#1e293b!important;border-color:#cbd5e1!important}'"
-            "+'#edit-panel .edit-divider{border-color:#e2e8f0!important}';"
-            "document.head.appendChild(s);"
-            # Set #chart background via inline style so picker (also inline style) can override it
-            "var ch=document.getElementById('chart');"
-            "if(ch)ch.style.background='#f8f9fb';"
-            # Also handle SVG rect.background for map charts
-            "if(bgRect){bgRect.style.fill='#f0f2f5';"
-            "window._weaveBgObs=new MutationObserver(function(ms){"
-            "ms.forEach(function(m){if(m.attributeName==='fill')"
-            "m.target.style.fill=m.target.getAttribute('fill');});});"
-            "window._weaveBgObs.observe(bgRect,{attributes:true,attributeFilter:['fill']});}"
-            "}else{"
-            # Dark mode: clear inline style so template CSS takes back over
-            "var ch=document.getElementById('chart');"
-            "if(ch)ch.style.background='';"
-            "if(bgRect)bgRect.style.fill='';"
-            "}"
-            "return;}"
-            "if(!e.data||e.data.type!=='weave-export')return;"
-            "var sv=document.querySelector('svg');if(!sv)return;"
-            "var cl=sv.cloneNode(true);"
-            "cl.setAttribute('width',e.data.width);"
-            "cl.setAttribute('height',e.data.height);"
-            # Collect all CSS rules from every stylesheet and embed in the SVG
-            "var css='';"
-            "try{for(var i=0;i<document.styleSheets.length;i++){"
-            "try{var r=document.styleSheets[i].cssRules||[];"
-            "for(var j=0;j<r.length;j++)css+=r[j].cssText+'\\n';"
-            "}catch(x){}}}catch(x){};"
-            "if(css){var st=document.createElementNS('http://www.w3.org/2000/svg','style');"
-            "st.textContent=css;cl.insertBefore(st,cl.firstChild);};"
-            # Ensure background rect exists — use the chart container's live background (set by SVG bg picker)
-            "var bg=cl.querySelector('rect.background,rect[class=\"background\"],.sphere');"
-            "var chartEl=document.getElementById('chart');"
-            "var liveBg=(chartEl&&window.getComputedStyle(chartEl).backgroundColor)||window.getComputedStyle(document.body).backgroundColor||'#1a1d27';"
-            "if(bg){bg.setAttribute('fill',liveBg);}else{"
-            "var bgr=document.createElementNS('http://www.w3.org/2000/svg','rect');"
-            "bgr.setAttribute('width','100%');bgr.setAttribute('height','100%');"
-            "bgr.setAttribute('fill',liveBg);"
-            "cl.insertBefore(bgr,cl.firstChild);};"
-            "var s=new XMLSerializer().serializeToString(cl);"
-            "window.parent.postMessage({type:'weave-svg',content:s,w:e.data.width,h:e.data.height},'*');"
-            "});"
-            "</script>"
-        )
-        html = html.replace("</body>", injected + "</body>")
+        html = _inject(html)
 
         logger.info("chart_type=%s x=%s y=%s", mapping.chart_type, mapping.x_column, mapping.y_column)
         return ChartResponse(html=html, mapping=mapping.model_dump())
@@ -216,6 +208,51 @@ async def generate_chart(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Pipeline error")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        os.unlink(tmp_path)
+
+
+@app.post("/refine", response_model=ChartResponse)
+async def refine_chart(
+    file: UploadFile = File(..., description="Same CSV used for the original chart"),
+    mapping: str = Form(..., description="Current AxisMapping as JSON"),
+    history: str = Form(default="[]", description="Conversation history as JSON array of {role, content}"),
+    instruction: str = Form(..., description="User's refinement instruction"),
+    provider: str | None = Form(default=None),
+    model: str | None = Form(default=None),
+):
+    csv_bytes = await file.read()
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(csv_bytes)
+        tmp_path = tmp.name
+
+    try:
+        current_mapping = AxisMapping(**json.loads(mapping))
+        history_list: list[dict] = json.loads(history)
+
+        llm_provider = get_provider(provider, model)
+        pipeline = Pipeline(llm_provider)
+
+        config = ChartConfig(
+            title=current_mapping.title or "",
+            x_label=current_mapping.x_label or "",
+            y_label=current_mapping.y_label or "",
+        )
+
+        html, updated_mapping = pipeline.refine(
+            tmp_path, current_mapping, history_list, instruction, config
+        )
+        html = _inject(html)
+
+        logger.info("refine chart_type=%s instruction=%r", updated_mapping.chart_type, instruction)
+        return ChartResponse(html=html, mapping=updated_mapping.model_dump())
+
+    except (ValueError, KeyError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Refine error")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         os.unlink(tmp_path)

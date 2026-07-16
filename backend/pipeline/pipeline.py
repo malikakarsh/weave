@@ -45,3 +45,29 @@ class Pipeline:
         html = self._templater.render(data, config)
 
         return html, mapping
+
+    def refine(
+        self,
+        csv_path: str,
+        current_mapping: AxisMapping,
+        history: list[dict],
+        instruction: str,
+        config: ChartConfig,
+    ) -> tuple[str, AxisMapping]:
+        """Apply a refinement instruction to an existing mapping and re-render."""
+        _, rows = self._loader.load(csv_path)
+
+        mapping = self._mapper.refine(current_mapping, history, instruction)
+
+        config = config.model_copy(update={
+            "chart_type":      mapping.chart_type,
+            "facet_direction": mapping.facet_direction,
+            "facet_free_y":    mapping.facet_free_y,
+            "title":           mapping.title or config.title,
+            "x_label":         mapping.x_label or config.x_label,
+            "y_label":         mapping.y_label or config.y_label,
+        })
+
+        data = self._transformer.transform(rows, mapping)
+        html = self._templater.render(data, config)
+        return html, mapping

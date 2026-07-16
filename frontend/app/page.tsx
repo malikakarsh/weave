@@ -12,13 +12,17 @@ const EXPORT_PRESETS = [
 ];
 
 export default function Home() {
+  type HistoryMessage = { role: "user" | "assistant"; content: string };
+
   const [file, setFile] = useState<File | null>(null);
-  const [prompt, setPrompt] = useState("");
   const [html, setHtml] = useState<string | null>(null);
   const [mapping, setMapping] = useState<Record<string, unknown> | null>(null);
+  const [history, setHistory] = useState<HistoryMessage[]>([]);
+  const [refinePrompt, setRefinePrompt] = useState("");
   const [insights, setInsights] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refining, setRefining] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -27,6 +31,7 @@ export default function Home() {
   const [dark, setDark] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -43,19 +48,23 @@ export default function Home() {
     setHtml(null);
     setInsights(null);
     setMapping(null);
+    setHistory([]);
   }
 
   async function generate() {
-    if (!file || !prompt.trim()) return;
+    const p = refinePrompt.trim();
+    if (!file || !p) return;
     setLoading(true);
     setError(null);
     setHtml(null);
     setInsights(null);
     setMapping(null);
+    setHistory([]);
+    setRefinePrompt("");
 
     const body = new FormData();
     body.append("file", file);
-    body.append("prompt", prompt.trim());
+    body.append("prompt", p);
 
     try {
       const res = await fetch(`${API}/chart`, { method: "POST", body });
@@ -63,10 +72,52 @@ export default function Home() {
       if (!res.ok) throw new Error(data.detail ?? "Unknown error");
       setHtml(data.html);
       setMapping(data.mapping);
+      setHistory([{ role: "user", content: p }]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Request failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function handleSubmit() {
+    if (!html) generate();
+    else refine();
+  }
+
+  async function refine() {
+    if (!file || !mapping || !refinePrompt.trim()) return;
+    const instruction = refinePrompt.trim();
+    setRefining(true);
+    setError(null);
+    setRefinePrompt("");
+
+    const nextHistory: HistoryMessage[] = [...history, { role: "user", content: instruction }];
+    setHistory(nextHistory);
+
+    const body = new FormData();
+    body.append("file", file);
+    body.append("mapping", JSON.stringify(mapping));
+    body.append("history", JSON.stringify(history));
+    body.append("instruction", instruction);
+
+    try {
+      const res = await fetch(`${API}/refine`, { method: "POST", body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail ?? "Unknown error");
+      setHtml(data.html);
+      setMapping(data.mapping);
+      setInsights(null);
+      setHistory([...nextHistory, { role: "assistant", content: JSON.stringify(data.mapping) }]);
+      setTimeout(() => {
+        const el = chatEndRef.current;
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 100);
+    } catch (e: unknown) {
+      setHistory(history);
+      setError(e instanceof Error ? e.message : "Refinement failed");
+    } finally {
+      setRefining(false);
     }
   }
 
@@ -78,7 +129,7 @@ export default function Home() {
     const body = new FormData();
     body.append("file", file);
     body.append("mapping", JSON.stringify(mapping));
-    body.append("prompt", prompt.trim());
+    body.append("prompt", history.find(m => m.role === "user")?.content ?? "");
 
     try {
       const res = await fetch(`${API}/insights`, { method: "POST", body });
@@ -121,7 +172,7 @@ export default function Home() {
 
   return (
     <main
-      className="min-h-screen text-gray-900 dark:text-white flex flex-col"
+      className="min-h-screen text-gray-900 dark:text-white flex flex-col overflow-x-hidden"
       style={dark ? {
         background: "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.13) 0%, transparent 100%), #0f1117",
       } : {
@@ -179,52 +230,140 @@ export default function Home() {
       </header>
       </div>
 
+      {/* ── Landing state: vertically centered ── */}
+      {!html && (
+        <div className="flex flex-col flex-1 items-center justify-center px-6 py-12 text-center">
+          <div className="flex flex-col gap-5 w-full max-w-4xl">
+            {/* Heading */}
+            <div className="mb-1" style={{ fontFamily: "var(--font-sora), sans-serif" }}>
+
+              {/* Mobile layout — stacked, centered */}
+              <div className="flex flex-col items-center gap-0 md:hidden">
+                <p className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={{ background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                  If you can describe it,
+                </p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={{ background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>we can</span>
+                  <span className="text-4xl sm:text-6xl font-extrabold uppercase tracking-tight leading-none" style={{ color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" }}>WEAVE</span>
+                  <span className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={{ background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>it.</span>
+                </div>
+              </div>
+
+              {/* Desktop layout — side by side, last-baseline aligned */}
+              <div className="hidden md:flex" style={{ alignItems: "last baseline", gap: "1rem", justifyContent: "center" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                  <p className="text-2xl lg:text-4xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                    If you can describe it,
+                  </p>
+                  <p className="text-2xl lg:text-4xl font-extrabold uppercase tracking-tight text-right" style={{ lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                    we can
+                  </p>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
+                  <span className="text-5xl lg:text-8xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" }}>WEAVE</span>
+                  <span className="text-2xl lg:text-4xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>it.</span>
+                </div>
+              </div>
+
+              <p className="mt-3 text-sm text-gray-400 dark:text-white/35">
+                Drop a CSV. Describe what you want. Get a beautiful interactive chart — no code, no config.
+              </p>
+            </div>
+
+            {/* CSV upload — full width bar */}
+            <div
+              className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-5 py-3.5 cursor-pointer transition-colors
+                ${dragging
+                  ? "border-indigo-400 bg-indigo-400/5"
+                  : "border-gray-300 dark:border-white/10 hover:border-indigo-400/60 dark:hover:border-indigo-500/40"}`}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+            >
+              <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
+                onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
+              <svg className="w-4 h-4 text-gray-400 dark:text-white/30 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              {file
+                ? <span className="text-sm font-medium text-indigo-400">{file.name}</span>
+                : <span className="text-sm text-gray-400 dark:text-white/40">Drop a CSV here · or click to browse</span>}
+              {file && (
+                <button onClick={(e) => { e.stopPropagation(); setFile(null); setError(null); }}
+                  className="ml-auto text-gray-400 dark:text-white/30 hover:text-white/60 transition-colors text-xl leading-none">×</button>
+              )}
+            </div>
+
+            {/* Prompt + send — side by side */}
+            <div className="flex gap-2">
+              <input
+                className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl
+                  px-5 py-4 text-base placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
+                  focus:outline-none focus:border-indigo-400"
+                placeholder="e.g. show revenue over time for each company"
+                value={refinePrompt}
+                onChange={(e) => setRefinePrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); generate(); } }}
+                disabled={loading}
+                autoFocus
+              />
+              <button
+                onClick={generate}
+                disabled={!file || !refinePrompt.trim() || loading}
+                className="flex items-center justify-center rounded-xl bg-indigo-500 hover:bg-indigo-400
+                  disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-5 shrink-0"
+              >
+                {loading
+                  ? <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                  : <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+                    </svg>
+                }
+              </button>
+            </div>
+
+            {error && (
+              <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3 text-sm text-red-500 dark:text-red-300">
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Chart state: full-width layout ── */}
+      {html && (
       <div className="flex flex-col flex-1 gap-6 px-6 py-6 w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto">
 
-        {/* Input panel */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div
-            className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 cursor-pointer transition-colors
-              ${dragging
-                ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-400/5"
-                : "border-gray-300 dark:border-white/10 hover:border-gray-400 dark:hover:border-indigo-500/40"}`}
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
-          >
-            <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
-              onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
-            <svg className="w-8 h-8 text-gray-300 dark:text-white/30" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-            </svg>
-            {file
-              ? <span className="text-sm font-medium text-indigo-500">{file.name}</span>
-              : <><span className="text-sm text-gray-400 dark:text-white/50">Drop a CSV here</span><span className="text-xs text-gray-400 dark:text-white/30">or click to browse</span></>}
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <textarea
-              className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl px-4 py-3 text-sm
-                placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
-                focus:outline-none focus:border-indigo-400 resize-none min-h-[100px]"
-              placeholder={"Describe your chart…\ne.g. show revenue over time for each company"}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) generate(); }}
-            />
-            <button onClick={generate} disabled={!file || !prompt.trim() || loading}
-              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-500 hover:bg-indigo-400
-                disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-5 py-3 text-sm font-medium text-white">
-              {loading
-                ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>Generating…</>
-                : "Generate chart"}
-            </button>
-            <p className="text-xs text-gray-400 dark:text-white/25 text-right">⌘ Enter to generate</p>
-          </div>
+        {/* CSV strip */}
+        <div
+          className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-4 py-2.5 cursor-pointer transition-colors
+            ${dragging
+              ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-400/5"
+              : "border-gray-300 dark:border-white/10 hover:border-gray-400 dark:hover:border-indigo-500/40"}`}
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+        >
+          <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
+            onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
+          <svg className="w-4 h-4 text-gray-400 dark:text-white/30 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+          </svg>
+          {file
+            ? <span className="text-sm font-medium text-indigo-500">{file.name}</span>
+            : <span className="text-sm text-gray-400 dark:text-white/40">Drop a CSV here or click to browse</span>}
+          {file && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setFile(null); setHtml(null); setMapping(null); setHistory([]); setInsights(null); setError(null); }}
+              className="ml-auto text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 transition-colors text-lg leading-none"
+            >×</button>
+          )}
         </div>
 
         {/* Error */}
@@ -264,6 +403,53 @@ export default function Home() {
             />
           </div>
         )}
+
+        {/* Conversation history — only shown when a chart exists */}
+        {html && history.filter(m => m.role === "user").length > 0 && (
+          <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+            {history.filter(m => m.role === "user").map((m, i) => (
+              <div key={i} className="flex gap-2 items-start">
+                <span className="mt-1 w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center shrink-0 text-[10px] text-white font-bold">
+                  U
+                </span>
+                <p className="text-sm text-gray-700 dark:text-white/80 leading-relaxed pt-0.5">{m.content}</p>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+        )}
+
+        {/* Universal prompt bar — always visible */}
+        <div className="flex gap-2">
+          <input
+            className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl
+              px-4 py-3 text-sm placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
+              focus:outline-none focus:border-indigo-400"
+            placeholder={html
+              ? "Refine the chart… e.g. make it a bar chart, filter to 2023, sort descending"
+              : "Describe your chart… e.g. show revenue over time for each company"}
+            value={refinePrompt}
+            onChange={(e) => setRefinePrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+            disabled={loading || refining}
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={!file || !refinePrompt.trim() || loading || refining}
+            className="flex items-center gap-2 rounded-xl bg-indigo-500 hover:bg-indigo-400
+              disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 py-3 text-sm font-medium text-white shrink-0"
+          >
+            {(loading || refining)
+              ? <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              : <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+                </svg>
+            }
+          </button>
+        </div>
 
         {/* Bottom toolbar */}
         {html && mapping && (
@@ -336,6 +522,7 @@ export default function Home() {
           </div>
         )}
       </div>
+      )}
     </main>
   );
 }

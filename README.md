@@ -27,11 +27,14 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 
 ### Web UI features
 - **Chart generation** — same pipeline as the CLI, rendered live in the browser
+- **Iterative refinement** — after a chart is generated, keep chatting to refine it; the LLM sees the full conversation history and updates only the fields you ask about
+- **Conversation history** — a scrollable chat panel shows every user instruction and the mapping changes applied
 - **Edit panel** — in-chart controls for title, axis labels, colors, and SVG background
 - **Analyze chart** — sends the chart mapping + data sample to Claude for key insights
 - **SVG export** — HD, Full HD, Social, Square presets plus custom dimensions
 - **Light / dark mode** — toggle in the navbar; the chart template adapts automatically
 - **Auto-sizing iframe** — the chart container grows to fit its content with no empty space
+- **Responsive landing page** — hero punchline scales from mobile through desktop; single universal prompt bar drives both chart generation and refinement
 
 ## How it works
 
@@ -380,6 +383,9 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 **API + UI** ✓
 - ~~FastAPI backend — `POST /chart`, `GET /health`~~
 - ~~Frontend — file upload + prompt input + rendered chart in browser~~
+- ~~`POST /refine` — iterative chart refinement with conversation history~~
+- ~~Universal prompt bar — single input drives both generation and refinement~~
+- ~~Responsive hero landing page~~
 - Deployed with a live URL (Railway / Render / Fly.io)
 
 **Test suite**

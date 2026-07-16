@@ -1,7 +1,10 @@
 import json
+import logging
 from pathlib import Path
 
 from models import ChartConfig
+
+logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -16,7 +19,7 @@ class Templater:
         else:
             template_path = self._templates_dir / f"{config.chart_type}_chart.html"
         if not template_path.exists():
-            print(f"  [warn] no template for chart_type={config.chart_type!r}, falling back to line")
+            logger.warning("no template for chart_type=%r, falling back to line", config.chart_type)
             template_path = self._templates_dir / "line_chart.html"
         template = template_path.read_text()
         return (

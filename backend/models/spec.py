@@ -1,11 +1,6 @@
 from pydantic import BaseModel
 
 
-class PlotSpec(BaseModel):
-    chart_type: str = "line"
-    intent: str
-
-
 class AxisMapping(BaseModel):
     chart_type: str = "line"
     x_column: str

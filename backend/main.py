@@ -7,52 +7,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from models import ChartConfig
-from pipeline.data_loader import DataLoader
-from pipeline.llm_mapper import LLMMapper
-from pipeline.transformer import Transformer
-from pipeline.templater import Templater
+from pipeline.pipeline import Pipeline
 from pipeline.providers import get_provider
-
-
-def run(
-    csv_path: str,
-    prompt: str,
-    output: str,
-    config: ChartConfig,
-    sort_override: str | None = None,
-    provider_name: str | None = None,
-    model: str | None = None,
-) -> None:
-    print(f"Loading {csv_path!r}...")
-    schema, rows = DataLoader().load(csv_path)
-    for col in schema.columns:
-        print(f"  {col.name} ({col.type.value})")
-
-    provider = get_provider(provider_name, model)
-    print(f"\nMapping axes via {type(provider).__name__} ({provider.model}) for: {prompt!r}")
-    mapping = LLMMapper(provider).map(schema, prompt)
-    if sort_override:
-        mapping = mapping.model_copy(update={"sort_order": sort_override})
-    print(f"  chart={mapping.chart_type!r}  x={mapping.x_column!r}  y={mapping.y_column!r}  "
-          f"z={mapping.z_column!r}  label={mapping.label_column!r}  "
-          f"group={mapping.group_column!r}  filter={mapping.group_filter!r}  "
-          f"agg={mapping.aggregation!r}  top_n={mapping.top_n!r}  sort={mapping.sort_order!r}  "
-          f"time_unit={mapping.time_unit!r}  x_min={mapping.x_min!r}  x_max={mapping.x_max!r}")
-
-    data = Transformer().transform(rows, mapping)
-    if isinstance(data, dict):
-        print(f"  {len(data.get('nodes', []))} nodes, {len(data.get('links', []))} links")
-    else:
-        print(f"  {len(data)} data points")
-
-    config = config.model_copy(update={
-        "chart_type":      mapping.chart_type,
-        "facet_direction": mapping.facet_direction,
-        "facet_free_y":    mapping.facet_free_y,
-    })
-    html = Templater().render(data, config)
-    Path(output).write_text(html)
-    print(f"\nChart written to {output!r}")
 
 
 def main() -> None:
@@ -85,7 +41,7 @@ def main() -> None:
     parser.add_argument("--color",    default="#6366f1",
                         help="Line color for single-series charts (hex or named)")
     parser.add_argument("--palette",  nargs="+", metavar="COLOR",
-                        help="Colors for grouped charts, one per group (e.g. --palette red blue green)")
+                        help="Colors for grouped charts, one per group")
     parser.add_argument("--y-format", default=",.0f",    help="D3 format string for y-axis ticks")
     parser.add_argument("--curve",    default="monotoneX",
                         choices=["monotoneX", "linear", "step", "natural", "cardinal"],
@@ -95,7 +51,7 @@ def main() -> None:
     parser.add_argument("--svg-bg",   default="#1a1d27", metavar="COLOR",
                         help="SVG export background color (default: #1a1d27)")
     parser.add_argument("--sort",     default=None, choices=["asc", "desc", "none"],
-                        help="Sort bar categories by y value: asc, desc, or none (default: LLM decides)")
+                        help="Sort bar categories by y value: asc, desc, or none")
 
     args = parser.parse_args()
 
@@ -113,10 +69,21 @@ def main() -> None:
         svg_bg=args.svg_bg,
     )
 
-    run(args.csv, args.prompt, args.output, config,
-        sort_override=args.sort,
-        provider_name=args.provider,
-        model=args.model)
+    provider = get_provider(args.provider, args.model)
+    pipeline = Pipeline(provider)
+
+    print(f"Loading {args.csv!r}...")
+    print(f"Mapping via {type(provider).__name__} ({provider.model}): {args.prompt!r}")
+
+    html, mapping = pipeline.run(args.csv, args.prompt, config, sort_override=args.sort)
+
+    print(f"  chart={mapping.chart_type!r}  x={mapping.x_column!r}  y={mapping.y_column!r}  "
+          f"group={mapping.group_column!r}  agg={mapping.aggregation!r}  "
+          f"top_n={mapping.top_n!r}  sort={mapping.sort_order!r}  "
+          f"time_unit={mapping.time_unit!r}  x_min={mapping.x_min!r}  x_max={mapping.x_max!r}")
+
+    Path(args.output).write_text(html)
+    print(f"Chart written to {args.output!r}")
 
     if args.open:
         subprocess.run(["open", args.output])

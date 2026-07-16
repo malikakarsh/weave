@@ -228,10 +228,20 @@
 
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const catColors  = config.category_colors || {};
+
+    function resolveColor(key, fallback) {
+      if (catColors[key]) return catColors[key];
+      const kl = (key || "").toLowerCase();
+      for (const [ck, cv] of Object.entries(catColors)) {
+        if (kl.includes(ck.toLowerCase()) || ck.toLowerCase().includes(kl)) return cv;
+      }
+      return fallback;
+    }
+
     const _baseCS    = isGrouped
       ? d3.scaleOrdinal(palette).domain(raw.map(g => g.group))
       : () => config.color;
-    colorScale = key => catColors[key] !== undefined ? catColors[key] : _baseCS(key);
+    colorScale = key => resolveColor(key, _baseCS(key));
 
     if (isGrouped) {
       categories = raw[0].values.map(d => d.x);
@@ -242,9 +252,20 @@
       groups = [null];
     }
 
+    // Compute allY first so we can size the left margin from the widest tick label
+    const allY = isGrouped
+      ? raw.flatMap(g => g.values.map(v => v.y).filter(y => y !== null))
+      : raw.map(d => d.y).filter(y => y !== null);
+    const maxY = (d3.max(allY) || 0) * 1.2;
+    const widestTick = d3.format(config.y_format)(maxY);
+    const leftMargin = Math.max(56, Math.min(widestTick.length * 7.5 + 20, 150));
+
     // Dimensions
     const legendWidth = isGrouped ? 130 : 0;
-    const margin      = { top: 32, right: 16 + legendWidth, bottom: categories.length > 6 ? 90 : 56, left: 72 };
+    const manyCategories = categories.length > 20;
+    const someCategories = categories.length > 6;
+    const bottomMargin = manyCategories ? 130 : someCategories ? 90 : 56;
+    const margin = { top: 32, right: 16 + legendWidth, bottom: bottomMargin, left: leftMargin };
     const totalWidth  = config.width;
     const totalHeight = config.height;
     const width  = totalWidth  - margin.left - margin.right;
@@ -272,12 +293,8 @@
       ? d3.scaleBand().domain(groups).range([0, xOuter.bandwidth()]).padding(0.05)
       : null;
 
-    const allY = isGrouped
-      ? raw.flatMap(g => g.values.map(v => v.y).filter(y => y !== null))
-      : raw.map(d => d.y).filter(y => y !== null);
-
     const yScale = d3.scaleLinear()
-      .domain([0, d3.max(allY) * 1.2])
+      .domain([0, maxY])
       .nice()
       .range([height, 0]);
 
@@ -291,14 +308,13 @@
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(xOuter));
 
-    const rotate = categories.length > 6;
     xAxisG.selectAll("text")
       .attr("fill", "#64748b")
-      .attr("font-size", "12px")
-      .attr("text-anchor", rotate ? "end" : "middle")
-      .attr("transform", rotate ? "rotate(-35)" : null)
-      .attr("dy", rotate ? "0.2em" : "1.2em")
-      .attr("dx", rotate ? "-0.5em" : null);
+      .attr("font-size", manyCategories ? "10px" : "12px")
+      .attr("text-anchor", someCategories ? "end" : "middle")
+      .attr("transform", manyCategories ? "rotate(-90)" : someCategories ? "rotate(-45)" : null)
+      .attr("dy", manyCategories ? "-0.4em" : someCategories ? "0.2em" : "1.2em")
+      .attr("dx", someCategories ? "-0.5em" : null);
     xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 
     // Y axis
@@ -321,7 +337,7 @@
 
     const yLabelEl = svg.append("text")
       .attr("transform", "rotate(-90)")
-      .attr("x", -(margin.top + height / 2)).attr("y", 14)
+      .attr("x", -(margin.top + height / 2)).attr("y", 16)
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(config.y_label || "");
 
@@ -382,9 +398,9 @@
         .attr("y",      d => d.y !== null ? yScale(d.y) : height)
         .attr("width",  xOuter.bandwidth())
         .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
-        .attr("fill",   d => catColors[d.x] || config.color)
+        .attr("fill",   d => resolveColor(d.x, config.color))
         .attr("rx", 2)
-        .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: catColors[d.x] || config.color }]))
+        .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: resolveColor(d.x, config.color) }]))
         .on("mouseleave", hideTooltip)
         .on("click", function(event, d) {
           if (!editMode) return;
@@ -573,11 +589,11 @@
       }
       xAxisG.call(d3.axisBottom(xOuter));
       xAxisG.selectAll("text")
-        .attr("fill", "#64748b").attr("font-size", "12px")
-        .attr("text-anchor", rotate ? "end" : "middle")
-        .attr("transform", rotate ? "rotate(-35)" : null)
-        .attr("dy", rotate ? "0.2em" : "1.2em")
-        .attr("dx", rotate ? "-0.5em" : null);
+        .attr("fill", "#64748b").attr("font-size", manyCategories ? "10px" : "12px")
+        .attr("text-anchor", someCategories ? "end" : "middle")
+        .attr("transform", manyCategories ? "rotate(-90)" : someCategories ? "rotate(-45)" : null)
+        .attr("dy", manyCategories ? "-0.4em" : someCategories ? "0.2em" : "1.2em")
+        .attr("dx", someCategories ? "-0.5em" : null);
       xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
     }
     document.getElementById("ep-thinner").addEventListener("click", () => adjustPadding(+PAD_STEP));

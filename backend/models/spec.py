@@ -35,6 +35,7 @@ class ChartConfig(BaseModel):
     title: str = ""
     x_label: str = ""
     y_label: str = ""
+    z_label: str = ""                  # label for the z/size dimension (symbol map, bubble)
     palette: list[str] | None = None  # custom colors per group; falls back to D3 categorical scale
     category_colors: dict[str, str] | None = None  # per-category color overrides; merged on top of palette
     svg_bg: str = "#1a1d27"           # background rect injected into exported SVG

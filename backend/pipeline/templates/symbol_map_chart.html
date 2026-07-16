@@ -222,9 +222,20 @@
       : (hasLabel ? d3.scaleOrdinal(palette).domain(labelNames) : null);
 
     const accentColor  = config.color || palette[0];
+    const catColors    = config.category_colors || {};
+
+    function resolveColor(key, fallback) {
+      if (catColors[key]) return catColors[key];
+      const kl = (key || "").toLowerCase();
+      for (const [ck, cv] of Object.entries(catColors)) {
+        if (kl.includes(ck.toLowerCase()) || ck.toLowerCase().includes(kl)) return cv;
+      }
+      return fallback;
+    }
+
     const seriesColor  = {};
-    if (hasGroup) groupNames.forEach(n => { seriesColor[n] = colorScale(n); });
-    if (!hasGroup && hasLabel) labelNames.forEach(n => { seriesColor[n] = colorScale(n); });
+    if (hasGroup) groupNames.forEach(n => { seriesColor[n] = resolveColor(n, colorScale(n)); });
+    if (!hasGroup && hasLabel) labelNames.forEach(n => { seriesColor[n] = resolveColor(n, colorScale(n)); });
 
     // ── Floating color picker (grouped mode) ──────────────────────────────────
     const floatingPick = document.getElementById("floating-color-pick");
@@ -294,7 +305,7 @@
       }
       if (hasZ && d.z != null) {
         html += `<div class="tip-row">
-          <span class="tip-key">${config.y_label || "Value"}</span>
+          <span class="tip-key">${config.z_label || config.y_label || "Value"}</span>
           <span class="tip-val">${formatZ(d.z)}</span>
         </div>`;
       }
@@ -414,7 +425,7 @@
         lg.append("text")
           .attr("x", 0).attr("y", 0)
           .attr("fill", "#64748b").attr("font-size", "11px")
-          .text(config.y_label || "Size");
+          .text(config.z_label || "Size");
         ticks.forEach((v, i) => {
           const r = rBase(v);
           const yOff = 16 + i * (r * 2 + 8);

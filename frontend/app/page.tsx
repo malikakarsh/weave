@@ -15,7 +15,7 @@ const PLAYGROUND_DATASETS = [
   {
     id: "stocks",
     name: "Stock Prices",
-    description: "AAPL, AMZN, GOOG, IBM & MSFT — daily closes 2000–2010",
+    description: "AAPL, AMZN, GOOG, IBM & MSFT - daily closes 2000-2010",
     emoji: "📈",
     prompt: "show stock price trend over time for each company as a multi-series line chart, and show average stock price per company as a bar chart",
   },
@@ -31,7 +31,7 @@ const PLAYGROUND_DATASETS = [
     name: "World Cities",
     description: "55 major cities with population and continent",
     emoji: "🌍",
-    prompt: "show total population by continent as a bar chart, and a scatter of city populations sorted largest to smallest",
+    prompt: "plot world cities on a symbol map sized by population and colored by continent, and show total population by continent as a bar chart",
   },
   {
     id: "diamonds",
@@ -55,6 +55,22 @@ const PLAYGROUND_DATASETS = [
     prompt: "show sepal length vs sepal width as a scatter plot colored by species, and average petal length by species as a bar chart",
   },
 ] as const;
+
+const LIGHT_WEAVE_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">' +
+  '<rect x="0" y="0" width="4" height="4" fill="black" fill-opacity="0.07"/>' +
+  '<rect x="4" y="4" width="4" height="4" fill="black" fill-opacity="0.07"/>' +
+  '<path d="M0 0H8M0 4H8M0 0V8M4 0V8" stroke="black" stroke-opacity="0.07" stroke-width="0.4"/>' +
+  '</svg>'
+);
+
+const DARK_WEAVE_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">' +
+  '<rect x="0" y="0" width="5" height="5" fill="white" fill-opacity="0.045"/>' +
+  '<rect x="5" y="5" width="5" height="5" fill="white" fill-opacity="0.045"/>' +
+  '<path d="M0 0H10M0 5H10M0 0V10M5 0V10" stroke="white" stroke-opacity="0.07" stroke-width="0.5"/>' +
+  '</svg>'
+);
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -575,18 +591,15 @@ export default function Home() {
       style={dark ? {
         backgroundColor: "#0f1117",
         backgroundImage: [
-          "repeating-linear-gradient(0deg,   rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 6px)",
-          "repeating-linear-gradient(90deg,  rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 6px)",
-          "repeating-linear-gradient(45deg,  rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 8px)",
           "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.14) 0%, transparent 100%)",
+          `url("data:image/svg+xml,${DARK_WEAVE_SVG}")`,
         ].join(", "),
       } : {
-        backgroundColor: "#f0f2f5",
+        backgroundColor: "#f5f5f3",
         backgroundImage: [
-          "repeating-linear-gradient(0deg,  rgba(0,0,0,0.045) 0px, rgba(0,0,0,0.045) 1px, transparent 1px, transparent 6px)",
-          "repeating-linear-gradient(90deg, rgba(0,0,0,0.045) 0px, rgba(0,0,0,0.045) 1px, transparent 1px, transparent 6px)",
-          "repeating-linear-gradient(45deg, rgba(0,0,0,0.015) 0px, rgba(0,0,0,0.015) 1px, transparent 1px, transparent 8px)",
-          "linear-gradient(180deg, #f0f2f5 0%, #f7f8fa 100%)",
+          // fade out toward center so texture feels ambient, not loud
+          "radial-gradient(ellipse 70% 60% at 50% 40%, rgba(245,245,243,0.85) 0%, transparent 100%)",
+          `url("data:image/svg+xml,${LIGHT_WEAVE_SVG}")`,
         ].join(", "),
       }}
     >
@@ -704,7 +717,7 @@ export default function Home() {
                   </div>
                 </div>
                 <p className="mt-3 text-sm text-gray-400 dark:text-white/35">
-                  Drop a CSV. Describe what you want. Get a beautiful interactive chart — no code, no config.
+                  Drop a CSV. Describe what you want. Get interactive charts - no code, no config.
                 </p>
               </div>
 
@@ -775,11 +788,12 @@ export default function Home() {
                       key={ds.id}
                       onClick={() => loadPlayground(ds.id, ds.prompt, ds.name)}
                       disabled={loadingPlayground !== null}
-                      className={`flex flex-col gap-1.5 rounded-xl border px-4 py-3 text-left transition-colors
+                      className={`flex flex-col gap-1.5 rounded-xl border px-4 py-3 text-left transition-colors cursor-pointer
                         ${dark
-                          ? "border-white/10 bg-white/3 hover:border-indigo-400/50 hover:bg-indigo-400/5"
+                          ? "border-white/15 hover:border-indigo-400/60"
                           : "border-gray-200 bg-white hover:border-red-300 hover:bg-red-50"
                         } disabled:opacity-40 disabled:cursor-not-allowed`}
+                      style={dark ? { background: "rgba(13, 15, 26, 0.75)" } : undefined}
                     >
                       {loadingPlayground === ds.id ? (
                         <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-white/40">
@@ -838,7 +852,7 @@ export default function Home() {
             </svg>
             {file
               ? <span className={`text-sm font-medium ${dark ? "text-indigo-400" : "text-red-600"}`}>
-                  {isPlayground ? `Playground — ${playgroundName}` : file.name}
+                  {isPlayground ? `Playground - ${playgroundName}` : file.name}
                 </span>
               : <span className="text-sm text-gray-400 dark:text-white/40">Drop a CSV here or click to browse</span>}
             {file && !isPlayground && (

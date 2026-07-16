@@ -161,8 +161,9 @@
     // Color per slice
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const colorScale = d3.scaleOrdinal(palette).domain(raw.map(d => d.x));
+    const catColors  = config.category_colors || {};
     const sliceColor = {};
-    raw.forEach(d => { sliceColor[d.x] = colorScale(d.x); });
+    raw.forEach(d => { sliceColor[d.x] = catColors[d.x] || colorScale(d.x); });
 
     // ── Dimensions ──────────────────────────────────────────────────────
     const legendWidth = 160;

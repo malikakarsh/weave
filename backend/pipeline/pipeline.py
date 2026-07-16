@@ -39,6 +39,8 @@ class Pipeline:
             "title":           mapping.title or config.title,
             "x_label":         mapping.x_label or config.x_label,
             "y_label":         mapping.y_label or config.y_label,
+            **({"color": mapping.color} if mapping.color else {}),
+            **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
         })
 
         data = self._transformer.transform(rows, mapping)
@@ -66,6 +68,8 @@ class Pipeline:
             "title":           mapping.title or config.title,
             "x_label":         mapping.x_label or config.x_label,
             "y_label":         mapping.y_label or config.y_label,
+            **({"color": mapping.color} if mapping.color else {}),
+            **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
         })
 
         data = self._transformer.transform(rows, mapping)

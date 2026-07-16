@@ -10,6 +10,7 @@ load_dotenv()
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -31,6 +32,62 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+_SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "samples")
+
+PLAYGROUND_DATASETS = [
+    {
+        "id": "stocks",
+        "name": "Stock Prices",
+        "description": "Daily closing prices for AAPL, AMZN, GOOG, IBM, and MSFT from 2000–2010.",
+        "emoji": "📈",
+        "csv": "stocks.csv",
+        "prompt": "show stock price trend over time for each company as a multi-series line chart, and show average stock price per company as a bar chart",
+    },
+    {
+        "id": "revenue",
+        "name": "Company Revenue",
+        "description": "Monthly revenue figures across multiple companies over several years.",
+        "emoji": "💰",
+        "csv": "sample.csv",
+        "prompt": "show total revenue per company as a bar chart sorted descending, and revenue trend over time for each company as a line chart",
+    },
+    {
+        "id": "world_cities",
+        "name": "World Cities",
+        "description": "55 major world cities with coordinates, population, and continent.",
+        "emoji": "🌍",
+        "csv": "world_cities.csv",
+        "prompt": "plot world cities on a map sized by population and colored by continent, and show total population by continent as a bar chart",
+    },
+    {
+        "id": "diamonds",
+        "name": "Diamonds",
+        "description": "Diamond prices and attributes including cut, color, clarity, and carat.",
+        "emoji": "💎",
+        "csv": "diamonds.csv",
+        "prompt": "show average diamond price by cut as a bar chart, and show a heatmap of average diamond price by cut and color",
+    },
+    {
+        "id": "restaurants",
+        "name": "NYC Restaurants",
+        "description": "NYC restaurant inspection records with grades, violations, and borough.",
+        "emoji": "🍕",
+        "csv": "nyc_restaurants.csv",
+        "prompt": "show inspection count by borough as a bar chart, and show a pie chart of inspections by critical flag",
+    },
+    {
+        "id": "iris",
+        "name": "Iris Flowers",
+        "description": "Classic iris dataset with sepal/petal measurements for three species.",
+        "emoji": "🌸",
+        "csv": "iris.csv",
+        "prompt": "show sepal length vs sepal width as a scatter plot colored by species, and show average petal length by species as a bar chart",
+    },
+]
+
+_DATASET_MAP = {d["id"]: d for d in PLAYGROUND_DATASETS}
 
 
 class ChartResponse(BaseModel):
@@ -413,5 +470,23 @@ async def generate_dashboard(
             os.unlink(tmp_path)
 
     return EventSourceResponse(stream())
+
+
+@app.get("/playground/datasets")
+def list_playground_datasets():
+    return [
+        {k: v for k, v in d.items() if k != "csv"} for d in PLAYGROUND_DATASETS
+    ]
+
+
+@app.get("/playground/csv/{dataset_id}")
+def get_playground_csv(dataset_id: str):
+    dataset = _DATASET_MAP.get(dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    csv_path = os.path.join(_SAMPLES_DIR, dataset["csv"])
+    if not os.path.isfile(csv_path):
+        raise HTTPException(status_code=404, detail="CSV file not found on server")
+    return FileResponse(csv_path, media_type="text/csv", filename=dataset["csv"])
 
 

@@ -11,6 +11,51 @@ const EXPORT_PRESETS = [
   { label: "Square", w: 1080, h: 1080 },
 ];
 
+const PLAYGROUND_DATASETS = [
+  {
+    id: "stocks",
+    name: "Stock Prices",
+    description: "AAPL, AMZN, GOOG, IBM & MSFT — daily closes 2000–2010",
+    emoji: "📈",
+    prompt: "show stock price trend over time for each company as a multi-series line chart, and show average stock price per company as a bar chart",
+  },
+  {
+    id: "revenue",
+    name: "Company Revenue",
+    description: "Monthly revenue across multiple companies over several years",
+    emoji: "💰",
+    prompt: "show total revenue per company as a bar chart sorted descending, and revenue trend over time for each company as a line chart",
+  },
+  {
+    id: "world_cities",
+    name: "World Cities",
+    description: "55 major cities with population and continent",
+    emoji: "🌍",
+    prompt: "show total population by continent as a bar chart, and a scatter of city populations sorted largest to smallest",
+  },
+  {
+    id: "diamonds",
+    name: "Diamonds",
+    description: "Prices and attributes: cut, color, clarity, carat",
+    emoji: "💎",
+    prompt: "show average diamond price by cut as a bar chart, and price distribution by cut as a box-style bar chart",
+  },
+  {
+    id: "restaurants",
+    name: "NYC Restaurants",
+    description: "Inspection records with grades, violations, and borough",
+    emoji: "🍕",
+    prompt: "show inspection count by borough as a bar chart, and a breakdown of inspection grades as a pie chart",
+  },
+  {
+    id: "iris",
+    name: "Iris Flowers",
+    description: "Classic dataset: sepal/petal measurements for 3 species",
+    emoji: "🌸",
+    prompt: "show sepal length vs sepal width as a scatter plot colored by species, and average petal length by species as a bar chart",
+  },
+] as const;
+
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
 interface ChartSession {
@@ -196,7 +241,7 @@ function ChartCard({ session, file, dark, onUpdate }: ChartCardProps) {
             className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl
               px-4 py-3 text-sm placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
               focus:outline-none focus:border-red-500 dark:focus:border-indigo-400"
-            placeholder="Refine this chart…"
+            placeholder="Refine this chart… e.g. sort descending, change color to red, show top 10 only"
             value={refinePrompt}
             onChange={(e) => setRefinePrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); refine(); } }}
@@ -307,6 +352,9 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [dark, setDark] = useState(true);
+  const [isPlayground, setIsPlayground] = useState(false);
+  const [playgroundName, setPlaygroundName] = useState("");
+  const [loadingPlayground, setLoadingPlayground] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -319,6 +367,8 @@ export default function Home() {
     if (!f) return;
     if (!f.name.endsWith(".csv")) { setError("Please upload a .csv file."); return; }
     setFile(f);
+    setIsPlayground(false);
+    setPlaygroundName("");
     setError(null);
     setSessions([]);
   }
@@ -327,16 +377,13 @@ export default function Home() {
     setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   }
 
-  async function generate() {
-    const p = prompt.trim();
-    if (!file || !p) return;
+  async function generateWith(f: File, p: string) {
     setGenerating(true);
     setError(null);
     setSessions([]);
-    setPrompt("");
 
     const body = new FormData();
-    body.append("file", file);
+    body.append("file", f);
     body.append("prompt", p);
 
     try {
@@ -407,6 +454,31 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Request failed");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function generate() {
+    const p = prompt.trim();
+    if (!file || !p) return;
+    setPrompt("");
+    await generateWith(file, p);
+  }
+
+  async function loadPlayground(datasetId: string, datasetPrompt: string, name: string) {
+    setLoadingPlayground(datasetId);
+    try {
+      const res = await fetch(`${API}/playground/csv/${datasetId}`);
+      if (!res.ok) throw new Error("Failed to fetch sample dataset");
+      const blob = await res.blob();
+      const csvFile = new File([blob], `${datasetId}.csv`, { type: "text/csv" });
+      setFile(csvFile);
+      setIsPlayground(true);
+      setPlaygroundName(name);
+      await generateWith(csvFile, datasetPrompt);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load playground dataset");
+    } finally {
+      setLoadingPlayground(null);
     }
   }
 
@@ -549,7 +621,7 @@ export default function Home() {
           {/* Start over — only shown in dashboard state */}
           {hasSessions && (
             <button
-              onClick={() => { setSessions([]); setPrompt(""); setError(null); }}
+              onClick={() => { setSessions([]); setPrompt(""); setError(null); setFile(null); setIsPlayground(false); setPlaygroundName(""); }}
               className="text-xs text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 transition-colors mr-3"
             >
               ← New
@@ -691,6 +763,43 @@ export default function Home() {
                   {error}
                 </div>
               )}
+
+              {/* Playground dataset picker */}
+              <div className="flex flex-col gap-3 mt-2 text-left">
+                <p className="text-xs font-medium uppercase tracking-widest text-gray-400 dark:text-white/30 text-center">
+                  Or explore a sample dataset
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {PLAYGROUND_DATASETS.map((ds) => (
+                    <button
+                      key={ds.id}
+                      onClick={() => loadPlayground(ds.id, ds.prompt, ds.name)}
+                      disabled={loadingPlayground !== null}
+                      className={`flex flex-col gap-1.5 rounded-xl border px-4 py-3 text-left transition-colors
+                        ${dark
+                          ? "border-white/10 bg-white/3 hover:border-indigo-400/50 hover:bg-indigo-400/5"
+                          : "border-gray-200 bg-white hover:border-red-300 hover:bg-red-50"
+                        } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    >
+                      {loadingPlayground === ds.id ? (
+                        <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-white/40">
+                          <svg className="w-3.5 h-3.5 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                          </svg>
+                          Loading…
+                        </div>
+                      ) : (
+                        <>
+                          <span className="text-xl leading-none">{ds.emoji}</span>
+                          <span className={`text-sm font-semibold ${dark ? "text-white" : "text-gray-900"}`}>{ds.name}</span>
+                          <span className="text-xs text-gray-400 dark:text-white/40 leading-snug">{ds.description}</span>
+                        </>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -728,9 +837,11 @@ export default function Home() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
             </svg>
             {file
-              ? <span className={`text-sm font-medium ${dark ? "text-indigo-400" : "text-red-600"}`}>{file.name}</span>
+              ? <span className={`text-sm font-medium ${dark ? "text-indigo-400" : "text-red-600"}`}>
+                  {isPlayground ? `Playground — ${playgroundName}` : file.name}
+                </span>
               : <span className="text-sm text-gray-400 dark:text-white/40">Drop a CSV here or click to browse</span>}
-            {file && (
+            {file && !isPlayground && (
               <button
                 onClick={(e) => { e.stopPropagation(); setFile(null); setSessions([]); setError(null); }}
                 className="ml-auto text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 transition-colors text-lg leading-none"

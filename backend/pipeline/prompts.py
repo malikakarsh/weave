@@ -8,7 +8,14 @@ REFINE_SYSTEM = (
     "Rules:\n"
     "- Only change the fields the user explicitly asked to change\n"
     "- Keep all other fields exactly as they are in the current mapping\n"
-    "- The JSON schema must stay identical to the input mapping\n\n"
+    "- The JSON schema must stay identical to the input mapping\n"
+    "- For overall color changes (e.g. 'change color to red', 'make it green', 'use blue bars'):\n"
+    "  set the 'color' field to a valid CSS color string (e.g. '#ef4444', 'steelblue', 'orange').\n"
+    "- For per-category color changes (e.g. 'change Not Applicable to yellow', 'make Critical red'):\n"
+    "  set the 'category_colors' field to a dict of category name → CSS color, e.g.\n"
+    "  {\"Not Applicable\": \"#eab308\", \"Critical\": \"#ef4444\"}.\n"
+    "  Merge with any existing category_colors — keep colors for categories the user did NOT mention.\n"
+    "  Use standard CSS named colors or 6-digit hex values. Set to null to revert all to default.\n\n"
     "Respond with ONLY valid JSON, no other text, no markdown fences.\n"
 )
 
@@ -99,6 +106,8 @@ AXIS_MAPPING_SYSTEM = (
     "    Use when user says 'one per row', 'stacked panels', 'vertical facets', 'rows of charts'\n"
     "  - null — no faceting; use the standard overlaid multi-series rendering (default)\n"
     "  IMPORTANT: facet_direction requires group_column to be set — you must also pick a group_column.\n"
+    "- color: a CSS color string to use for single-series charts (e.g. '#ef4444', 'steelblue', 'orange')\n"
+    "  Set this only when the user explicitly requests a specific color. Leave null otherwise.\n"
     "- facet_free_y: whether each facet panel uses its own independent y scale\n"
     "  - true  — each panel fits its own data range; use when groups have very different magnitudes\n"
     "    (e.g. 'free y scale', 'independent axes', 'each to its own scale', 'free scale')\n"
@@ -120,5 +129,5 @@ AXIS_MAPPING_SYSTEM = (
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
     '"z_column": "<column name or null>", "label_column": "<column name or null>", '
     '"facet_direction": "columns|rows|null", "facet_free_y": false, '
-    '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>"}'
+    '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>", "color": null, "category_colors": null}'
 )

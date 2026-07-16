@@ -266,9 +266,11 @@
 
     // Color scale
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
-    const colorScale = isGrouped
+    const catColors  = config.category_colors || {};
+    const _baseCS    = isGrouped
       ? d3.scaleOrdinal(palette).domain(groups.map(g => g.group))
       : () => config.color;
+    const colorScale = key => catColors[key] !== undefined ? catColors[key] : _baseCS(key);
 
     // Track current color per series so the highlight ring stays in sync after recoloring
     const seriesColor = {};

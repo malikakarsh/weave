@@ -227,9 +227,11 @@
     let categories, groups, colorScale;
 
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
-    colorScale = isGrouped
+    const catColors  = config.category_colors || {};
+    const _baseCS    = isGrouped
       ? d3.scaleOrdinal(palette).domain(raw.map(g => g.group))
       : () => config.color;
+    colorScale = key => catColors[key] !== undefined ? catColors[key] : _baseCS(key);
 
     if (isGrouped) {
       categories = raw[0].values.map(d => d.x);
@@ -380,9 +382,9 @@
         .attr("y",      d => d.y !== null ? yScale(d.y) : height)
         .attr("width",  xOuter.bandwidth())
         .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
-        .attr("fill",   config.color)
+        .attr("fill",   d => catColors[d.x] || config.color)
         .attr("rx", 2)
-        .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: config.color }]))
+        .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: catColors[d.x] || config.color }]))
         .on("mouseleave", hideTooltip)
         .on("click", function(event, d) {
           if (!editMode) return;

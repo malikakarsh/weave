@@ -37,6 +37,11 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 - **Responsive landing page** — hero punchline scales from mobile through desktop; needle + thread SVG decoration; woven texture background
 - **Readable map labels** — city/point labels use paint-order stroke halo so they're legible on both dark land and light ocean in any theme
 - **Compact conversation history** — scrollable chat panel sized to show recent instructions without dominating the layout; scrollbar styled to match the active theme
+- **Multi-chart dashboard** — one prompt generates multiple charts in parallel via SSE; each chart streams in as it finishes
+- **Per-chart sessions** — every chart has its own isolated conversation history, mapping, and refine bar; changes in one chart never affect another
+- **Add chart** — append new charts to a live dashboard at any time without clearing existing ones
+- **Color refinement** — change any chart's overall color or a specific category's color via plain English ("change color to red", "make Not Applicable yellow")
+- **Playground** — pick a sample dataset from the landing page (Stocks, Revenue, World Cities, Diamonds, NYC Restaurants, Iris) to see auto-generated dashboards and experiment with refinements; resets when you upload your own CSV
 
 ## How it works
 
@@ -392,6 +397,8 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - ~~Per-chart session state — each chart has its own isolated conversation history, mapping, and refine bar; refinements in one chart never affect another~~
 - ~~"Add chart" button — append new charts to the dashboard at any time without clearing existing ones~~
 - ~~CSV validation — size limit (10 MB), encoding check, null-byte detection, parse verification, formula injection guard~~
+- ~~Color refinement — `color` and `category_colors` fields in `AxisMapping`; overall color and per-category overrides via natural language~~
+- ~~Playground — sample dataset picker on landing page; backend serves CSVs via `GET /playground/csv/{id}`; reuses dashboard SSE pipeline; resets on own CSV upload~~
 - Deployed with a live URL (Digital Ocean)
 
 **Test suite**

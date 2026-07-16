@@ -20,6 +20,8 @@ class AxisMapping(BaseModel):
     title: str = ""
     x_label: str = ""
     y_label: str = ""
+    color: str | None = None             # CSS color for single-series charts; null means use default palette
+    category_colors: dict[str, str] | None = None  # per-category color overrides: {"CategoryName": "#hex"}
 
 
 class ChartConfig(BaseModel):
@@ -34,6 +36,7 @@ class ChartConfig(BaseModel):
     x_label: str = ""
     y_label: str = ""
     palette: list[str] | None = None  # custom colors per group; falls back to D3 categorical scale
+    category_colors: dict[str, str] | None = None  # per-category color overrides; merged on top of palette
     svg_bg: str = "#1a1d27"           # background rect injected into exported SVG
     facet_direction: str | None = None  # "rows" | "columns" — passed through from AxisMapping
     facet_free_y: bool = False          # True → each facet panel uses its own y scale

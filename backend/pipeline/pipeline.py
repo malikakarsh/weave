@@ -7,6 +7,7 @@ from pipeline.providers import LLMProvider
 from pipeline.transformer import Transformer
 from pipeline.templater import Templater
 from pipeline.palettes import resolve_palette
+from pipeline.chart_requirements import validate_chart
 
 
 def _pretty(col: str) -> str:
@@ -16,6 +17,22 @@ def _pretty(col: str) -> str:
     import re
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", col)
     return s.replace("_", " ").strip().title()
+
+
+def _keep_axes_on_type_change(mapping: AxisMapping, current: AxisMapping, instruction: str) -> AxisMapping:
+    """Restore x/y columns the user didn't explicitly name, so a chart-type change
+    can't silently swap axes to sneak past validation."""
+    import re
+    instr = instruction.lower()
+    def named(col: str | None) -> bool:
+        return bool(col) and re.search(rf"\b{re.escape(col.lower())}\b", instr) is not None
+    updates = {}
+    for field in ("x_column", "y_column"):
+        new_col = getattr(mapping, field)
+        old_col = getattr(current, field)
+        if new_col != old_col and not named(new_col):
+            updates[field] = old_col
+    return mapping.model_copy(update=updates) if updates else mapping
 
 
 def _apply_mapping(config: ChartConfig, mapping: AxisMapping) -> ChartConfig:
@@ -85,6 +102,10 @@ class Pipeline:
         if sort_override:
             mapping = mapping.model_copy(update={"sort_order": sort_override})
 
+        err = validate_chart(mapping, schema)
+        if err:
+            raise ValueError(err)
+
         config = _apply_mapping(config, mapping)
 
         _emit("transforming")
@@ -110,10 +131,20 @@ class Pipeline:
                 on_progress(stage)
 
         _emit("loading")
-        _, rows = self._loader.load(csv_path)
+        schema, rows = self._loader.load(csv_path)
 
         _emit("mapping")
-        mapping = self._mapper.refine(current_mapping, history, instruction)
+        mapping = self._mapper.refine(current_mapping, history, instruction, schema)
+
+        # Guard against the LLM silently swapping the axes to satisfy a new chart
+        # type's requirements. On a pure type change, restore any x/y column the
+        # user didn't explicitly name, so validation reflects the real axes.
+        if mapping.chart_type != current_mapping.chart_type:
+            mapping = _keep_axes_on_type_change(mapping, current_mapping, instruction)
+
+        err = validate_chart(mapping, schema)
+        if err:
+            raise ValueError(err)
 
         config = _apply_mapping(config, mapping)
 

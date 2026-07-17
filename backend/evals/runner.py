@@ -291,7 +291,7 @@ def _run_sequential(cases, loader, transformer, mapper) -> tuple[int, int, int, 
         try:
             if "refine_from" in case:
                 current = AxisMapping(**case["refine_from"])
-                mapping = mapper.refine(current, [], case["refine_instruction"])
+                mapping = mapper.refine(current, [], case["refine_instruction"], schema)
                 label = "refined"
             else:
                 mapping = mapper.map(schema, case["prompt"])
@@ -327,7 +327,7 @@ def _run_batch(cases, loader, transformer, mapper) -> tuple[int, int, int, list[
             if entry["is_refine"]:
                 current = AxisMapping(**case["refine_from"])
                 entry["current"] = current
-                entry["request"] = mapper.build_refine_request(current, [], case["refine_instruction"])
+                entry["request"] = mapper.build_refine_request(current, [], case["refine_instruction"], schema)
             else:
                 entry["request"] = mapper.build_map_request(schema, case["prompt"])
         except Exception as e:

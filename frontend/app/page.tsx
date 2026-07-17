@@ -235,6 +235,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [refineStage, setRefineStage] = useState<string | null>(null);
+  const [refineError, setRefineError] = useState<string | null>(null);
   const [insights, setInsights] = useState<string[] | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -291,6 +292,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
 
     setRefining(true);
     setRefineStage(null);
+    setRefineError(null);
     setRefinePrompt("");
 
     const nextHistory: HistoryMessage[] = [
@@ -338,6 +340,8 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
               setInsights(null);
               setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
             } else if (data.stage === "error") {
+              // Keep the existing chart; surface the reason (e.g. dimensions mismatch).
+              setRefineError(data.detail ?? "Couldn't apply that change.");
               onUpdate(session.id, { history: session.history });
             } else {
               setRefineStage(data.stage);
@@ -345,7 +349,8 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
           } catch { /* malformed SSE — skip */ }
         }
       }
-    } catch {
+    } catch (e: unknown) {
+      setRefineError(e instanceof Error ? e.message : "Couldn't apply that change.");
       onUpdate(session.id, { history: session.history });
     } finally {
       setRefining(false);
@@ -521,6 +526,16 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
                 </svg>
             }
           </button>
+        </div>
+      )}
+
+      {/* Refine error (e.g. dimensions mismatch) */}
+      {session.status === "done" && refineError && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-500 dark:text-red-300 flex items-start gap-2">
+          <svg className="w-4 h-4 shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+          <span>{refineError}</span>
         </div>
       )}
 

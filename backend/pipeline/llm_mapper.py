@@ -66,21 +66,28 @@ class LLMMapper:
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping
 
-    def refine(self, current_mapping: AxisMapping, history: list[dict], instruction: str) -> AxisMapping:
+    def refine(self, current_mapping: AxisMapping, history: list[dict], instruction: str,
+               schema: Schema | None = None) -> AxisMapping:
         """Return an updated AxisMapping by applying a natural-language instruction to the current one."""
-        system, user = self.build_refine_request(current_mapping, history, instruction)
+        system, user = self.build_refine_request(current_mapping, history, instruction, schema)
         raw = self._provider.complete(system, user)
         return self.parse_refine_response(raw, current_mapping)
 
     def build_refine_request(
-        self, current_mapping: AxisMapping, history: list[dict], instruction: str
+        self, current_mapping: AxisMapping, history: list[dict], instruction: str,
+        schema: Schema | None = None,
     ) -> tuple[str, str]:
-        """Return the (system, user) messages for a refinement request."""
+        """Return the (system, user) messages for a refinement request.
+
+        When the schema is provided, include the available columns + types so the
+        model can pick valid columns (especially when changing chart type)."""
         history_text = "\n".join(
             f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
             for m in history
         )
+        schema_text = f"Dataset schema:\n{self._describe_schema(schema)}\n\n" if schema else ""
         user_msg = (
+            f"{schema_text}"
             f"Current mapping:\n{current_mapping.model_dump_json(indent=2)}\n\n"
             f"Conversation history:\n{history_text}\n\n"
             f"New instruction: {instruction}"

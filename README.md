@@ -28,6 +28,7 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 ### Web UI features
 - **Chart generation** — same pipeline as the CLI, rendered live in the browser
 - **Iterative refinement** — after a chart is generated, keep chatting to refine it; the LLM sees the full conversation history and updates only the fields you ask about
+- **Chart-type validation** — a deterministic `ChartValidator` (not the LLM) decides whether a chart type can be built from the data. Every generate/refine runs it against the dataset schema; impossible switches (e.g. "make it a bubble chart" with no numeric size column) are rejected with a clear "dimensions mismatch" message that suggests a compatible chart instead. A pipeline guard also restores any axis the LLM tried to swap to sneak past a requirement, so validation reflects the real columns. The schema + requirements are also fed to the refine LLM as advisory hints to reduce how often users hit an error
 - **Conversation history** — a scrollable chat panel shows every user instruction and the mapping changes applied
 - **Edit panel** — in-chart controls for title, axis labels, colors, and SVG background
 - **Analyze chart** — sends the chart mapping + data sample to Claude for key insights
@@ -356,6 +357,7 @@ backend/
 │   ├── llm_mapper.py              # Claude axis and chart type selection
 │   ├── prompts.py                 # System prompts for LLM
 │   ├── palettes.py                # Named color palettes (HCL ramps + categorical schemes)
+│   ├── chart_requirements.py      # Per-chart-type dimension checks (validate + suggest alternative)
 │   ├── transformer.py             # Five transform modes (flat/grouped/labeled/heatmap/network)
 │   ├── templater.py               # HTML rendering
 │   └── templates/
@@ -382,7 +384,9 @@ backend/
 │   ├── conftest.py                # shared fixtures (tmp_csv, flat_mapping)
 │   ├── test_data_loader.py        # DataLoader unit tests (type detection, load, validate)
 │   ├── test_transformer.py        # Transformer unit tests (all transform modes, sort, bucketing, range)
-│   └── test_llm_mapper.py         # LLMMapper unit tests (deterministic helpers + mocked provider)
+│   ├── test_llm_mapper.py         # LLMMapper unit tests (deterministic helpers + mocked provider)
+│   ├── test_chart_requirements.py # ChartValidator rules (valid + mismatch cases)
+│   └── test_pipeline_guard.py     # Axis-preservation guard on chart-type changes
 └── samples/
     ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
     ├── numeric_x.csv              # Age vs income dataset (Float x-axis)

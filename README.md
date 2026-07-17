@@ -28,6 +28,7 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 ### Web UI features
 - **Chart generation** — same pipeline as the CLI, rendered live in the browser
 - **Iterative refinement** — after a chart is generated, keep chatting to refine it; the LLM sees the full conversation history and updates only the fields you ask about
+- **Category disambiguation (human-in-the-loop)** — when you reference a category value ("color Good yellow", "show only America"), a deterministic `CategoryResolver` (not the LLM) matches your wording against the actual distinct values in the data. Exact and single-clean matches apply automatically; when a term is ambiguous ("America" → North/South America) or has no match, the chart asks you which value you meant with the **top-5 closest** options (ranked by similarity, above a floor) plus a "None of these" escape — then re-renders your pick with no extra LLM call. Templates match category colors exactly (so coloring `Good` no longer bleeds into `Very Good`)
 - **Chart-type validation** — a deterministic `ChartValidator` (not the LLM) decides whether a chart type can be built from the data. Every generate/refine runs it against the dataset schema; impossible switches (e.g. "make it a bubble chart" with no numeric size column) are rejected with a clear "dimensions mismatch" message. The suggested alternative is computed, not hardcoded — the validator only offers chart types that actually validate against the current columns (so a rejected map won't suggest a scatter that would also fail). A pipeline guard also restores any axis the LLM tried to swap to sneak past a requirement, so validation reflects the real columns. The schema + requirements are also fed to the refine LLM as advisory hints to reduce how often users hit an error
 - **Conversation history** — a scrollable chat panel shows every user instruction and the mapping changes applied
 - **Edit panel** — in-chart controls for title, axis labels, colors, and SVG background
@@ -358,6 +359,7 @@ backend/
 │   ├── prompts.py                 # System prompts for LLM
 │   ├── palettes.py                # Named color palettes (HCL ramps + categorical schemes)
 │   ├── chart_requirements.py      # Per-chart-type dimension checks (validate + suggest alternative)
+│   ├── category_resolver.py       # Deterministic category-value resolution + ambiguity clarification
 │   ├── transformer.py             # Five transform modes (flat/grouped/labeled/heatmap/network)
 │   ├── templater.py               # HTML rendering
 │   └── templates/
@@ -386,7 +388,8 @@ backend/
 │   ├── test_transformer.py        # Transformer unit tests (all transform modes, sort, bucketing, range)
 │   ├── test_llm_mapper.py         # LLMMapper unit tests (deterministic helpers + mocked provider)
 │   ├── test_chart_requirements.py # ChartValidator rules (valid + mismatch cases)
-│   └── test_pipeline_guard.py     # Axis-preservation guard on chart-type changes
+│   ├── test_pipeline_guard.py     # Axis-preservation guard on chart-type changes
+│   └── test_category_resolver.py  # Category resolution tiers (exact/unique/ambiguous/none)
 └── samples/
     ├── sample.csv                 # Multi-company revenue dataset (Date x-axis)
     ├── numeric_x.csv              # Age vs income dataset (Float x-axis)

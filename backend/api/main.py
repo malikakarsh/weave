@@ -20,6 +20,7 @@ from pipeline.data_loader import DataLoader
 from pipeline.decomposer import Decomposer
 from pipeline.pipeline import Pipeline
 from pipeline.providers import get_provider
+from pipeline.category_resolver import ClarificationNeeded
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -435,6 +436,16 @@ async def refine_chart_stream(
                     "html": _inject(html),
                     "mapping": updated_mapping.model_dump(),
                 })
+            except ClarificationNeeded as c:
+                await queue.put({
+                    "stage": "clarify",
+                    "mapping": c.mapping.model_dump(),
+                    "clarifications": [
+                        {"field": cl.field, "term": cl.term, "column": cl.column,
+                         "options": cl.options, "reason": cl.reason, "color": cl.color}
+                        for cl in c.clarifications
+                    ],
+                })
             except Exception as e:
                 logger.exception("Stream refine error")
                 await queue.put({"stage": "error", "detail": str(e)})
@@ -449,7 +460,7 @@ async def refine_chart_stream(
             while True:
                 event = await queue.get()
                 yield {"event": "progress", "data": json.dumps(event)}
-                if event["stage"] in ("done", "error"):
+                if event["stage"] in ("done", "error", "clarify"):
                     break
         finally:
             await task
@@ -503,6 +514,42 @@ async def refine_chart(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Refine error")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        os.unlink(tmp_path)
+
+
+@app.post("/render", response_model=ChartResponse)
+async def render_mapping(
+    file: UploadFile = File(..., description="Same CSV used for the original chart"),
+    mapping: str = Form(..., description="A fully-resolved AxisMapping as JSON"),
+):
+    """Re-render a mapping with no LLM call — used to apply the user's answers to a
+    clarification (chosen category values)."""
+    csv_bytes = await file.read()
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(csv_bytes)
+        tmp_path = tmp.name
+
+    try:
+        m = AxisMapping(**json.loads(mapping))
+        config = ChartConfig(
+            title=m.title or "",
+            x_label=m.x_label or "",
+            y_label=m.y_label or "",
+            background=m.background,
+        )
+        html, updated = Pipeline().render_mapping(tmp_path, m, config)
+        return ChartResponse(html=_inject(html), mapping=updated.model_dump())
+    except (ValueError, KeyError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Render error")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         os.unlink(tmp_path)

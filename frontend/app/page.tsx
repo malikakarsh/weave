@@ -236,6 +236,9 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
   const [refining, setRefining] = useState(false);
   const [refineStage, setRefineStage] = useState<string | null>(null);
   const [refineError, setRefineError] = useState<string | null>(null);
+  type Clar = { field: string; term: string; column: string; options: string[]; reason: string; color: string | null };
+  const [clarify, setClarify] = useState<{ clarifications: Clar[]; mapping: Record<string, unknown> } | null>(null);
+  const [clarifyBusy, setClarifyBusy] = useState(false);
   const [insights, setInsights] = useState<string[] | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -293,6 +296,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
     setRefining(true);
     setRefineStage(null);
     setRefineError(null);
+    setClarify(null);
     setRefinePrompt("");
 
     const nextHistory: HistoryMessage[] = [
@@ -339,6 +343,9 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
               });
               setInsights(null);
               setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+            } else if (data.stage === "clarify") {
+              // Ambiguous category reference — ask the user which value they meant.
+              setClarify({ clarifications: data.clarifications, mapping: data.mapping });
             } else if (data.stage === "error") {
               // Keep the existing chart; surface the reason (e.g. dimensions mismatch).
               setRefineError(data.detail ?? "Couldn't apply that change.");
@@ -355,6 +362,54 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
     } finally {
       setRefining(false);
       setRefineStage(null);
+    }
+  }
+
+  // Apply the user's pick for one clarification; when all are answered, re-render
+  // the resolved mapping with no further LLM call.
+  // chosen === null → "none of these": skip this reference (don't apply it).
+  async function resolveClarification(clar: Clar, chosen: string | null) {
+    if (!clarify) return;
+    const mapping = { ...clarify.mapping } as Record<string, unknown>;
+    if (chosen !== null) {
+      if (clar.field === "category_colors") {
+        mapping.category_colors = { ...(mapping.category_colors as Record<string, string> || {}), [chosen]: clar.color };
+      } else if (clar.field === "group_filter") {
+        mapping.group_filter = [...((mapping.group_filter as string[]) || []), chosen];
+      } else if (clar.field === "filters") {
+        const filters = ((mapping.filters as { column: string; values: string[] }[]) || []).map(f => ({ ...f }));
+        const existing = filters.find(f => f.column === clar.column);
+        if (existing) existing.values = [...(existing.values || []), chosen];
+        else filters.push({ column: clar.column, values: [chosen] });
+        mapping.filters = filters;
+      }
+    }
+
+    const remaining = clarify.clarifications.filter(c => c !== clar);
+    if (remaining.length > 0) {
+      setClarify({ clarifications: remaining, mapping });
+      return;
+    }
+
+    setClarifyBusy(true);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("mapping", JSON.stringify(mapping));
+      const res = await fetch(`${API}/render`, { method: "POST", body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail ?? "Render failed");
+      onUpdate(session.id, {
+        html: data.html,
+        mapping: data.mapping,
+        history: [...session.history, { role: "assistant", content: JSON.stringify(data.mapping) }],
+      });
+      setClarify(null);
+    } catch (e: unknown) {
+      setRefineError(e instanceof Error ? e.message : "Couldn't apply that change.");
+      setClarify(null);
+    } finally {
+      setClarifyBusy(false);
     }
   }
 
@@ -528,6 +583,44 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
           </button>
         </div>
       )}
+
+      {/* Clarification (ambiguous / unknown category reference) */}
+      {session.status === "done" && clarify && clarify.clarifications.length > 0 && (() => {
+        const c = clarify.clarifications[0];
+        const prompt = c.reason === "none"
+          ? <>No category matches <span className="font-semibold">&ldquo;{c.term}&rdquo;</span> in <span className="font-mono">{c.column}</span>. Did you mean:</>
+          : <><span className="font-semibold">&ldquo;{c.term}&rdquo;</span> is ambiguous in <span className="font-mono">{c.column}</span> — which did you mean?</>;
+        return (
+          <div className="rounded-lg bg-indigo-500/10 border border-indigo-500/30 px-3 py-2.5 text-xs text-gray-700 dark:text-white/80 flex flex-col gap-2">
+            <span>{prompt}</span>
+            <div className="flex flex-wrap gap-2">
+              {c.options.map(opt => (
+                <button
+                  key={opt}
+                  disabled={clarifyBusy}
+                  onClick={() => resolveClarification(c, opt)}
+                  className="flex items-center gap-1.5 rounded-full border border-gray-300 dark:border-white/20 bg-white dark:bg-white/5
+                    px-2.5 py-1 hover:border-indigo-400 dark:hover:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                >
+                  {c.field === "category_colors" && c.color && (
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: c.color }} />
+                  )}
+                  {opt}
+                </button>
+              ))}
+              <button
+                disabled={clarifyBusy}
+                onClick={() => resolveClarification(c, null)}
+                className="rounded-full border border-transparent px-2.5 py-1 text-gray-500 dark:text-white/40
+                  hover:text-gray-700 dark:hover:text-white/70 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                None of these
+              </button>
+            </div>
+            <span className="text-[11px] text-gray-400 dark:text-white/30">Or refine again with a more specific name.</span>
+          </div>
+        );
+      })()}
 
       {/* Refine error (e.g. dimensions mismatch) */}
       {session.status === "done" && refineError && (

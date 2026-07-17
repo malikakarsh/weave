@@ -219,7 +219,7 @@
       if (catColors[key]) return catColors[key];
       const kl = key.toLowerCase();
       for (const [ck, cv] of Object.entries(catColors)) {
-        if (kl.includes(ck.toLowerCase()) || ck.toLowerCase().includes(kl)) return cv;
+        if (ck.toLowerCase() === kl) return cv;   // exact (case-insensitive) — avoids 'Good' matching 'Very Good'
       }
       return fallback;
     }

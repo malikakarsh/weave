@@ -8,6 +8,9 @@ from pipeline.transformer import Transformer
 from pipeline.templater import Templater
 from pipeline.palettes import resolve_palette
 from pipeline.chart_requirements import validate_chart
+from pipeline.category_resolver import (
+    resolve_references, apply_choice, ClarificationNeeded,
+)
 
 
 def _pretty(col: str) -> str:
@@ -106,6 +109,14 @@ class Pipeline:
         if err:
             raise ValueError(err)
 
+        # Resolve referenced category values against the data. On generation we
+        # auto-pick the closest candidate for any ambiguity (no interactive gate).
+        resolved = resolve_references(mapping, rows)
+        mapping = resolved.mapping
+        for clar in resolved.clarifications:
+            if clar.options:
+                mapping = apply_choice(mapping, clar, clar.options[0])
+
         config = _apply_mapping(config, mapping)
 
         _emit("transforming")
@@ -146,11 +157,40 @@ class Pipeline:
         if err:
             raise ValueError(err)
 
+        # Resolve referenced category values; ambiguous/unknown ones become a
+        # human-in-the-loop clarification instead of a silent best guess.
+        resolved = resolve_references(mapping, rows)
+        if resolved.clarifications:
+            raise ClarificationNeeded(resolved.mapping, resolved.clarifications)
+        mapping = resolved.mapping
+
         config = _apply_mapping(config, mapping)
 
         _emit("transforming")
         data = self._transformer.transform(rows, mapping)
 
         _emit("rendering")
+        html = self._templater.render(data, config)
+        return html, mapping
+
+    def render_mapping(
+        self,
+        csv_path: str,
+        mapping: AxisMapping,
+        config: ChartConfig,
+    ) -> tuple[str, AxisMapping]:
+        """Render a fully-resolved mapping with no LLM call — used to apply a
+        user's clarification choices."""
+        schema, rows = self._loader.load(csv_path)
+        err = validate_chart(mapping, schema)
+        if err:
+            raise ValueError(err)
+        resolved = resolve_references(mapping, rows)
+        mapping = resolved.mapping
+        for clar in resolved.clarifications:
+            if clar.options:
+                mapping = apply_choice(mapping, clar, clar.options[0])
+        config = _apply_mapping(config, mapping)
+        data = self._transformer.transform(rows, mapping)
         html = self._templater.render(data, config)
         return html, mapping

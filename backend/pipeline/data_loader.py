@@ -11,8 +11,10 @@ class DataLoader:
     # sheets often carry a title / blank rows above the table.
     HEADER_SCAN = 15
     DATE_FORMATS = [
-        # date only
+        # date only (4-digit year)
         "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%d-%m-%Y",
+        # date only (2-digit year, e.g. "09/02/25")
+        "%d/%m/%y", "%m/%d/%y", "%d-%m-%y", "%m-%d-%y",
         # Month Day Year (e.g. "Jan 1 2000", "Aug 19 2004")
         "%b %d %Y",
         # datetime

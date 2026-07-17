@@ -27,6 +27,9 @@ class TestDetectType:
     def test_slash_dates_mdy(self, loader):
         assert loader._detect_type(["01/15/2024", "06/30/2024"]) == ColumnType.DATE
 
+    def test_two_digit_year_dates(self, loader):
+        assert loader._detect_type(["09/02/25", "12/31/24"]) == ColumnType.DATE
+
     def test_abbrev_month_dates(self, loader):
         assert loader._detect_type(["Jan 01 2024", "Aug 19 2004"]) == ColumnType.DATE
 

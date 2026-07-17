@@ -18,6 +18,37 @@ def _pretty(col: str) -> str:
     return s.replace("_", " ").strip().title()
 
 
+def _apply_mapping(config: ChartConfig, mapping: AxisMapping) -> ChartConfig:
+    """Fold an AxisMapping into a ChartConfig, returning the updated config."""
+    palette = resolve_palette(mapping.palette)
+    update: dict = {
+        "chart_type":      mapping.chart_type,
+        "facet_direction": mapping.facet_direction,
+        "facet_free_y":    mapping.facet_free_y,
+        "title":           mapping.title or config.title,
+        "x_label":         mapping.x_label or config.x_label or _pretty(mapping.x_column),
+        "y_label":         mapping.y_label or config.y_label or _pretty(mapping.y_column),
+        "z_label":         mapping.z_column or config.z_label,
+        "x_column":        mapping.x_column or config.x_column,
+        "y_column":        mapping.y_column or config.y_column,
+        "background":      mapping.background or config.background,
+    }
+    if mapping.background:
+        update["svg_bg"] = mapping.background
+    if mapping.category_colors:
+        update["category_colors"] = mapping.category_colors
+    if palette:
+        update["palette"] = palette
+    # Color precedence: an explicit color wins; otherwise a named palette also
+    # drives the single-series (unicolor) color from its first shade, so
+    # "dark palette" / "light palette" work on non-grouped charts too.
+    if mapping.color:
+        update["color"] = mapping.color
+    elif palette:
+        update["color"] = palette[0]
+    return config.model_copy(update=update)
+
+
 class Pipeline:
     """Orchestrates DataLoader → LLMMapper → Transformer → Templater."""
 
@@ -52,22 +83,7 @@ class Pipeline:
         if sort_override:
             mapping = mapping.model_copy(update={"sort_order": sort_override})
 
-        config = config.model_copy(update={
-            "chart_type":      mapping.chart_type,
-            "facet_direction": mapping.facet_direction,
-            "facet_free_y":    mapping.facet_free_y,
-            "title":           mapping.title or config.title,
-            "x_label":         mapping.x_label or config.x_label or _pretty(mapping.x_column),
-            "y_label":         mapping.y_label or config.y_label or _pretty(mapping.y_column),
-            "z_label":         mapping.z_column or config.z_label,
-            "x_column":        mapping.x_column or config.x_column,
-            "y_column":        mapping.y_column or config.y_column,
-            "background":      mapping.background or config.background,
-            **({"svg_bg": mapping.background} if mapping.background else {}),
-            **({"color": mapping.color} if mapping.color else {}),
-            **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
-            **({"palette": resolve_palette(mapping.palette)} if resolve_palette(mapping.palette) else {}),
-        })
+        config = _apply_mapping(config, mapping)
 
         _emit("transforming")
         data = self._transformer.transform(rows, mapping)
@@ -97,22 +113,7 @@ class Pipeline:
         _emit("mapping")
         mapping = self._mapper.refine(current_mapping, history, instruction)
 
-        config = config.model_copy(update={
-            "chart_type":      mapping.chart_type,
-            "facet_direction": mapping.facet_direction,
-            "facet_free_y":    mapping.facet_free_y,
-            "title":           mapping.title or config.title,
-            "x_label":         mapping.x_label or config.x_label or _pretty(mapping.x_column),
-            "y_label":         mapping.y_label or config.y_label or _pretty(mapping.y_column),
-            "z_label":         mapping.z_column or config.z_label,
-            "x_column":        mapping.x_column or config.x_column,
-            "y_column":        mapping.y_column or config.y_column,
-            "background":      mapping.background or config.background,
-            **({"svg_bg": mapping.background} if mapping.background else {}),
-            **({"color": mapping.color} if mapping.color else {}),
-            **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
-            **({"palette": resolve_palette(mapping.palette)} if resolve_palette(mapping.palette) else {}),
-        })
+        config = _apply_mapping(config, mapping)
 
         _emit("transforming")
         data = self._transformer.transform(rows, mapping)

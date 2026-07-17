@@ -15,11 +15,20 @@ class LLMMapper:
         return self._provider
 
     def map(self, schema: Schema, prompt: str) -> AxisMapping:
+        system, user = self.build_map_request(schema, prompt)
+        raw = self._provider.complete(system, user)
+        return self.parse_map_response(raw, schema)
+
+    def build_map_request(self, schema: Schema, prompt: str) -> tuple[str, str]:
+        """Return the (system, user) messages for an initial mapping request."""
         user_msg = (
             f"Dataset schema:\n{self._describe_schema(schema)}\n\n"
             f"User intent: {prompt}"
         )
-        raw = self._provider.complete(self._system_prompt, user_msg)
+        return self._system_prompt, user_msg
+
+    def parse_map_response(self, raw: str, schema: Schema) -> AxisMapping:
+        """Parse a raw LLM response into a validated AxisMapping for an initial mapping."""
         raw = self._strip_fences(raw)
 
         try:
@@ -44,6 +53,14 @@ class LLMMapper:
 
     def refine(self, current_mapping: AxisMapping, history: list[dict], instruction: str) -> AxisMapping:
         """Return an updated AxisMapping by applying a natural-language instruction to the current one."""
+        system, user = self.build_refine_request(current_mapping, history, instruction)
+        raw = self._provider.complete(system, user)
+        return self.parse_refine_response(raw, current_mapping)
+
+    def build_refine_request(
+        self, current_mapping: AxisMapping, history: list[dict], instruction: str
+    ) -> tuple[str, str]:
+        """Return the (system, user) messages for a refinement request."""
         history_text = "\n".join(
             f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
             for m in history
@@ -53,7 +70,10 @@ class LLMMapper:
             f"Conversation history:\n{history_text}\n\n"
             f"New instruction: {instruction}"
         )
-        raw = self._provider.complete(REFINE_SYSTEM, user_msg)
+        return REFINE_SYSTEM, user_msg
+
+    def parse_refine_response(self, raw: str, current_mapping: AxisMapping) -> AxisMapping:
+        """Parse a raw LLM response into a validated AxisMapping for a refinement."""
         raw = self._strip_fences(raw)
 
         try:

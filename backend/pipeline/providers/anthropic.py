@@ -1,4 +1,5 @@
 import os
+import time
 
 from .base import LLMProvider
 
@@ -23,3 +24,40 @@ class AnthropicProvider(LLMProvider):
             messages=[{"role": "user", "content": user}],
         )
         return msg.content[0].text.strip()
+
+    def complete_batch(self, requests: list[tuple[str, str]]) -> list[str]:
+        """Submit all prompts via the Anthropic Message Batches API and collect
+        the results in request order. Errored items come back as empty strings."""
+        if not requests:
+            return []
+
+        batch = self._client.messages.batches.create(
+            requests=[
+                {
+                    "custom_id": f"req-{i}",
+                    "params": {
+                        "model": self._model,
+                        "max_tokens": 256,
+                        "system": system,
+                        "messages": [{"role": "user", "content": user}],
+                    },
+                }
+                for i, (system, user) in enumerate(requests)
+            ]
+        )
+
+        # Poll until the batch finishes processing.
+        while True:
+            status = self._client.messages.batches.retrieve(batch.id)
+            if status.processing_status == "ended":
+                break
+            time.sleep(3)
+
+        results: dict[str, str] = {}
+        for entry in self._client.messages.batches.results(batch.id):
+            if entry.result.type == "succeeded":
+                results[entry.custom_id] = entry.result.message.content[0].text.strip()
+            else:
+                results[entry.custom_id] = ""
+
+        return [results.get(f"req-{i}", "") for i in range(len(requests))]

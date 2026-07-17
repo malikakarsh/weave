@@ -41,7 +41,7 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 - **Per-chart sessions** — every chart has its own isolated conversation history, mapping, and refine bar; changes in one chart never affect another
 - **Add chart** — append new charts to a live dashboard at any time without clearing existing ones
 - **Color refinement** — change any chart's overall color or a specific category's color via plain English ("change color to red", "make Not Applicable yellow")
-- **Palette refinement** — switch a grouped chart's whole color scheme by name ("use a dark palette", "change the palette to tableau colors", "pastel palette"); the `vibrant`/`dark`/`light`/`muted` ramps share a golden-angle HCL hue scale (perceptually uniform, only chroma/lightness change) and `tableau10`/`category10`/`set2`/`dark2`/`pastel` are the familiar categorical schemes
+- **Palette refinement** — switch a chart's color scheme by name ("use a dark palette", "change the palette to tableau colors", "pastel palette"); the `vibrant`/`dark`/`light`/`muted` ramps share a golden-angle HCL hue scale (perceptually uniform, only chroma/lightness change) and `tableau10`/`category10`/`set2`/`dark2`/`pastel` are the familiar categorical schemes. Grouped charts use the full palette; single-series (unicolor) charts adopt the palette's first shade, so "dark palette" / "light palette" work on them too (an explicit "change color to …" still takes precedence)
 - **Voice input** — a mic button on every prompt, add-chart, and refine bar uses the browser-native `SpeechRecognition` API; toggle recording with the **⌥/Alt+Shift+V** shortcut (targets the field you're working in — prompt on the landing page, the current chart's refine bar on the dashboard) and press **Enter** to submit the transcript
 - **Rounded chart container** — the chart iframe has rounded corners and a subtle shadow that adapts to light/dark mode
 - **Upload-gated prompt bar** — the prompt input, mic button, and generate button stay disabled until a CSV is uploaded, with a "Upload a CSV to get started…" hint
@@ -384,10 +384,13 @@ backend/
 An LLM eval suite validates that the full pipeline (prompt → LLM mapping → transformer) produces the expected behaviour. Run it from `backend/`:
 
 ```bash
-python -m evals.runner              # run all cases
+python -m evals.runner              # run all cases (sequential — one call per case, with latency)
 python -m evals.runner heatmap      # run cases whose name contains 'heatmap'
+python -m evals.runner --batch      # submit all cases as one batch (cheaper, no per-case latency)
 python -m evals.runner --fast       # skip LLM calls; only validate transformer output
 ```
+
+**Execution modes** — by default the runner calls the model once per case sequentially and reports per-case and aggregate latency (useful for benchmarking). Pass `--batch` to build one request per case and submit them all at once: on Anthropic this uses the [Message Batches API](https://docs.anthropic.com/en/docs/build-with-claude/batch-processing) (one async job, ~50% cheaper but higher wall-clock latency); other providers fan the requests out concurrently. Only the eval runner batches — the app pipeline always uses single requests. `LLMMapper` exposes `build_map_request`/`parse_map_response` (and the refine equivalents) so the runner can build every prompt up front, submit the batch, then parse each response.
 
 Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 44 cases covering:
 

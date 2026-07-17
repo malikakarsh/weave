@@ -2,8 +2,9 @@
 UAT eval runner for the Weave pipeline.
 
 Usage:
-  python -m evals.runner                                  # run all cases
+  python -m evals.runner                                  # run all cases (sequential, with latency)
   python -m evals.runner time_unit                        # filter by name
+  python -m evals.runner --batch                          # submit all cases as one batch (cheaper)
   python -m evals.runner --fast                           # skip LLM calls
   python -m evals.runner --provider ollama --model llama3.2
   python -m evals.runner --provider anthropic --model claude-haiku-4-5
@@ -159,29 +160,92 @@ def _check_data(data, expect: dict) -> list[str]:
 
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
-def run_cases(
-    cases: list[dict],
-    fast: bool = False,
-    provider_name: str | None = None,
-    model: str | None = None,
-) -> None:
+def _mapping_detail(mapping, label: str) -> str:
+    facet_info = ""
+    if mapping.facet_direction:
+        facet_info = f" facet={mapping.facet_direction!r} free_y={mapping.facet_free_y!r}"
+    return (f"  {DIM}{label}  →  "
+            f"chart={mapping.chart_type!r} x={mapping.x_column!r} "
+            f"y={mapping.y_column!r} z={mapping.z_column!r} "
+            f"group={mapping.group_column!r} agg={mapping.aggregation!r} "
+            f"top_n={mapping.top_n!r} sort={mapping.sort_order!r} "
+            f"color={mapping.color!r} cat_colors={mapping.category_colors!r} "
+            f"time_unit={mapping.time_unit!r} "
+            f"x_min={mapping.x_min!r} x_max={mapping.x_max!r}"
+            f"{facet_info}{RESET}")
+
+
+def _report_case(case, mapping, rows, transformer, check_mapping: bool) -> bool:
+    """Run mapping + data assertions for one case, print failures, return True if passed."""
+    map_failures: list[str] = []
+    if check_mapping:
+        if "expect_mapping" in case:
+            map_failures += _check_mapping(mapping, case["expect_mapping"])
+        if "expect_mapping_custom" in case:
+            map_failures += _check_mapping_custom(mapping, case["expect_mapping_custom"])
+    for f in map_failures:
+        print(f"{RED}{f}{RESET}")
+
+    data_failures: list[str] = []
+    if mapping is not None and "expect_data" in case:
+        try:
+            data = transformer.transform(rows, mapping)
+            data_failures = _check_data(data, case["expect_data"])
+            for f in data_failures:
+                print(f"{RED}{f}{RESET}")
+        except Exception as e:
+            data_failures.append(f"  transformer error: {e}")
+            print(f"{RED}  transformer error: {e}{RESET}")
+
+    if map_failures + data_failures:
+        print(f"  {FAIL}  {len(map_failures + data_failures)} assertion(s) failed")
+        return False
+    print(f"  {PASS}")
+    return True
+
+
+def _run_fast(cases, loader, transformer) -> tuple[int, int, int, list[float]]:
     passed = failed = skipped = 0
-    latencies: list[float] = []
-    loader = DataLoader()
-    transformer = Transformer()
-
-    if not fast:
-        provider = get_provider(provider_name, model)
-        mapper = LLMMapper(provider)
-        print(f"{DIM}Provider: {type(provider).__name__}  Model: {provider.model}{RESET}\n")
-    else:
-        mapper = None
-
     for case in cases:
-        name = case["name"]
-        print(f"\n{BOLD}{CYAN}▸ {name}{RESET}")
+        print(f"\n{BOLD}{CYAN}▸ {case['name']}{RESET}")
+        try:
+            _, rows = loader.load(case["csv"])
+        except Exception as e:
+            print(f"  {FAIL}  CSV load error: {e}")
+            failed += 1
+            continue
 
-        # Load CSV
+        if "refine_from" in case:
+            stub = dict(case["refine_from"])
+            stub.update({k: v for k, v in case.get("expect_mapping", {}).items() if v is not None})
+        else:
+            stub = case.get("stub_mapping") or case.get("expect_mapping")
+        if not stub:
+            print(f"  {SKIP}  no stub_mapping defined (--fast mode)")
+            skipped += 1
+            continue
+        try:
+            mapping = AxisMapping(**stub)
+        except Exception as e:
+            print(f"  {SKIP}  cannot build stub mapping: {e}")
+            skipped += 1
+            continue
+        print(f"  {DIM}fast: using stub mapping{RESET}")
+        # Mapping is the expected one in fast mode — only data assertions apply.
+        if _report_case(case, mapping, rows, transformer, check_mapping=False):
+            passed += 1
+        else:
+            failed += 1
+    return passed, failed, skipped, []
+
+
+def _run_sequential(cases, loader, transformer, mapper) -> tuple[int, int, int, list[float]]:
+    """Run cases one at a time with a single LLM call each, timing every request
+    so per-case and aggregate latency can be measured."""
+    passed = failed = 0
+    latencies: list[float] = []
+    for case in cases:
+        print(f"\n{BOLD}{CYAN}▸ {case['name']}{RESET}")
         try:
             schema, rows = loader.load(case["csv"])
         except Exception as e:
@@ -189,88 +253,117 @@ def run_cases(
             failed += 1
             continue
 
-        mapping = None
-        map_failures = []
-        is_refine = "refine_from" in case
-
-        if fast:
-            if is_refine:
-                # Simulate refined mapping: start from refine_from, overlay expect_mapping
-                base = dict(case["refine_from"])
-                base.update({k: v for k, v in case.get("expect_mapping", {}).items() if v is not None})
-                stub = base
+        t0 = time.time()
+        try:
+            if "refine_from" in case:
+                current = AxisMapping(**case["refine_from"])
+                mapping = mapper.refine(current, [], case["refine_instruction"])
+                label = "refined"
             else:
-                stub = case.get("stub_mapping") or case.get("expect_mapping")
-            if stub:
-                try:
-                    mapping = AxisMapping(**stub)
-                    print(f"  {DIM}fast: using stub mapping{RESET}")
-                except Exception as e:
-                    print(f"  {SKIP}  cannot build stub mapping: {e}")
-                    skipped += 1
-                    continue
-            else:
-                print(f"  {SKIP}  no stub_mapping defined (--fast mode)")
-                skipped += 1
-                continue
-        else:
-            t0 = time.time()
-            try:
-                if is_refine:
-                    current = AxisMapping(**case["refine_from"])
-                    mapping = mapper.refine(current, [], case["refine_instruction"])
-                    label = "refined"
-                else:
-                    mapping = mapper.map(schema, case["prompt"])
-                    label = "mapped"
-                elapsed = time.time() - t0
-                latencies.append(elapsed)
-                facet_info = ""
-                if mapping.facet_direction:
-                    facet_info = f" facet={mapping.facet_direction!r} free_y={mapping.facet_free_y!r}"
-                print(f"  {DIM}{label} in {elapsed:.1f}s  →  "
-                      f"chart={mapping.chart_type!r} x={mapping.x_column!r} "
-                      f"y={mapping.y_column!r} z={mapping.z_column!r} "
-                      f"group={mapping.group_column!r} agg={mapping.aggregation!r} "
-                      f"top_n={mapping.top_n!r} sort={mapping.sort_order!r} "
-                      f"color={mapping.color!r} cat_colors={mapping.category_colors!r} "
-                      f"time_unit={mapping.time_unit!r} "
-                      f"x_min={mapping.x_min!r} x_max={mapping.x_max!r}"
-                      f"{facet_info}{RESET}")
-            except Exception as e:
-                print(f"  {FAIL}  LLM error: {e}")
-                failed += 1
-                continue
-
-            if "expect_mapping" in case:
-                map_failures = _check_mapping(mapping, case["expect_mapping"])
-            if "expect_mapping_custom" in case:
-                map_failures += _check_mapping_custom(mapping, case["expect_mapping_custom"])
-            if map_failures:
-                for f in map_failures:
-                    print(f"{RED}{f}{RESET}")
-
-        # Transformer
-        data_failures = []
-        if mapping is not None and "expect_data" in case:
-            try:
-                data = transformer.transform(rows, mapping)
-                data_failures = _check_data(data, case["expect_data"])
-                if data_failures:
-                    for f in data_failures:
-                        print(f"{RED}{f}{RESET}")
-            except Exception as e:
-                data_failures.append(f"  transformer error: {e}")
-                print(f"{RED}  transformer error: {e}{RESET}")
-
-        all_failures = map_failures + data_failures
-        if all_failures:
-            print(f"  {FAIL}  {len(all_failures)} assertion(s) failed")
+                mapping = mapper.map(schema, case["prompt"])
+                label = "mapped"
+        except Exception as e:
+            print(f"  {FAIL}  LLM error: {e}")
             failed += 1
-        else:
-            print(f"  {PASS}")
-            passed += 1
+            continue
+        elapsed = time.time() - t0
+        latencies.append(elapsed)
 
+        print(_mapping_detail(mapping, f"{label} in {elapsed:.1f}s"))
+        if _report_case(case, mapping, rows, transformer, check_mapping=True):
+            passed += 1
+        else:
+            failed += 1
+    return passed, failed, 0, latencies
+
+
+def _run_batch(cases, loader, transformer, mapper) -> tuple[int, int, int, list[float]]:
+    """Build one LLM request per case, submit them all as a single batch, then
+    parse each response and run assertions."""
+    passed = failed = 0
+
+    # ── Phase 1: load CSVs and build the batch requests ──
+    jobs = []  # one entry per case: dict with case, rows, and either a request or an error
+    for case in cases:
+        entry = {"case": case, "rows": None, "request": None, "error": None,
+                 "schema": None, "current": None, "is_refine": "refine_from" in case}
+        try:
+            schema, rows = loader.load(case["csv"])
+            entry["schema"], entry["rows"] = schema, rows
+            if entry["is_refine"]:
+                current = AxisMapping(**case["refine_from"])
+                entry["current"] = current
+                entry["request"] = mapper.build_refine_request(current, [], case["refine_instruction"])
+            else:
+                entry["request"] = mapper.build_map_request(schema, case["prompt"])
+        except Exception as e:
+            entry["error"] = f"setup error: {e}"
+        jobs.append(entry)
+
+    # ── Phase 2: submit everything as one batch ──
+    live = [j for j in jobs if j["error"] is None]
+    print(f"{DIM}Submitting {len(live)} request(s) as a batch — this may take a while…{RESET}\n")
+    t0 = time.time()
+    raws = mapper.provider.complete_batch([j["request"] for j in live])
+    elapsed = time.time() - t0
+    for j, raw in zip(live, raws):
+        j["raw"] = raw
+
+    # ── Phase 3: parse each response and run assertions ──
+    for j in jobs:
+        case = j["case"]
+        print(f"\n{BOLD}{CYAN}▸ {case['name']}{RESET}")
+        if j["error"]:
+            print(f"  {FAIL}  {j['error']}")
+            failed += 1
+            continue
+        raw = j.get("raw", "")
+        if not raw:
+            print(f"  {FAIL}  LLM error: empty batch response")
+            failed += 1
+            continue
+        try:
+            if j["is_refine"]:
+                mapping = mapper.parse_refine_response(raw, j["current"])
+                label = "refined"
+            else:
+                mapping = mapper.parse_map_response(raw, j["schema"])
+                label = "mapped"
+        except Exception as e:
+            print(f"  {FAIL}  parse error: {e}")
+            failed += 1
+            continue
+        print(_mapping_detail(mapping, label))
+        if _report_case(case, mapping, j["rows"], transformer, check_mapping=True):
+            passed += 1
+        else:
+            failed += 1
+
+    print(f"\n{DIM}Batch completed in {elapsed:.1f}s ({len(live)} requests){RESET}")
+    return passed, failed, 0, []
+
+
+def run_cases(
+    cases: list[dict],
+    fast: bool = False,
+    batch: bool = False,
+    provider_name: str | None = None,
+    model: str | None = None,
+) -> None:
+    loader = DataLoader()
+    transformer = Transformer()
+
+    if fast:
+        passed, failed, skipped, latencies = _run_fast(cases, loader, transformer)
+    else:
+        provider = get_provider(provider_name, model)
+        mapper = LLMMapper(provider)
+        mode = "batch" if batch else "sequential"
+        print(f"{DIM}Provider: {type(provider).__name__}  Model: {provider.model}  Mode: {mode}{RESET}")
+        if batch:
+            passed, failed, skipped, latencies = _run_batch(cases, loader, transformer, mapper)
+        else:
+            passed, failed, skipped, latencies = _run_sequential(cases, loader, transformer, mapper)
 
     # Summary
     total = passed + failed + skipped
@@ -292,6 +385,7 @@ def run_cases(
 def main():
     args = sys.argv[1:]
     fast = "--fast" in args
+    batch = "--batch" in args
 
     # Extract --provider and --model values
     provider_name = None
@@ -322,7 +416,7 @@ def main():
             sys.exit(0)
         print(f"{DIM}Running {len(cases)} case(s) matching {keyword!r}{RESET}")
 
-    run_cases(cases, fast=fast, provider_name=provider_name, model=model)
+    run_cases(cases, fast=fast, batch=batch, provider_name=provider_name, model=model)
 
 
 if __name__ == "__main__":

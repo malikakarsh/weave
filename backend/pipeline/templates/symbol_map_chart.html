@@ -12,8 +12,8 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       display: flex;
       justify-content: center;
-      align-items: center;
-      min-height: 100vh;
+      align-items: flex-start;
+      padding-bottom: 16px;
     }
 
     #chart {
@@ -108,7 +108,7 @@
       position: absolute;
       inset: 0;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       color: #475569;
       font-size: 13px;
@@ -193,6 +193,7 @@
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    window.__weaveConfig = config;
 
     let svgBg    = config.svg_bg || "#1a1d27";
     let editMode    = false;
@@ -270,7 +271,8 @@
     const svg = d3.select("#chart")
       .append("svg")
       .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
-      .attr("width", "100%");
+      .attr("width", totalWidth)
+      .attr("height", totalHeight);
 
     const mapG = svg.append("g");
 
@@ -605,6 +607,9 @@
 
       document.getElementById("edit-title").value = config.title || "";
       document.getElementById("edit-title").addEventListener("input", e => titleEl.text(e.target.value));
+      requestAnimationFrame(() => {
+      window.parent.postMessage({ type: "weave-height", height: document.body.scrollHeight }, "*");
+    });
 
     }).catch(() => {
       document.getElementById("loading").textContent = "Failed to load map data (requires internet connection)";

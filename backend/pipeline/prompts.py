@@ -19,7 +19,10 @@ REFINE_SYSTEM = (
     "  set the 'category_colors' field to a dict of category name → CSS color, e.g.\n"
     "  {\"Not Applicable\": \"#eab308\", \"Critical\": \"#ef4444\"}.\n"
     "  Merge with any existing category_colors — keep colors for categories the user did NOT mention.\n"
-    "  Use standard CSS named colors or 6-digit hex values. Set to null to revert all to default.\n\n"
+    "  Use standard CSS named colors or 6-digit hex values. Set to null to revert all to default.\n"
+    "- For chart background changes (e.g. 'change the background to white', 'dark background', 'make background black'):\n"
+    "  set the 'background' field to a 6-digit hex color (e.g. 'white'→'#ffffff', 'black'→'#000000', 'navy'→'#0f172a').\n"
+    "  Set to null to revert to the default theme background.\n\n"
     "Respond with ONLY valid JSON, no other text, no markdown fences.\n"
 )
 

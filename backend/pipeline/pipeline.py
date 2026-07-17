@@ -8,6 +8,15 @@ from pipeline.transformer import Transformer
 from pipeline.templater import Templater
 
 
+def _pretty(col: str) -> str:
+    """Turn a snake_case or camelCase column name into a readable label."""
+    if not col:
+        return ""
+    import re
+    s = re.sub(r"([a-z])([A-Z])", r"\1 \2", col)
+    return s.replace("_", " ").strip().title()
+
+
 class Pipeline:
     """Orchestrates DataLoader → LLMMapper → Transformer → Templater."""
 
@@ -47,9 +56,13 @@ class Pipeline:
             "facet_direction": mapping.facet_direction,
             "facet_free_y":    mapping.facet_free_y,
             "title":           mapping.title or config.title,
-            "x_label":         mapping.x_label or config.x_label,
-            "y_label":         mapping.y_label or config.y_label,
+            "x_label":         mapping.x_label or config.x_label or _pretty(mapping.x_column),
+            "y_label":         mapping.y_label or config.y_label or _pretty(mapping.y_column),
             "z_label":         mapping.z_column or config.z_label,
+            "x_column":        mapping.x_column or config.x_column,
+            "y_column":        mapping.y_column or config.y_column,
+            "background":      mapping.background or config.background,
+            **({"svg_bg": mapping.background} if mapping.background else {}),
             **({"color": mapping.color} if mapping.color else {}),
             **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
         })
@@ -87,9 +100,13 @@ class Pipeline:
             "facet_direction": mapping.facet_direction,
             "facet_free_y":    mapping.facet_free_y,
             "title":           mapping.title or config.title,
-            "x_label":         mapping.x_label or config.x_label,
-            "y_label":         mapping.y_label or config.y_label,
+            "x_label":         mapping.x_label or config.x_label or _pretty(mapping.x_column),
+            "y_label":         mapping.y_label or config.y_label or _pretty(mapping.y_column),
             "z_label":         mapping.z_column or config.z_label,
+            "x_column":        mapping.x_column or config.x_column,
+            "y_column":        mapping.y_column or config.y_column,
+            "background":      mapping.background or config.background,
+            **({"svg_bg": mapping.background} if mapping.background else {}),
             **({"color": mapping.color} if mapping.color else {}),
             **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
         })

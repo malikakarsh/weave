@@ -12,8 +12,8 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       display: flex;
       justify-content: center;
-      align-items: center;
-      min-height: 100vh;
+      align-items: flex-start;
+      padding-bottom: 16px;
     }
 
     #chart {
@@ -171,6 +171,7 @@
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    window.__weaveConfig = config;
 
     let svgBg        = config.svg_bg || "#1a1d27";
     let editMode     = false;
@@ -271,7 +272,7 @@
 
     // Dimensions — extra right margin for legend when grouped
     const legendWidth = isGrouped ? 130 : 0;
-    const margin      = { top: 32, right: 16 + legendWidth, bottom: 48, left: 72 };
+    const margin      = { top: 32, right: 16 + legendWidth, bottom: 64, left: 72 };
     let totalWidth  = config.width;
     let totalHeight = config.height;
     let width  = totalWidth  - margin.left - margin.right;
@@ -284,15 +285,26 @@
     const svg = d3.select("#chart")
       .append("svg")
       .attr("viewBox", `0 0 ${totalWidth} ${totalHeight}`)
-      .attr("width", "100%");
+      .attr("width", totalWidth)
+      .attr("height", totalHeight);
 
     const defs = svg.append("defs");
 
     // Color scale
     const palette     = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
-    const colorScale  = isGrouped
+    const catColors   = config.category_colors || {};
+    function resolveColor(key, fallback) {
+      if (catColors[key]) return catColors[key];
+      const kl = (key || "").toLowerCase();
+      for (const [ck, cv] of Object.entries(catColors)) {
+        if (kl.includes(ck.toLowerCase()) || ck.toLowerCase().includes(kl)) return cv;
+      }
+      return fallback;
+    }
+    const _baseCS     = isGrouped
       ? d3.scaleOrdinal(palette).domain(groups.map(g => g.group))
       : () => config.color;
+    const colorScale  = key => resolveColor(key, _baseCS(key));
 
     // Area gradient per group (single only — overlapping areas look messy)
     if (!isGrouped && config.show_area) {
@@ -373,10 +385,12 @@
       .attr("fill", "#e2e8f0").attr("font-size", "14px").attr("font-weight", "600")
       .text(config.title || "");
 
+    const _prettify = s => s.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, c => c.toUpperCase());
+    const _xLabel = config.x_label || (config.x_column ? _prettify(config.x_column) : isTemporal ? "Date" : isNumeric ? "Value" : "");
     const xLabelEl = svg.append("text")
-      .attr("x", margin.left + width / 2).attr("y", totalHeight - 4)
+      .attr("x", margin.left + width / 2).attr("y", totalHeight - 12)
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
-      .text(config.x_label || "");
+      .text(_xLabel);
 
     const yLabelEl = svg.append("text")
       .attr("transform", "rotate(-90)")
@@ -530,8 +544,12 @@
         tooltip.innerHTML = html;
 
         const chartRect = document.getElementById("chart").getBoundingClientRect();
-        tooltip.style.left    = `${chartRect.left + margin.left + cx + 12}px`;
-        tooltip.style.top     = `${chartRect.top  + margin.top  + yScale(ref[safeIdx].y ?? 0) - 20}px`;
+        const _ttW = tooltip.offsetWidth || 180;
+        const _ttX = chartRect.left + margin.left + cx + 12;
+        tooltip.style.left    = (_ttX + _ttW > document.documentElement.clientWidth) ? `${chartRect.left + margin.left + cx - _ttW - 12}px` : `${_ttX}px`;
+        const _ttH = tooltip.offsetHeight || 120;
+        const _ttY = chartRect.top + margin.top + yScale(ref[safeIdx].y ?? 0) - 20;
+        tooltip.style.top     = (_ttY + _ttH > document.documentElement.clientHeight) ? `${_ttY - _ttH - 10}px` : `${_ttY}px`;
         tooltip.style.opacity = 1;
       })
       .on("mouseleave", () => {
@@ -706,10 +724,13 @@
     const editXLabelEl = document.getElementById("edit-xlabel");
     const editYLabelEl = document.getElementById("edit-ylabel");
     editTitleEl.value  = config.title   || "";
-    editXLabelEl.value = config.x_label || "";
+    editXLabelEl.value = _xLabel;
     editYLabelEl.value = config.y_label || "";
     editTitleEl.addEventListener("input",  e => titleEl.text(e.target.value));
     editXLabelEl.addEventListener("input", e => xLabelEl.text(e.target.value));
+    requestAnimationFrame(() => {
+      window.parent.postMessage({ type: "weave-height", height: document.body.scrollHeight }, "*");
+    });
     editYLabelEl.addEventListener("input", e => yLabelEl.text(e.target.value));
   </script>
 </body>

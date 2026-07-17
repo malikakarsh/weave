@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { get, set, del } from "idb-keyval";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -86,6 +86,116 @@ interface ChartSession {
   error: string | null;
 }
 
+// ── Speech-to-text mic button ─────────────────────────────────────────────────
+
+type MicHandle = { stop: () => void; getTranscript: () => string; toggle: () => void };
+
+const MicButton = forwardRef<MicHandle, {
+  onTranscript: (t: string) => void;
+  dark: boolean;
+  small?: boolean;
+  onEnter?: (transcript: string) => void;
+}>(function MicButton({ onTranscript, dark, small = false, onEnter }, ref) {
+  const [supported, setSupported] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const recRef = useRef<{ stop: () => void } | null>(null);
+  const transcriptRef = useRef("");
+
+  useEffect(() => {
+    setSupported("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+  }, []);
+
+  function stop() {
+    recRef.current?.stop();
+    recRef.current = null;
+    setRecording(false);
+    // Clear so a subsequent Enter (without re-recording) doesn't resubmit the
+    // previous transcript. Callers read getTranscript() before calling stop().
+    transcriptRef.current = "";
+  }
+
+  useImperativeHandle(ref, () => ({
+    stop,
+    toggle,
+    getTranscript: () => transcriptRef.current,
+  }));
+
+  if (!supported) return null;
+
+  function start() {
+    setError(null);
+    transcriptRef.current = "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    rec.onresult = (e: { results: { [key: number]: { [key: number]: { transcript: string } }; length: number } }) => {
+      const t = Array.from({ length: e.results.length }, (_, i) => e.results[i][0].transcript).join(" ").trim();
+      transcriptRef.current = t;
+      onTranscript(t);
+    };
+    rec.onerror = (e: { error: string }) => {
+      if (e.error === "not-allowed" || e.error === "permission-denied") {
+        setError("Mic blocked");
+      } else if (e.error !== "aborted" && e.error !== "no-speech") {
+        setError(e.error);
+      }
+      setRecording(false);
+    };
+    rec.onend = () => setRecording(false);
+    recRef.current = rec;
+    rec.start();
+    setRecording(true);
+  }
+
+  function toggle() {
+    if (recording) { stop(); } else { start(); }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      onKeyDown={(e) => {
+        // While the mic button holds focus, Enter should stop recording AND
+        // submit — otherwise it only fires the button's default click (stop).
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const t = transcriptRef.current;
+          stop();
+          onEnter?.(t);
+        }
+      }}
+      title={error ?? (recording ? "Stop recording (⌥/Alt+Shift+V)" : "Speak your prompt (⌥/Alt+Shift+V)")}
+      className={`flex items-center justify-center shrink-0 rounded-xl transition-colors cursor-pointer
+        ${small ? "w-10" : "w-12"}
+        ${error
+          ? "bg-yellow-400/20 border border-yellow-400/50"
+          : recording
+            ? "bg-red-500 hover:bg-red-400"
+            : dark
+              ? "bg-white/5 hover:bg-white/10 border border-white/15"
+              : "bg-gray-100 hover:bg-gray-200 border border-gray-200"
+        }`}
+    >
+      {error
+        ? <svg className={`${small ? "w-3.5 h-3.5" : "w-4 h-4"} text-yellow-500`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        : recording
+          ? <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse" />
+          : <svg className={`${small ? "w-3.5 h-3.5" : "w-4 h-4"} ${dark ? "text-white/50" : "text-gray-400"}`} fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z"/>
+              <path d="M6 10.5a.75.75 0 0 1 .75.75v1.5a5.25 5.25 0 0 0 10.5 0v-1.5a.75.75 0 0 1 1.5 0v1.5a6.751 6.751 0 0 1-6 6.709V21h3a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1 0-1.5h3v-2.291A6.751 6.751 0 0 1 5.25 12.75v-1.5A.75.75 0 0 1 6 10.5Z"/>
+            </svg>
+      }
+    </button>
+  );
+});
+
 function stageLabel(stage: string | null): string {
   switch (stage) {
     case "loading":     return "Loading CSV…";
@@ -94,6 +204,14 @@ function stageLabel(stage: string | null): string {
     case "rendering":   return "Rendering chart…";
     default:            return "Generating…";
   }
+}
+
+// Voice-recording shortcut: ⌥/Alt+Shift+V. On macOS the Option key may be
+// consumed for character composition (altKey can be false, key becomes a glyph
+// like "◊"/"Dead"), so accept either signal alongside the physical V key.
+function isVoiceShortcut(e: Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "code" | "key">): boolean {
+  if (e.metaKey || e.ctrlKey || !e.shiftKey || e.code !== "KeyV") return false;
+  return e.altKey || e.key === "◊" || e.key === "Dead" || e.key === "√";
 }
 
 // ── Per-chart card ────────────────────────────────────────────────────────────
@@ -105,9 +223,11 @@ interface ChartCardProps {
   onUpdate: (id: string, updates: Partial<ChartSession>) => void;
   onDelete: (id: string) => void;
   onRegenerate: (id: string, prompt: string) => void;
+  registerRefineMic?: (id: string, ref: RefObject<MicHandle | null> | null) => void;
+  onActive?: (id: string) => void;
 }
 
-function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: ChartCardProps) {
+function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, registerRefineMic, onActive }: ChartCardProps) {
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [refineStage, setRefineStage] = useState<string | null>(null);
@@ -116,8 +236,17 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
   const [exporting, setExporting] = useState(false);
   const [customW, setCustomW] = useState("1280");
   const [customH, setCustomH] = useState("720");
+  const [iframeHeight, setIframeHeight] = useState("400px");
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeWrapRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const refineMicRef = useRef<MicHandle | null>(null);
+
+  // Register this card's refine mic so the global ⌥⇧V shortcut can toggle it.
+  useEffect(() => {
+    registerRefineMic?.(session.id, refineMicRef);
+    return () => registerRefineMic?.(session.id, null);
+  }, [session.id, registerRefineMic]);
 
   useEffect(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: "weave-theme", dark }, "*");
@@ -127,8 +256,9 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
     function onMessage(e: MessageEvent) {
       // Only handle messages from this card's iframe
       if (e.source !== iframeRef.current?.contentWindow) return;
-      if (e.data?.type === "weave-height" && iframeRef.current) {
-        iframeRef.current.style.height = Math.max(e.data.height, 300) + "px";
+      if (e.data?.type === "weave-height") {
+        const h = Math.max(e.data.height, 300) + "px";
+        setIframeHeight(h);
       }
       if (e.data?.type === "weave-svg") {
         const blob = new Blob([e.data.content], { type: "image/svg+xml" });
@@ -145,9 +275,9 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  async function refine() {
-    if (!refinePrompt.trim() || !session.mapping) return;
-    const instruction = refinePrompt.trim();
+  async function refine(forcedValue?: string) {
+    const instruction = (forcedValue ?? refinePrompt).trim();
+    if (!instruction || !session.mapping) return;
 
     if (/^regenerate$/i.test(instruction)) {
       setRefinePrompt("");
@@ -247,7 +377,8 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
 
   return (
     <div
-      className="flex flex-col gap-4 rounded-2xl p-5"
+      data-card-id={session.id}
+      className="flex flex-col gap-2 rounded-xl p-3"
       style={dark ? {
         background: "#0d1018",
         border: "1px solid rgba(255,255,255,0.08)",
@@ -311,13 +442,23 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
 
       {/* Iframe */}
       {session.status === "done" && session.html && (
-        <iframe
-          ref={iframeRef}
-          srcDoc={session.html}
-          onLoad={() => iframeRef.current?.contentWindow?.postMessage({ type: "weave-theme", dark }, "*")}
-          style={{ width: "100%", height: "420px", border: "none", display: "block", borderRadius: "8px" }}
-          sandbox="allow-scripts allow-same-origin"
-        />
+        <div ref={iframeWrapRef} style={{
+          height: iframeHeight,
+          borderRadius: "12px",
+          overflow: "hidden",
+          flexShrink: 0,
+          boxShadow: dark
+            ? "0 1px 6px rgba(0,0,0,0.22)"
+            : "0 1px 6px rgba(0,0,0,0.06)",
+        }}>
+          <iframe
+            ref={iframeRef}
+            srcDoc={session.html}
+            onLoad={() => iframeRef.current?.contentWindow?.postMessage({ type: "weave-theme", dark }, "*")}
+            style={{ width: "100%", height: iframeHeight, border: "none", display: "block" }}
+            sandbox="allow-scripts allow-same-origin"
+          />
+        </div>
       )}
 
       {/* Conversation history */}
@@ -328,10 +469,10 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
         >
           {session.history.filter(m => m.role === "user").map((m, i) => (
             <div key={i} className="flex gap-2 items-start">
-              <span className={`mt-1 w-5 h-5 rounded-full ${dark ? "bg-indigo-500" : "bg-red-600"} flex items-center justify-center shrink-0 text-[10px] text-white font-bold`}>
+              <span className={`mt-0.5 w-4 h-4 rounded-full ${dark ? "bg-indigo-500" : "bg-red-600"} flex items-center justify-center shrink-0 text-[9px] text-white font-bold`}>
                 U
               </span>
-              <p className="text-sm text-gray-700 dark:text-white/80 leading-relaxed pt-0.5">{m.content}</p>
+              <p className="text-xs text-gray-700 dark:text-white/80 leading-relaxed pt-0.5">{m.content}</p>
             </div>
           ))}
           <div ref={chatEndRef} />
@@ -342,17 +483,23 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
       {session.status === "done" && (
         <div className="flex gap-2">
           <input
+            data-refine-input="1"
             className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl
-              px-4 py-3 text-sm placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
+              px-3 py-1.5 text-xs placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
               focus:outline-none focus:border-red-500 dark:focus:border-indigo-400"
             placeholder="Refine this chart… e.g. sort descending, change color to red, show top 10 only"
             value={refinePrompt}
+            onFocus={() => onActive?.(session.id)}
             onChange={(e) => setRefinePrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); refine(); } }}
+            onKeyDown={(e) => {
+              if (isVoiceShortcut(e)) { e.preventDefault(); refineMicRef.current?.toggle(); return; }
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const t = refineMicRef.current?.getTranscript(); refineMicRef.current?.stop(); refine(t || (e.target as HTMLInputElement).value); }
+            }}
             disabled={refining}
           />
+          <MicButton ref={refineMicRef} onTranscript={(t) => setRefinePrompt(t)} onEnter={(t) => refine(t || refinePrompt)} dark={dark} small />
           <button
-            onClick={refine}
+            onClick={() => refine()}
             disabled={!refinePrompt.trim() || refining}
             className={`flex items-center justify-center rounded-xl ${dark ? "bg-indigo-500 hover:bg-indigo-400" : "bg-red-600 hover:bg-red-500"}
               disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 shrink-0`}
@@ -375,7 +522,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
 
       {/* Analyze + Export */}
       {session.status === "done" && session.mapping && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           {insights && (
             <div className="rounded-xl bg-gray-50 dark:bg-white/3 border border-gray-200 dark:border-white/10 p-4">
               <p className="text-xs font-medium text-gray-400 dark:text-white/40 uppercase tracking-widest mb-2">Key insights</p>
@@ -389,12 +536,12 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate }: Ch
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             {!insights && (
               <button onClick={analyze} disabled={analyzing}
-                className="flex items-center gap-2 rounded-xl border border-gray-200 dark:border-white/15
+                className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-white/15
                   hover:border-indigo-400/60 hover:bg-indigo-50 dark:hover:bg-indigo-400/5
-                  disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 py-2 text-sm
+                  disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-3 py-1.5 text-xs
                   text-gray-700 dark:text-white shrink-0">
                 {analyzing
                   ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -464,6 +611,18 @@ export default function Home() {
   const [loadingPlayground, setLoadingPlayground] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
+  const promptMicRef = useRef<MicHandle | null>(null);
+  const addMicRef = useRef<MicHandle | null>(null);
+  // Registry of each chart card's refine mic, keyed by session id.
+  const refineMicRegistry = useRef<Map<string, RefObject<MicHandle | null>>>(new Map());
+  // The chart the user is currently amending (last-focused refine field), so the
+  // ⌥⇧V shortcut sticks to it instead of jumping to the most recent chart.
+  const activeCardRef = useRef<string | null>(null);
+  const setActiveCard = useCallback((id: string) => { activeCardRef.current = id; }, []);
+  const registerRefineMic = useCallback((id: string, ref: RefObject<MicHandle | null> | null) => {
+    if (ref) refineMicRegistry.current.set(id, ref);
+    else refineMicRegistry.current.delete(id);
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -685,8 +844,8 @@ export default function Home() {
     }
   }
 
-  async function generate() {
-    const p = prompt.trim();
+  async function generate(forcedValue?: string) {
+    const p = (forcedValue ?? prompt).trim();
     if (!file || !p) return;
     setPrompt("");
     await generateWith(file, p);
@@ -710,8 +869,8 @@ export default function Home() {
     }
   }
 
-  async function addChart() {
-    const p = addPrompt.trim();
+  async function addChart(forcedValue?: string) {
+    const p = (forcedValue ?? addPrompt).trim();
     if (!file || !p) return;
     setAdding(true);
     setAddPrompt("");
@@ -806,6 +965,38 @@ export default function Home() {
 
   const hasSessions = sessions.length > 0;
 
+  // Global shortcut (⌥/Alt+Shift+V) to toggle voice recording, never auto-opening
+  // the add-chart bar:
+  //   • landing screen        → the prompt mic
+  //   • focused in add bar     → the add-chart mic
+  //   • otherwise (dashboard)  → the current chart's refine mic
+  //     (the focused card, else the most recent one)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!isVoiceShortcut(e)) return;
+      const active = document.activeElement as HTMLElement | null;
+      // Compose inputs handle the combo themselves (and preventDefault) so they
+      // toggle their own mic — don't double-handle here.
+      if (active?.dataset?.refineInput || active?.dataset?.addInput || active?.dataset?.promptInput) return;
+      e.preventDefault(); // suppress the special char this combo would type
+      if (!hasSessions) { promptMicRef.current?.toggle(); return; }
+      // Dashboard, focus outside any field → the chart being amended:
+      // the focused card, else the last one you touched, else the most recent.
+      const focusedCard = active?.closest("[data-card-id]") as HTMLElement | null;
+      const active_ = activeCardRef.current;
+      const targetId = focusedCard?.getAttribute("data-card-id")
+        ?? (active_ && refineMicRegistry.current.has(active_) ? active_ : undefined)
+        ?? sessions[sessions.length - 1]?.id;
+      if (!targetId) return;
+      // Focus the card's refine field so Enter can submit after speaking.
+      const card = focusedCard ?? document.querySelector(`[data-card-id="${CSS.escape(targetId)}"]`);
+      (card?.querySelector("[data-refine-input]") as HTMLElement | null)?.focus();
+      refineMicRegistry.current.get(targetId)?.current?.toggle();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hasSessions, sessions]);
+
   return (
     <main
       className="min-h-screen text-gray-900 dark:text-white flex flex-col overflow-x-hidden"
@@ -826,7 +1017,7 @@ export default function Home() {
     >
       <div className="fixed top-0 left-0 right-0 z-10">
         <header
-          className="w-full flex items-center gap-4 px-8 h-[76px] border-b"
+          className="w-full flex items-center gap-4 px-6 h-[56px] border-b"
           style={dark ? {
             background: "linear-gradient(to bottom, #161822, #0f1117)",
             borderColor: "rgba(255,255,255,0.07)",
@@ -839,8 +1030,8 @@ export default function Home() {
           }}
         >
           <div className="flex items-center gap-2.5">
-            <div className={`w-7 h-7 rounded-lg ${dark ? "bg-indigo-500" : "bg-red-600"} flex items-center justify-center shrink-0`}>
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <div className={`w-6 h-6 rounded-md ${dark ? "bg-indigo-500" : "bg-red-600"} flex items-center justify-center shrink-0`}>
+              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5 7.5 9l3 3 4.5-6L21 13.5" />
               </svg>
             </div>
@@ -886,8 +1077,8 @@ export default function Home() {
 
       {/* ── Landing state ── */}
       {!hasSessions && !generating && (
-        <div className="flex flex-col flex-1 items-center justify-center px-6 py-12 pt-[calc(76px+3rem)] text-center">
-          <div className="relative flex flex-col gap-5 w-full max-w-4xl">
+        <div className="flex flex-col items-center justify-center px-6 py-6 text-center" style={{ minHeight: "calc(100vh - 56px)", marginTop: "56px" }}>
+          <div className="relative flex flex-col gap-3 w-full max-w-2xl">
             {/* Decorative needle + thread */}
             <svg
               className="absolute pointer-events-none"
@@ -914,27 +1105,27 @@ export default function Home() {
               {/* Heading */}
               <div className="mb-1" style={{ fontFamily: "var(--font-sora), sans-serif" }}>
                 <div className="flex flex-col items-center gap-0 md:hidden">
-                  <p className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>
+                  <p className="text-lg sm:text-2xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>
                     If you can describe it,
                   </p>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>we can</span>
-                    <span className="text-4xl sm:text-6xl font-extrabold uppercase tracking-tight leading-none" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#dc2626", textShadow: "0 0 40px rgba(220,38,38,0.2), 0 0 80px rgba(220,38,38,0.1)" }) }}>WEAVE</span>
-                    <span className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>it.</span>
+                    <span className="text-lg sm:text-2xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>we can</span>
+                    <span className="text-3xl sm:text-5xl font-extrabold uppercase tracking-tight leading-none" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#dc2626", textShadow: "0 0 40px rgba(220,38,38,0.2), 0 0 80px rgba(220,38,38,0.1)" }) }}>WEAVE</span>
+                    <span className="text-lg sm:text-2xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>it.</span>
                   </div>
                 </div>
-                <div className="hidden md:flex" style={{ alignItems: "last baseline", gap: "1rem", justifyContent: "center" }}>
+                <div className="hidden md:flex" style={{ alignItems: "flex-end", gap: "1rem", justifyContent: "center" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                    <p className="text-2xl lg:text-4xl font-extrabold uppercase tracking-tight" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>
+                    <p className="text-xl lg:text-2xl font-extrabold uppercase tracking-tight" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>
                       If you can describe it,
                     </p>
-                    <p className="text-2xl lg:text-4xl font-extrabold uppercase tracking-tight text-right" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>
+                    <p className="text-xl lg:text-2xl font-extrabold uppercase tracking-tight text-right" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>
                       we can
                     </p>
                   </div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-                    <span className="text-5xl lg:text-8xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#dc2626", textShadow: "0 0 40px rgba(220,38,38,0.2), 0 0 80px rgba(220,38,38,0.1)" }) }}>WEAVE</span>
-                    <span className="text-2xl lg:text-4xl font-extrabold uppercase tracking-tight" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>it.</span>
+                    <span className="text-4xl lg:text-5xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#dc2626", textShadow: "0 0 40px rgba(220,38,38,0.2), 0 0 80px rgba(220,38,38,0.1)" }) }}>WEAVE</span>
+                    <span className="text-xl lg:text-2xl font-extrabold uppercase tracking-tight" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>it.</span>
                   </div>
                 </div>
                 <p className="mt-3 text-sm text-gray-400 dark:text-white/35">
@@ -945,7 +1136,7 @@ export default function Home() {
               {/* CSV dropzone */}
               <div
                 style={{ background: dragging ? (dark ? "rgba(99,102,241,0.15)" : "rgba(220,38,38,0.1)") : dark ? "rgba(20,22,35,0.8)" : "rgba(255,255,255,0.9)" }}
-                className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-5 py-3.5 cursor-pointer transition-colors
+                className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-3 py-2 cursor-pointer transition-colors
                   ${dragging ? "border-indigo-400" : "border-white/25 hover:border-indigo-400/60"}`}
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -969,24 +1160,26 @@ export default function Home() {
               {/* Prompt bar */}
               <div className="flex gap-2">
                 <input
+                  data-prompt-input="1"
                   style={{ background: dark ? "rgba(20,22,35,0.8)" : "rgba(255,255,255,0.9)" }}
                   className="flex-1 border border-white/25 rounded-xl
-                    px-5 py-4 text-base placeholder-gray-400 dark:placeholder-white/40 text-gray-900 dark:text-white
+                    px-3 py-2 text-sm placeholder-gray-400 dark:placeholder-white/40 text-gray-900 dark:text-white
                     focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-400 focus:border-red-500"
                   placeholder="e.g. show revenue over time for each company"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); generate(); } }}
+                  onKeyDown={(e) => { if (isVoiceShortcut(e)) { e.preventDefault(); promptMicRef.current?.toggle(); return; } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const t = promptMicRef.current?.getTranscript(); promptMicRef.current?.stop(); generate(t || (e.target as HTMLInputElement).value); } }}
                   disabled={generating}
                   autoFocus
                 />
+                <MicButton ref={promptMicRef} onTranscript={(t) => setPrompt(t)} onEnter={(t) => generate(t || prompt)} dark={dark} />
                 <button
-                  onClick={generate}
+                  onClick={() => generate()}
                   disabled={!file || !prompt.trim() || generating}
                   className={`flex items-center justify-center rounded-xl ${dark ? "bg-indigo-500 hover:bg-indigo-400" : "bg-red-600 hover:bg-red-500"}
-                    disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-5 shrink-0`}
+                    disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 shrink-0`}
                 >
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
                   </svg>
                 </button>
@@ -999,17 +1192,17 @@ export default function Home() {
               )}
 
               {/* Playground dataset picker */}
-              <div className="flex flex-col gap-3 mt-2 text-left">
+              <div className="flex flex-col gap-2 mt-1 text-left">
                 <p className="text-xs font-medium uppercase tracking-widest text-gray-400 dark:text-white/30 text-center">
                   Or explore a sample dataset
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {PLAYGROUND_DATASETS.map((ds) => (
                     <button
                       key={ds.id}
                       onClick={() => loadPlayground(ds.id, ds.prompt, ds.name)}
                       disabled={loadingPlayground !== null}
-                      className={`flex flex-col gap-1.5 rounded-xl border px-4 py-3 text-left transition-colors cursor-pointer
+                      className={`flex flex-col gap-0.5 rounded-xl border px-2.5 py-2 text-left transition-colors cursor-pointer
                         ${dark
                           ? "border-white/15 hover:border-indigo-400/60"
                           : "border-gray-200 bg-white hover:border-red-300 hover:bg-red-50"
@@ -1026,8 +1219,8 @@ export default function Home() {
                         </div>
                       ) : (
                         <>
-                          <span className="text-xl leading-none">{ds.emoji}</span>
-                          <span className={`text-sm font-semibold ${dark ? "text-white" : "text-gray-900"}`}>{ds.name}</span>
+                          <span className="text-base leading-none">{ds.emoji}</span>
+                          <span className={`text-xs font-semibold ${dark ? "text-white" : "text-gray-900"}`}>{ds.name}</span>
                           <span className="text-xs text-gray-400 dark:text-white/40 leading-snug">{ds.description}</span>
                         </>
                       )}
@@ -1042,7 +1235,7 @@ export default function Home() {
 
       {/* ── Decomposing / waiting for first SSE event ── */}
       {generating && sessions.length === 0 && (
-        <div className="flex flex-col flex-1 items-center justify-center gap-3 pt-[76px] text-sm text-gray-400 dark:text-white/30">
+        <div className="flex flex-col flex-1 items-center justify-center gap-3 pt-[56px] text-sm text-gray-400 dark:text-white/30">
           <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -1053,11 +1246,11 @@ export default function Home() {
 
       {/* ── Dashboard state ── */}
       {hasSessions && (
-        <div className="flex flex-col flex-1 gap-6 px-6 py-6 pt-[calc(76px+1.5rem)] w-full max-w-7xl mx-auto">
+        <div className="flex flex-col flex-1 gap-3 px-5 py-4 pt-[calc(56px+1.5rem)] w-full max-w-4xl mx-auto">
 
           {/* CSV strip */}
           <div
-            className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-4 py-2.5 cursor-pointer transition-colors
+            className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-3 py-2 cursor-pointer transition-colors
               ${dragging
                 ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-400/5"
                 : "border-gray-300 dark:border-white/10 hover:border-gray-400 dark:hover:border-indigo-500/40"}`}
@@ -1091,7 +1284,7 @@ export default function Home() {
           )}
 
           {/* Chart grid */}
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3">
             {sessions.map((session) => (
               <ChartCard
                 key={session.id}
@@ -1101,6 +1294,8 @@ export default function Home() {
                 onUpdate={updateSession}
                 onDelete={deleteSession}
                 onRegenerate={regenerateSession}
+                registerRefineMic={registerRefineMic}
+                onActive={setActiveCard}
               />
             ))}
           </div>
@@ -1109,18 +1304,20 @@ export default function Home() {
           {showAddBar ? (
             <div className="flex gap-2">
               <input
+                data-add-input="1"
                 className="flex-1 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-xl
-                  px-4 py-3 text-sm placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
+                  px-3 py-2 text-sm placeholder-gray-400 dark:placeholder-white/30 text-gray-900 dark:text-white
                   focus:outline-none focus:border-red-500 dark:focus:border-indigo-400"
                 placeholder="Describe the next chart…"
                 value={addPrompt}
                 onChange={(e) => setAddPrompt(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addChart(); } if (e.key === "Escape") { setShowAddBar(false); setAddPrompt(""); } }}
+                onKeyDown={(e) => { if (isVoiceShortcut(e)) { e.preventDefault(); addMicRef.current?.toggle(); return; } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const t = addMicRef.current?.getTranscript(); addMicRef.current?.stop(); addChart(t || (e.target as HTMLInputElement).value); } if (e.key === "Escape") { setShowAddBar(false); setAddPrompt(""); } }}
                 disabled={adding}
                 autoFocus
               />
+              <MicButton ref={addMicRef} onTranscript={(t) => setAddPrompt(t)} onEnter={(t) => addChart(t || addPrompt)} dark={dark} small />
               <button
-                onClick={addChart}
+                onClick={() => addChart()}
                 disabled={!addPrompt.trim() || adding}
                 className={`flex items-center justify-center rounded-xl ${dark ? "bg-indigo-500 hover:bg-indigo-400" : "bg-red-600 hover:bg-red-500"}
                   disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 shrink-0`}

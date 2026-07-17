@@ -41,6 +41,9 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 - **Per-chart sessions** — every chart has its own isolated conversation history, mapping, and refine bar; changes in one chart never affect another
 - **Add chart** — append new charts to a live dashboard at any time without clearing existing ones
 - **Color refinement** — change any chart's overall color or a specific category's color via plain English ("change color to red", "make Not Applicable yellow")
+- **Background refinement** — set a chart's background via plain English ("change the background to white", "make it navy"); axis/label/text colors auto-flip to stay legible and the choice overrides the app theme for that chart
+- **Voice input** — a mic button on every prompt, add-chart, and refine bar uses the browser-native `SpeechRecognition` API; toggle recording with the **⌥/Alt+Shift+V** shortcut (targets the field you're working in — prompt on the landing page, the current chart's refine bar on the dashboard) and press **Enter** to submit the transcript
+- **Rounded chart container** — the chart iframe has rounded corners and a subtle shadow that adapts to light/dark mode
 - **Playground** — pick a sample dataset from the landing page (Stocks, Revenue, World Cities, Diamonds, NYC Restaurants, Iris) to see auto-generated dashboards and experiment with refinements; resets when you upload your own CSV
 
 ## How it works
@@ -398,6 +401,7 @@ Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` th
 | Box plot fallback | box plot / violin / histogram → bar + mean |
 | Refine: sort | "sort descending" / "sort ascending" changes only sort_order |
 | Refine: color | overall color change and per-category color override |
+| Refine: background | chart background change via natural language ("change the background to white") |
 | Refine: chart type | switching chart type mid-conversation |
 | Refine: top N | reducing to top N via refine instruction |
 | Refine: group filter | narrowing to specific series via refine |
@@ -472,10 +476,10 @@ Architecture:
 - Serve at `GET /chart/{id}` — returns self-contained HTML
 - Give users an `<iframe src="https://weave.app/chart/{id}">` embed snippet; all interactivity (tooltips, edit panel, export) works client-side with no server dependency after load
 
-**Speech to text**
-- Microphone button on the prompt bar — hold to record, release to transcribe
-- Use the browser-native `webkitSpeechRecognition` / `SpeechRecognition` API (zero backend changes, works in Chrome/Edge out of the box) or pipe to Whisper via the backend for broader browser support and better accuracy on domain-specific terms (column names, chart types, company names)
-- Transcribed text drops into the existing prompt input so the rest of the flow is unchanged
+**Speech to text** ✓
+- ~~Microphone button on every prompt, add-chart, and refine bar — click to start/stop recording~~
+- ~~Browser-native `webkitSpeechRecognition` / `SpeechRecognition` API (zero backend changes, works in Chrome/Edge out of the box); transcript drops into the existing input so the rest of the flow is unchanged~~
+- ~~**⌥/Alt+Shift+V** keyboard shortcut toggles recording for the field in context (prompt on the landing page, the current chart's refine bar on the dashboard); **Enter** submits the transcript~~
 
 **Session persistence**
 - Save CSVs, mappings, generated HTML, and conversation history across page reloads

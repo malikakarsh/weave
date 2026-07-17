@@ -142,11 +142,16 @@ def _inject(html: str) -> str:
         "}}});"
         "function observe(){"
         "var sv=document.querySelector('svg');"
-        "var target=sv||document.getElementById('chart')||document.body;"
+        "var chart=document.getElementById('chart');"
+        "var target=sv||chart||document.body;"
         "var ro=new ResizeObserver(function(){"
-        "var h=target.getBoundingClientRect().height||target.offsetHeight;"
-        "if(h>10)window.parent.postMessage({type:'weave-height',height:Math.ceil(h)},'*');"
+        # Measure the #chart element (SVG + its padding) precisely — that is the
+        # exact content height. Using body.scrollHeight can over-report and leave
+        # dead space; measuring the bare SVG under-reports and clips the x-label.
+        "var h=chart?chart.getBoundingClientRect().height:(document.body?document.body.scrollHeight:0);"
+        "if(h>10)window.parent.postMessage({type:'weave-height',height:Math.ceil(h)+2},'*');"
         "});ro.observe(target);"
+        "if(chart)ro.observe(chart);"
         "}"
         "observe();"
         "var _mo=new MutationObserver(function(ms,obs){"
@@ -159,10 +164,16 @@ def _inject(html: str) -> str:
         "var dksid='weave-dark';var dkex2=document.getElementById(dksid);if(dkex2)dkex2.remove();"
         "var bgRect=document.querySelector('rect.background');"
         "if(window._weaveBgObs){window._weaveBgObs.disconnect();window._weaveBgObs=null;}"
-        "if(!e.data.dark){"
+        # A user-requested background (config.background) overrides the app theme:
+        # pick light/dark styling from its brightness and paint the chart with it.
+        "var _cfg=window.__weaveConfig||{};"
+        "var _ubg=(_cfg.background&&/^#[0-9a-f]{6}$/i.test(_cfg.background))?_cfg.background:null;"
+        "function _wlight(h){var r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return (0.299*r+0.587*g+0.114*b)/255>0.5;}"
+        "var _light=_ubg?_wlight(_ubg):!e.data.dark;"
+        "if(_light){"
         "var s=document.createElement('style');s.id=sid;"
         "s.textContent="
-        "'html,body{background:#f8f9fb!important}'"
+        "'html,body{background:'+(_ubg||'#f8f9fb')+'!important}'"
         "+'text{fill:#1f2937!important;paint-order:stroke fill;stroke:rgba(255,255,255,0.85);stroke-width:3px;stroke-linejoin:round}'"
         "+'path.land{fill:#d6dde5!important}'"
         "+'path.graticule,.graticule{stroke:#c4cdd6!important}'"
@@ -178,25 +189,25 @@ def _inject(html: str) -> str:
         "+'#edit-panel .edit-divider{border-color:#e2e8f0!important}';"
         "document.head.appendChild(s);"
         "var ch=document.getElementById('chart');"
-        "if(ch)ch.style.background='#f8f9fb';"
-        "if(bgRect){bgRect.style.fill='#f0f2f5';"
+        "if(ch)ch.style.background=(_ubg||'#f8f9fb');"
+        "if(bgRect){bgRect.style.fill=(_ubg||'#f0f2f5');"
         "window._weaveBgObs=new MutationObserver(function(ms){"
         "ms.forEach(function(m){if(m.attributeName==='fill')"
         "m.target.style.fill=m.target.getAttribute('fill');});});"
         "window._weaveBgObs.observe(bgRect,{attributes:true,attributeFilter:['fill']});}"
         "}else{"
-        "var dkid='weave-dark';var dkex=document.getElementById(dkid);if(dkex)dkex.remove();"
-        "var ds=document.createElement('style');ds.id=dkid;"
+        "var ds=document.createElement('style');ds.id=dksid;"
         "ds.textContent="
-        "'path.land{fill:#1e2535!important}'"
+        "(_ubg?('html,body{background:'+_ubg+'!important}'):'')"
+        "+'path.land{fill:#1e2535!important}'"
         "+'path.graticule,.graticule{stroke:#2a3550!important}'"
         "+'path.sphere,.sphere{fill:#141c2e!important;stroke:#1e2a42!important}'"
         "+'line.grid-line,.grid line{stroke:#1e2a40!important}'"
         "+'text{fill:#e2e8f0!important;paint-order:stroke fill;stroke:rgba(0,0,0,0.75);stroke-width:3px;stroke-linejoin:round}';"
         "document.head.appendChild(ds);"
         "var ch=document.getElementById('chart');"
-        "if(ch)ch.style.background='';"
-        "if(bgRect)bgRect.style.fill='';"
+        "if(ch)ch.style.background=(_ubg||'');"
+        "if(bgRect)bgRect.style.fill=(_ubg||'');"
         "}"
         "return;}"
         "if(!e.data||e.data.type!=='weave-export')return;"
@@ -394,6 +405,7 @@ async def refine_chart_stream(
             title=current_mapping.title or "",
             x_label=current_mapping.x_label or "",
             y_label=current_mapping.y_label or "",
+            background=current_mapping.background,
         )
     except Exception as e:
         os.unlink(tmp_path)
@@ -471,6 +483,7 @@ async def refine_chart(
             title=current_mapping.title or "",
             x_label=current_mapping.x_label or "",
             y_label=current_mapping.y_label or "",
+            background=current_mapping.background,
         )
 
         html, updated_mapping = pipeline.refine(

@@ -15,6 +15,10 @@ import jwt
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import select
+
+from api.db import SessionLocal
+from api.db_models import User
 
 # ── config ────────────────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
@@ -61,6 +65,21 @@ def _decode_token(token: str) -> dict | None:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
     except jwt.PyJWTError:
         return None
+
+
+async def _upsert_user(info: dict) -> None:
+    """Create or update the user's row from their Google profile on each login."""
+    async with SessionLocal() as db:
+        user = (
+            await db.execute(select(User).where(User.google_sub == info["sub"]))
+        ).scalar_one_or_none()
+        if user is None:
+            user = User(google_sub=info["sub"])
+            db.add(user)
+        user.email = info.get("email")
+        user.name = info.get("name")
+        user.picture = info.get("picture")
+        await db.commit()
 
 
 def _set_session_cookie(response, token: str) -> None:
@@ -113,6 +132,8 @@ async def google_callback(request: Request):
     info = token.get("userinfo") or {}
     if not info.get("sub"):
         return RedirectResponse(f"{FRONTEND_URL}?auth_error=1")
+
+    await _upsert_user(info)
 
     session_jwt = _mint_token({
         "sub": info["sub"],

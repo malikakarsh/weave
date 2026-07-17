@@ -16,3 +16,9 @@ httpx==0.28.1
 Authlib==1.7.2
 PyJWT==2.10.1
 itsdangerous==2.2.0
+
+# Database (Postgres)
+SQLAlchemy==2.0.50
+asyncpg==0.31.0
+alembic==1.18.4
+greenlet==3.5.3

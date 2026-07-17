@@ -26,3 +26,6 @@ backend/output.html
 
 # Claude Code
 .claude/settings.local.json
+
+# Local Postgres data (docker bind mount)
+.pgdata/

@@ -10,9 +10,15 @@ python main.py data.csv "show me revenue over time" --open
 
 A Next.js frontend and FastAPI backend are included for browser-based chart generation.
 
+**Start Postgres** (local dev, via Docker — data persists in a gitignored `./.pgdata/` bind mount):
+```bash
+docker compose up -d db
+```
+
 **Start the backend:**
 ```bash
 cd backend
+alembic upgrade head          # apply DB migrations (first run + after model changes)
 uvicorn api.main:app --reload
 ```
 
@@ -25,7 +31,7 @@ npm run dev
 
 Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Generate.
 
-Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY`). Google sign-in is optional: to enable it, create an OAuth 2.0 Web client in Google Cloud Console with redirect URI `http://localhost:8000/auth/google/callback`, then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, and `SESSION_SECRET` in the same file.
+Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY`) and `DATABASE_URL` (the default matches the docker-compose Postgres). Google sign-in is optional: to enable it, create an OAuth 2.0 Web client in Google Cloud Console with redirect URI `http://localhost:8000/auth/google/callback`, then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, and `SESSION_SECRET` in the same file.
 
 ### Web UI features
 - **Chart generation** — same pipeline as the CLI, rendered live in the browser
@@ -357,7 +363,11 @@ backend/
 ├── .env.example                   # Template for LLM keys + Google OAuth / JWT config
 ├── api/
 │   ├── main.py                    # FastAPI app: chart/dashboard/refine SSE endpoints, CORS, session
-│   └── auth.py                    # Google OAuth (Authlib) + httpOnly-cookie JWT session
+│   ├── auth.py                    # Google OAuth (Authlib) + httpOnly-cookie JWT session; user upsert
+│   ├── db.py                      # Async SQLAlchemy engine, session factory, get_db dependency
+│   └── db_models.py               # ORM models: User, Dataset, Chart
+├── alembic/                       # DB migrations (async env; versions/ holds each revision)
+├── alembic.ini                    # Alembic config (DB URL injected from DATABASE_URL)
 ├── models/
 │   ├── schema.py                  # ColumnType, ColumnInfo, Schema
 │   └── spec.py                    # AxisMapping, ChartConfig
@@ -525,7 +535,8 @@ Architecture:
 - ~~**⌥/Alt+Shift+V** keyboard shortcut toggles recording for the field in context (prompt on the landing page, the current chart's refine bar on the dashboard); **Enter** submits the transcript~~
 
 **Session persistence**
-- Save CSVs, mappings, generated HTML, and conversation history across page reloads
+- ~~Database foundation — Postgres (local: docker-compose, bind-mounted to `./.pgdata`), async SQLAlchemy 2.0 + asyncpg, Alembic migrations; `User` / `Dataset` / `Chart` models (`api/db_models.py`); the user is upserted from their Google profile on every login~~
+- Save CSVs, mappings, generated HTML, and conversation history across page reloads (endpoints gated by `current_user_required`, scoped to the signed-in user)
 - Session history sidebar — past sessions clickable to restore full state
 
 **Data storytelling**

@@ -92,6 +92,8 @@ class Transformer:
             return self._transform_violin(rows, mapping)
         if mapping.chart_type == "histogram":
             return self._transform_histogram(rows, mapping)
+        if mapping.chart_type in ("radar", "spider"):
+            return self._transform_radar(rows, mapping)
         if mapping.label_column:
             return self._transform_labeled(rows, mapping)
         if mapping.group_column:
@@ -278,6 +280,45 @@ class Transformer:
                 total += math.exp(-0.5 * u * u)
             out.append(norm * total)
         return out
+
+    def _transform_radar(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """Radar/spider: one polygon per entity across several metric axes.
+
+        Wide format (metric_columns set): each listed numeric column is an axis;
+        values are aggregated per group. Long format (no metric_columns): reuse
+        the grouped/flat transform where x_column is the axis label.
+        Output shape matches grouped charts: [{group, values:[{x, y}]}].
+        """
+        metrics = mapping.metric_columns
+        grouped = bool(mapping.group_column)
+
+        if not metrics:
+            # Long format — x_column is the axis, group_column the series.
+            return self._transform_grouped(rows, mapping) if grouped \
+                else self._transform_flat(rows, mapping)
+
+        # Wide format — melt the metric columns into axes and aggregate per group.
+        buckets: dict[tuple[str | None, str], list[float | None]] = {}
+        group_order: list[str] = []
+        for row in rows:
+            g = row.get(mapping.group_column, "").strip() if grouped else None
+            if grouped and not g:
+                continue
+            if grouped and g not in group_order:
+                group_order.append(g)
+            for m in metrics:
+                v = _to_float(row.get(m, "").strip())
+                buckets.setdefault((g, m), []).append(
+                    1.0 if mapping.aggregation == "count" else v
+                )
+
+        def axis_values(g: str | None) -> list[dict]:
+            return [{"x": m, "y": self._agg(buckets.get((g, m), []), mapping.aggregation)}
+                    for m in metrics]
+
+        if grouped:
+            return [{"group": g, "values": axis_values(g)} for g in group_order]
+        return axis_values(None)
 
     def _bin_edges(self, values: list[float]) -> list[float]:
         """Equal-width bin edges. Bin count is the larger of Freedman-Diaconis and

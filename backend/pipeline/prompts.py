@@ -90,6 +90,12 @@ AXIS_MAPPING_SYSTEM = (
     "  y_column = target node column (String entity name)\n"
     "  z_column = numeric edge weight column (optional — leave null for unweighted connections)\n"
     "  aggregation = how to combine multiple edges between the same pair (sum for totals, mean for averages)\n"
+    "- 'radar' (aka spider): compare several numeric METRICS across one or more entities on radial axes\n"
+    "  (e.g. 'radar chart', 'spider chart', 'compare teams across stats', 'profile of X across metrics')\n"
+    "  WIDE data (each row is an entity with several numeric columns): set metric_columns to the LIST of numeric\n"
+    "  columns that become the axes, group_column to the entity/series column, and aggregation (usually 'mean').\n"
+    "  LONG data (one row per entity+metric): set x_column = the metric/axis label column, y_column = the value,\n"
+    "  group_column = the entity/series, and leave metric_columns null. Needs 3+ metrics to look like a radar.\n"
     "- 'heatmap': a grid of colored cells — two categorical/date axes and a numeric intensity value\n"
     "  (e.g. 'heatmap', 'heat map', 'intensity matrix', 'activity grid', 'correlation by X and Y')\n"
     "  x_column = first categorical dimension (columns of the grid, e.g. weekday, month, product)\n"
@@ -167,8 +173,8 @@ AXIS_MAPPING_SYSTEM = (
     "- x_label: a clean label for the x-axis (e.g. 'Year', 'Age', 'Country') — not the raw column name\n"
     "- y_label: a clean label for the y-axis (e.g. 'Total Revenue ($)', 'Average Price', 'Count') — include units if inferable\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|histogram|box_plot|violin|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
-    '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
+    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|histogram|box_plot|violin|radar|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
+    '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], "metric_columns": null, '
     '"filters": null, "limit": null, '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '

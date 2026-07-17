@@ -121,6 +121,27 @@ CASES = [
         },
     },
     {
+        "name": "radar: iris metric profile by species",
+        "csv": "samples/iris.csv",
+        "prompt": "compare the average iris measurements across species as a radar chart",
+        "expect_mapping": {
+            "chart_type": "radar",
+        },
+        "stub_mapping": {
+            "chart_type": "radar",
+            "x_column": "Species",
+            "y_column": "SepalLengthCm",
+            "group_column": "Species",
+            "metric_columns": ["SepalLengthCm", "SepalWidthCm", "PetalLengthCm", "PetalWidthCm"],
+            "aggregation": "mean",
+        },
+        "expect_data": {
+            "grouped": True,
+            "count": 3,
+            "values_count": 4,
+        },
+    },
+    {
         "name": "violin: sepal length density by species",
         "csv": "samples/iris.csv",
         "prompt": "show the distribution shape of sepal length by species as a violin plot",

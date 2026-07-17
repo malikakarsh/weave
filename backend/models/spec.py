@@ -37,6 +37,7 @@ class AxisMapping(BaseModel):
     x_max: str | None = None             # inclusive upper bound on x (ISO date or number as string)
     z_column: str | None = None          # bubble size column (numeric); only used for bubble chart type
     label_column: str | None = None      # column whose value labels each individual point (bubble name, etc.)
+    metric_columns: list[str] | None = None  # radar/spider: numeric columns to use as the axes (wide format)
     facet_direction: str | None = None   # "rows" | "columns" — render as small multiples when set
     facet_free_y: bool = False           # True → each panel gets its own y scale; False → shared
     title: str = ""

@@ -39,9 +39,17 @@ class LLMMapper:
         # LLMs sometimes return "null" as a string instead of JSON null
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
                     "z_column", "label_column", "facet_direction", "color", "category_colors",
-                    "filters", "limit", "palette", "background", "mark_scale"):
+                    "filters", "limit", "palette", "background", "mark_scale", "metric_columns"):
             if data.get(key) == "null":
                 data[key] = None
+
+        # x_column must always be a string; some chart types (e.g. radar with
+        # metric_columns) don't need it — fall back to a real column so validation passes.
+        if not data.get("x_column"):
+            mc = data.get("metric_columns")
+            data["x_column"] = (data.get("group_column")
+                                or (mc[0] if isinstance(mc, list) and mc else None)
+                                or schema.columns[0].name)
 
         # y_column must always be a string; fall back to first numeric column if omitted
         if not data.get("y_column"):
@@ -90,7 +98,7 @@ class LLMMapper:
 
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
                     "z_column", "label_column", "facet_direction", "color", "category_colors",
-                    "filters", "limit", "palette", "background", "mark_scale"):
+                    "filters", "limit", "palette", "background", "mark_scale", "metric_columns"):
             if data.get(key) == "null":
                 data[key] = None
 

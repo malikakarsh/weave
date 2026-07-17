@@ -98,16 +98,28 @@ def r_map_coords(m: AxisMapping, v: SchemaView) -> ValidationError | None:
     return None
 
 
-def r_two_distinct_categories(m: AxisMapping, v: SchemaView) -> ValidationError | None:
-    # Both axes must be categorical (or date) AND different — a numeric axis
-    # (e.g. price) can't serve as a heatmap axis or a network entity.
+def r_heatmap_axes(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+    # Two categorical axes → matrix heatmap; two numeric axes → binned density
+    # heatmap (2D histogram). A mix (one category + one numeric) isn't supported.
+    if m.x_column == m.y_column:
+        return ValidationError(
+            "A heatmap needs two different columns for its axes",
+            "Try a bar chart instead.")
+    both_categorical = v.is_categorical(m.x_column) and v.is_categorical(m.y_column)
+    both_numeric = v.is_numeric(m.x_column) and v.is_numeric(m.y_column)
+    if not (both_categorical or both_numeric):
+        return ValidationError(
+            "A heatmap needs two categorical axes (a matrix) or two numeric axes (a density map); "
+            f"'{m.x_column}' and '{m.y_column}' are a mix",
+            "Try a bar chart instead.")
+    return None
+
+
+def r_network_entities(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+    # Both axes must be categorical (or date) entity columns AND different — a
+    # numeric axis (e.g. price) can't be a source/target node.
     both_categorical = v.is_categorical(m.x_column) and v.is_categorical(m.y_column)
     if not both_categorical or m.x_column == m.y_column:
-        if m.chart_type == "heatmap":
-            return ValidationError(
-                "A heatmap needs two different categorical (or date) columns for its axes; "
-                f"'{m.x_column}' and '{m.y_column}' don't qualify",
-                "Try a bar chart instead.")
         return ValidationError(
             "A network graph needs two different categorical entity columns (source and target); "
             f"'{m.x_column}' and '{m.y_column}' don't qualify",
@@ -150,8 +162,8 @@ CHART_RULES: dict[str, list] = {
     "bubble":       [r_numeric_xy, r_bubble_size],
     "histogram":    [r_numeric_x],
     "symbol_map":   [r_map_coords],
-    "heatmap":      [r_two_distinct_categories],
-    "network":      [r_two_distinct_categories],
+    "heatmap":      [r_heatmap_axes],
+    "network":      [r_network_entities],
     "radar":        [r_radar_metrics],
     "spider":       [r_radar_metrics],
 }
@@ -190,7 +202,8 @@ CHART_REQUIREMENTS_NOTE = (
     "- histogram: a numeric x_column to bin\n"
     "- box_plot/violin/bar/line/area/pie: a numeric y_column (the value)\n"
     "- stacked_bar/stacked_area: a group_column to stack by\n"
-    "- heatmap/network: two DIFFERENT categorical columns (x_column != y_column)\n"
+    "- heatmap: two DIFFERENT categorical columns (matrix) OR two DIFFERENT numeric columns (density); not a mix\n"
+    "- network: two DIFFERENT categorical entity columns (x_column != y_column)\n"
     "- radar/spider: 3+ numeric metric_columns (or long form: group_column + numeric y)\n"
     "- symbol_map: numeric longitude (x) and latitude (y)\n"
 )

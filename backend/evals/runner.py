@@ -137,6 +137,16 @@ def _check_data(data, expect: dict) -> list[str]:
                     failures.append(f"  node_ids: '{nid}' not found in nodes")
         return failures
 
+    # Density heatmap: list of {x0, x1, y0, y1, z} grid cells
+    if expect.get("density"):
+        if not data or not all(isinstance(d, dict) and {"x0", "x1", "y0", "y1", "z"} <= d.keys() for d in data):
+            failures.append("  density: expected each cell to have x0/x1/y0/y1/z keys")
+        elif "total_z" in expect:
+            total = sum(d["z"] for d in data)
+            if abs(total - expect["total_z"]) > 0.5:
+                failures.append(f"  total_z: expected {expect['total_z']}, got {total}")
+        return failures
+
     # Histogram bin data: list of {x0, x1, count}
     if expect.get("binned"):
         if not data or not all(isinstance(d, dict) and "x0" in d and "x1" in d and "count" in d for d in data):

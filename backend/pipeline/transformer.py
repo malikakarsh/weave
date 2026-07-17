@@ -489,8 +489,72 @@ class Transformer:
 
         return {"nodes": node_list, "links": links}
 
+    @staticmethod
+    def _column_is_numeric(rows: list[dict], col: str, sample: int = 50) -> bool:
+        """True if a sample of the column's non-empty values all parse as floats."""
+        seen = 0
+        for row in rows:
+            v = row.get(col, "").strip()
+            if not v:
+                continue
+            if _to_float(v) is None:
+                return False
+            seen += 1
+            if seen >= sample:
+                break
+        return seen > 0
+
+    def _transform_heatmap_density(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """2D histogram: bin two numeric axes into a grid and count/aggregate per
+        cell. Output cells as {x0, x1, y0, y1, z}."""
+        xs: list[float] = []
+        ys: list[float] = []
+        zs: list[float | None] = []
+        for row in rows:
+            rx = row.get(mapping.x_column, "").strip()
+            ry = row.get(mapping.y_column, "").strip()
+            if not _in_range(rx, mapping.x_min, mapping.x_max):
+                continue
+            vx, vy = _to_float(rx), _to_float(ry)
+            if vx is None or vy is None:
+                continue
+            z = _to_float(row.get(mapping.z_column, "").strip()) if mapping.z_column else None
+            xs.append(vx)
+            ys.append(vy)
+            zs.append(z)
+
+        if not xs:
+            return []
+
+        xe = self._bin_edges(xs)
+        ye = self._bin_edges(ys)
+        nbx, nby = len(xe) - 1, len(ye) - 1
+        bwx = (xe[-1] - xe[0]) / nbx
+        bwy = (ye[-1] - ye[0]) / nby
+
+        def idx(v: float, e0: float, bw: float, nb: int) -> int:
+            i = int((v - e0) / bw) if bw > 0 else 0
+            return max(0, min(nb - 1, i))
+
+        buckets: dict[tuple[int, int], list[float | None]] = {}
+        for vx, vy, z in zip(xs, ys, zs):
+            key = (idx(vx, xe[0], bwx, nbx), idx(vy, ye[0], bwy, nby))
+            buckets.setdefault(key, []).append(1.0 if not mapping.z_column else z)
+
+        agg = mapping.aggregation if mapping.z_column else "sum"
+        return [
+            {"x0": xe[ix], "x1": xe[ix + 1], "y0": ye[iy], "y1": ye[iy + 1],
+             "z": self._agg(vals, agg)}
+            for (ix, iy), vals in buckets.items()
+        ]
+
     def _transform_heatmap(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
-        """Output one {x, y, z} cell per unique (x_column, y_column) pair."""
+        """Matrix heatmap: one {x, y, z} cell per unique (x_column, y_column) pair.
+        When both axes are numeric, produce a binned density heatmap instead."""
+        if (self._column_is_numeric(rows, mapping.x_column)
+                and self._column_is_numeric(rows, mapping.y_column)):
+            return self._transform_heatmap_density(rows, mapping)
+
         buckets: dict[tuple[str, str], list[float | None]] = {}
         x_seen: list[str] = []
         y_seen: list[str] = []

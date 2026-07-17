@@ -229,17 +229,26 @@
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
     // ── Scales ───────────────────────────────────────────────────────────────
-    const xDomain = [...new Map(raw.map(d => [d.x, 1])).keys()];
-    const yDomain = [...new Map(raw.map(d => [d.y, 1])).keys()];
-
-    const xScale = d3.scaleBand().domain(xDomain).range([0, width]).padding(0.06);
-    const yScale = d3.scaleBand().domain(yDomain).range([0, height]).padding(0.06);
+    // Density (2D histogram) cells carry bin ranges {x0,x1,y0,y1}; matrix cells
+    // carry categorical {x,y}. Branch the scales accordingly.
+    const isDensity = raw.length > 0 && "x0" in raw[0];
+    let xScale, yScale, xDomain = [];
+    if (isDensity) {
+      xScale = d3.scaleLinear().domain([d3.min(raw, d => d.x0), d3.max(raw, d => d.x1)]).range([0, width]);
+      yScale = d3.scaleLinear().domain([d3.min(raw, d => d.y0), d3.max(raw, d => d.y1)]).range([height, 0]);
+    } else {
+      xDomain = [...new Map(raw.map(d => [d.x, 1])).keys()];
+      const yDomain = [...new Map(raw.map(d => [d.y, 1])).keys()];
+      xScale = d3.scaleBand().domain(xDomain).range([0, width]).padding(0.06);
+      yScale = d3.scaleBand().domain(yDomain).range([0, height]).padding(0.06);
+    }
 
     // ── X axis ───────────────────────────────────────────────────────────────
-    const rotate = xDomain.length > 6;
+    const rotate = !isDensity && xDomain.length > 6;
     const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(xScale).tickSizeOuter(0));
+      .call(isDensity ? d3.axisBottom(xScale).ticks(8).tickFormat(d3.format("~s"))
+                      : d3.axisBottom(xScale).tickSizeOuter(0));
     xAxisG.selectAll("text")
       .attr("fill", "#64748b").attr("font-size", "11px")
       .attr("text-anchor", rotate ? "end" : "middle")
@@ -250,7 +259,8 @@
 
     // ── Y axis ───────────────────────────────────────────────────────────────
     const yAxisG = g.append("g").attr("class", "axis")
-      .call(d3.axisLeft(yScale).tickSizeOuter(0));
+      .call(isDensity ? d3.axisLeft(yScale).ticks(6).tickFormat(d3.format("~s"))
+                      : d3.axisLeft(yScale).tickSizeOuter(0));
     yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "11px");
     yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 
@@ -290,12 +300,16 @@
     const tooltip = document.getElementById("tooltip");
     const formatZ = d3.format(config.y_format || ",.2f");
 
+    const _fr = d3.format("~s");
     function showTooltip(event, d) {
+      const head = isDensity
+        ? `${_fr(d.x0)}–${_fr(d.x1)}  ·  ${_fr(d.y0)}–${_fr(d.y1)}`
+        : `${d.x}  ·  ${d.y}`;
       tooltip.innerHTML = `
-        <div class="tip-date">${d.x}  ·  ${d.y}</div>
+        <div class="tip-date">${head}</div>
         <div class="tip-row">
           <span class="tip-swatch" style="background:${cellColor(d.z)}"></span>
-          <span class="tip-label">Value</span>
+          <span class="tip-label">${isDensity ? "Count" : "Value"}</span>
           <span class="tip-val">${d.z !== null ? formatZ(d.z) : "—"}</span>
         </div>`;
       tooltip.style.opacity = 1;
@@ -311,19 +325,19 @@
       .data(raw)
       .join("rect")
       .attr("class", "cell")
-      .attr("x",      d => xScale(d.x))
-      .attr("y",      d => yScale(d.y))
-      .attr("width",  xScale.bandwidth())
-      .attr("height", yScale.bandwidth())
+      .attr("x",      d => isDensity ? xScale(d.x0) : xScale(d.x))
+      .attr("y",      d => isDensity ? yScale(d.y1) : yScale(d.y))
+      .attr("width",  d => isDensity ? Math.max(1, xScale(d.x1) - xScale(d.x0) + 1) : xScale.bandwidth())
+      .attr("height", d => isDensity ? Math.max(1, yScale(d.y0) - yScale(d.y1) + 1) : yScale.bandwidth())
       .attr("fill",   d => cellColor(d.z))
-      .attr("rx", 3)
+      .attr("rx", isDensity ? 0 : 3)
       .on("mousemove", (event, d) => showTooltip(event, d))
       .on("mouseleave", hideTooltip);
 
     // Cell value labels (only when cells are large enough)
     const MIN_LABEL_BAND = 26;
     let cellLabels = null;
-    if (xScale.bandwidth() > MIN_LABEL_BAND && yScale.bandwidth() > MIN_LABEL_BAND) {
+    if (!isDensity && xScale.bandwidth() > MIN_LABEL_BAND && yScale.bandwidth() > MIN_LABEL_BAND) {
       const fontSize = Math.min(11, Math.floor(Math.min(xScale.bandwidth(), yScale.bandwidth()) * 0.3));
       cellLabels = g.selectAll(".cell-label")
         .data(raw)

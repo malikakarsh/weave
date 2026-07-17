@@ -121,6 +121,23 @@ CASES = [
         },
     },
     {
+        "name": "heatmap density: carat vs price (2D histogram)",
+        "csv": "samples/diamonds.csv",
+        "prompt": "show a density heatmap of diamond carat versus price",
+        "expect_mapping": {
+            "chart_type": "heatmap",
+        },
+        "stub_mapping": {
+            "chart_type": "heatmap",
+            "x_column": "carat",
+            "y_column": "price",
+        },
+        "expect_data": {
+            "density": True,
+            "total_z": 10000,
+        },
+    },
+    {
         "name": "radar: iris metric profile by species",
         "csv": "samples/iris.csv",
         "prompt": "compare the average iris measurements across species as a radar chart",

@@ -65,7 +65,7 @@ DataLoader → LLMMapper → Transformer → Templater
    - **flat** — aggregates rows by x into `{x, y}` pairs (single series)
    - **grouped** — aggregates by (group, x) into `{group, values}` objects (multi-series)
    - **labeled** — one point per row with no aggregation; `{x, y, z, label}` (bubble with named items)
-   - **heatmap** — aggregates by (x_column, y_column) cell into `{x, y, z}` pairs
+   - **heatmap** — categorical axes → one `{x, y, z}` cell per value pair (matrix); numeric axes → binned `{x0, x1, y0, y1, z}` density grid (2D histogram)
    - **network** — aggregates edges by (source, target) into `{nodes, links}` with per-node weight sums
    - **box** — computes a five-number summary + outliers per category (no aggregation to a single value)
    - **violin** — computes a kernel-density curve (KDE) + summary per category for distribution-shape plots
@@ -92,7 +92,7 @@ DataLoader → LLMMapper → Transformer → Templater
 | `pie` | Part-of-whole across ≤ 10 categories | x (label), y (value) |
 | `bubble` | Three-variable relationships | x, y, z (size), optional label or group |
 | `scatter` | Two-numeric-axis relationships | x (numeric), y (numeric), optional group |
-| `heatmap` | Intensity across two categorical axes | x (category), y (category), z (value or count) |
+| `heatmap` | Matrix (two categorical axes) or density / 2D histogram (two numeric axes, auto-binned) | x, y (both category, or both numeric), z (value or count) |
 | `network` | Node-link relationships | x (source), y (target), optional z (edge weight) |
 | `symbol_map` | Geographic point data on a world map | x (longitude), y (latitude), optional z (size), label, group |
 
@@ -378,7 +378,7 @@ backend/
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # 50 test cases covering all chart types, refine, and fallbacks
+│   ├── cases.py                   # 51 test cases covering all chart types, refine, and fallbacks
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 ├── tests/
 │   ├── conftest.py                # shared fixtures (tmp_csv, flat_mapping)
@@ -412,7 +412,7 @@ python -m evals.runner --fast       # skip LLM calls; only validate transformer 
 
 **Execution modes** — by default the runner calls the model once per case sequentially and reports per-case and aggregate latency (useful for benchmarking). Pass `--batch` to build one request per case and submit them all at once: on Anthropic this uses the [Message Batches API](https://docs.anthropic.com/en/docs/build-with-claude/batch-processing) (one async job, ~50% cheaper but higher wall-clock latency); other providers fan the requests out concurrently. Only the eval runner batches — the app pipeline always uses single requests. `LLMMapper` exposes `build_map_request`/`parse_map_response` (and the refine equivalents) so the runner can build every prompt up front, submit the batch, then parse each response.
 
-Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 50 cases covering:
+Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 51 cases covering:
 
 | Category | What's tested |
 |---|---|

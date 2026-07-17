@@ -341,7 +341,10 @@
         .attr("height", d => height - yScale(d.count))
         .attr("rx", 1)
         .attr("fill", color)
-        .attr("fill-opacity", isGrouped ? 0.5 : 0.9)
+        .attr("fill-opacity", isGrouped ? 0.45 : 0.9)
+        .attr("stroke", isGrouped ? color : "none")
+        .attr("stroke-width", isGrouped ? 1 : 0)
+        .attr("stroke-opacity", isGrouped ? 0.9 : 0)
         .on("mousemove", (event, d) => showTooltip(event, d, isGrouped ? s.group : null, color))
         .on("mouseleave", hideTooltip)
         .on("click", function(event) {

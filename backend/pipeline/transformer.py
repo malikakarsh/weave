@@ -280,7 +280,9 @@ class Transformer:
         return out
 
     def _bin_edges(self, values: list[float]) -> list[float]:
-        """Equal-width bin edges. Bin count via Freedman-Diaconis, clamped to [5, 60]."""
+        """Equal-width bin edges. Bin count is the larger of Freedman-Diaconis and
+        Sturges (FD under-bins multimodal data; Sturges keeps a sensible floor),
+        clamped to [5, 60]."""
         n = len(values)
         vmin, vmax = min(values), max(values)
         if vmax <= vmin:
@@ -289,10 +291,12 @@ class Transformer:
         iqr = self._quantile(sorted_v, 0.75) - self._quantile(sorted_v, 0.25)
         if iqr > 0:
             width = 2 * iqr / (n ** (1 / 3))
-            nbins = math.ceil((vmax - vmin) / width) if width > 0 else 0
+            fd = math.ceil((vmax - vmin) / width) if width > 0 else 0
         else:
-            nbins = math.ceil(math.sqrt(n))
-        nbins = max(5, min(60, nbins or 10))
+            fd = math.ceil(math.sqrt(n))
+        sturges = math.ceil(math.log2(n) + 1) if n > 1 else 1
+        nbins = max(fd, sturges) or 10
+        nbins = max(5, min(60, nbins))
         return [vmin + (vmax - vmin) * i / nbins for i in range(nbins + 1)]
 
     def _transform_histogram(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:

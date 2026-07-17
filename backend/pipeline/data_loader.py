@@ -105,8 +105,13 @@ class DataLoader:
     # ── type detection ───────────────────────────────────────────────────
     def _detect_type(self, values: list[str]) -> ColumnType:
         # Treat lone-punctuation placeholders (-, +, .) as empty: a numeric
-        # column with a "-" gap should still read as numeric.
-        non_empty = [v for v in values if v.strip() and v.strip() not in PLACEHOLDERS]
+        # column with a "-" gap should still read as numeric. Strip once and
+        # keep the cleaned value — this runs per cell on large datasets.
+        non_empty = []
+        for v in values:
+            sv = v.strip()
+            if sv and sv not in PLACEHOLDERS:
+                non_empty.append(sv)
 
         for fmt in self.DATE_FORMATS:
             if all(self._try_parse_date(v, fmt) for v in non_empty):

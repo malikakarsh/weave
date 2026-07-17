@@ -23,13 +23,29 @@ def parse_number(s) -> float | None:
 
     Handles currency symbols, thousands separators, trailing percent, and
     parenthesised / unicode-minus negatives. Plain floats pass straight through.
+
+    Fast path first: a bare ``float()`` handles the overwhelmingly common case
+    (plain ints/floats, surrounding whitespace, leading sign) as a single C call.
+    Only genuinely formatted values fall through to the slower regex cleaning —
+    this keeps type detection and per-row transforms cheap on large datasets.
     """
     if s is None:
         return None
-    t = s.strip() if isinstance(s, str) else str(s)
+    if not isinstance(s, str):
+        try:
+            return float(s)
+        except (TypeError, ValueError):
+            return None
+
+    try:
+        return float(s)  # fast path: plain numbers, whitespace, +/- sign
+    except ValueError:
+        pass
+
+    # slow path: currency, thousands separators, percent, accounting negatives
+    t = s.strip()
     if not t:
         return None
-
     neg = False
     if t[0] in _MINUS and len(t) > 1:
         neg, t = True, t[1:]

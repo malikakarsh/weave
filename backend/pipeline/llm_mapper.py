@@ -38,7 +38,8 @@ class LLMMapper:
 
         # LLMs sometimes return "null" as a string instead of JSON null
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
-                    "z_column", "label_column", "facet_direction", "color", "category_colors"):
+                    "z_column", "label_column", "facet_direction", "color", "category_colors",
+                    "filters", "limit", "palette", "background"):
             if data.get(key) == "null":
                 data[key] = None
 
@@ -82,7 +83,8 @@ class LLMMapper:
             raise ValueError(f"LLM returned invalid JSON: {raw!r}") from e
 
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
-                    "z_column", "label_column", "facet_direction", "color", "category_colors"):
+                    "z_column", "label_column", "facet_direction", "color", "category_colors",
+                    "filters", "limit", "palette", "background"):
             if data.get(key) == "null":
                 data[key] = None
 

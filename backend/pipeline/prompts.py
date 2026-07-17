@@ -26,7 +26,15 @@ REFINE_SYSTEM = (
     "  'vibrant' is the default look; 'dark' uses deeper shades, 'light' uses lighter/pastel shades. Set to null to revert.\n"
     "- For chart background changes (e.g. 'change the background to white', 'dark background', 'make background black'):\n"
     "  set the 'background' field to a 6-digit hex color (e.g. 'white'→'#ffffff', 'black'→'#000000', 'navy'→'#0f172a').\n"
-    "  Set to null to revert to the default theme background.\n\n"
+    "  Set to null to revert to the default theme background.\n"
+    "- To keep only the top N of a specific dimension (e.g. 'only the top three colors', 'top 5 products'):\n"
+    "  set the 'limit' field to {\"column\": <exact column name>, \"n\": N}. Match the user's word to the\n"
+    "  actual column: 'colors' → the column literally named color/colour; 'cuts' → the cut column, etc.\n"
+    "  In a grouped chart, x_column and group_column are DIFFERENT dimensions — pick whichever the user named.\n"
+    "  Set to null to remove the limit.\n"
+    "- To keep only specific values of a dimension (e.g. 'only Premium and Fair cuts', 'just Q1 and Q2'):\n"
+    "  set the 'filters' field to a list like [{\"column\": <exact column name>, \"values\": [\"Premium\", \"Fair\"]}].\n"
+    "  Name the column the values belong to. Set to null (or []) to remove filters.\n\n"
     "Respond with ONLY valid JSON, no other text, no markdown fences.\n"
 )
 
@@ -98,9 +106,14 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'min'  — 'lowest', 'minimum'\n"
     "  - 'max'  — 'highest', 'maximum', 'peak'\n"
     "  Default to 'sum' for bar charts and 'mean' for line/scatter when ambiguous.\n"
-    "- top_n: keep only the top N groups ranked by their total aggregated y, or null for all\n"
-    "  Set this when the user says 'top N', 'best N', 'largest N', 'highest N', etc.\n"
-    "  top_n ranks by the same aggregation function chosen above.\n"
+    "- limit: keep only the top N values of a SPECIFIC dimension, as {\"column\": <exact column name>, \"n\": N}, or null.\n"
+    "  Use this for 'top N <thing>' where <thing> names a column — e.g. 'top 3 colors' → {\"column\": \"color\", \"n\": 3},\n"
+    "  'top 5 products' → {\"column\": \"product\", \"n\": 5}. In grouped charts x_column and group_column are different\n"
+    "  dimensions; set 'column' to whichever the user actually named. Ranks by the same aggregation chosen above.\n"
+    "- filters: keep only specific values of a dimension, as [{\"column\": <exact column name>, \"values\": [\"A\", \"B\"]}], or null.\n"
+    "  Use this for 'only <values>' / 'just <values>' where the values belong to a named column.\n"
+    "- top_n: (legacy) keep only the top N groups ranked by their total aggregated y, or null for all.\n"
+    "  Prefer 'limit' when the user names a specific dimension; use top_n only for a plain 'top N' with no dimension.\n"
     "- sort_order: how to order x categories for bar charts\n"
     "  - 'asc'  — smallest y first (default for bar charts)\n"
     "  - 'desc' — largest y first (use when user says 'top', 'highest', 'most', 'ranked')\n"
@@ -138,6 +151,7 @@ AXIS_MAPPING_SYSTEM = (
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
     '{"chart_type": "line|area|stacked_area|stacked_bar|bar|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
+    '"filters": null, "limit": null, '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
     '"z_column": "<column name or null>", "label_column": "<column name or null>", '

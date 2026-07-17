@@ -62,6 +62,15 @@ def _flat_points(data: list[dict]) -> list[dict]:
     return data
 
 
+def _plain(x):
+    """Normalise pydantic sub-models (LimitSpec/FilterSpec) to plain data."""
+    if hasattr(x, "model_dump"):
+        return x.model_dump()
+    if isinstance(x, list):
+        return [_plain(i) for i in x]
+    return x
+
+
 def _check_mapping(mapping, expect: dict) -> list[str]:
     """Return list of failure messages (empty = all passed)."""
     failures = []
@@ -70,8 +79,15 @@ def _check_mapping(mapping, expect: dict) -> list[str]:
         if actual == "MISSING":
             failures.append(f"  mapping.{field} not found on AxisMapping")
             continue
-        # For list fields, order-insensitive comparison
-        if isinstance(expected, list) and isinstance(actual, list):
+        actual = _plain(actual)
+        expected = _plain(expected)
+        # Dict fields (e.g. limit): every expected key must match — extra keys OK.
+        if isinstance(expected, dict) and isinstance(actual, dict):
+            for k, v in expected.items():
+                if actual.get(k) != v:
+                    failures.append(f"  mapping.{field}.{k}: expected {v!r}, got {actual.get(k)!r}")
+        # List fields: order-insensitive comparison
+        elif isinstance(expected, list) and isinstance(actual, list):
             if sorted(str(x) for x in expected) != sorted(str(x) for x in actual):
                 failures.append(f"  mapping.{field}: expected {expected!r}, got {actual!r}")
         elif actual != expected:

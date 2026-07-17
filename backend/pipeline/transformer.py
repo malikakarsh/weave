@@ -78,6 +78,7 @@ def _truncate(s: str, unit: str) -> str | None:
 
 class Transformer:
     def transform(self, rows: list[dict], mapping: AxisMapping) -> list[dict] | dict:
+        rows = self._prefilter(rows, mapping)
         if mapping.chart_type == "network":
             return self._transform_network(rows, mapping)
         if mapping.chart_type == "heatmap":
@@ -93,6 +94,41 @@ class Transformer:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _prefilter(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """Apply column-referenced filters and a top-N limit at the row level.
+
+        These target a dimension by naming its column, so 'top 3 colors' vs
+        'top 3 cuts' is unambiguous regardless of which is the x-axis vs the
+        grouping. Unknown columns are ignored (no-op) rather than dropping rows.
+        """
+        cols = set(rows[0].keys()) if rows else set()
+
+        # Row filters: keep rows whose column value is one of the allowed values.
+        for f in (mapping.filters or []):
+            if f.column not in cols:
+                continue
+            allowed = {v.strip() for v in f.values}
+            rows = [r for r in rows if r.get(f.column, "").strip() in allowed]
+
+        # Top-N limit on a chosen column, ranked by the same aggregation as the chart.
+        lim = mapping.limit
+        if lim and lim.column in cols and lim.n > 0:
+            agg = mapping.aggregation
+            buckets: dict[str, list[float | None]] = {}
+            for r in rows:
+                key = r.get(lim.column, "").strip()
+                if not key:
+                    continue
+                y = r.get(mapping.y_column, "").strip()
+                buckets.setdefault(key, []).append(
+                    1.0 if agg == "count" else (_to_float(y) if y else None)
+                )
+            ranked = sorted(buckets, key=lambda k: (self._agg(buckets[k], agg) or 0), reverse=True)
+            keep = set(ranked[: lim.n])
+            rows = [r for r in rows if r.get(lim.column, "").strip() in keep]
+
+        return rows
 
     @staticmethod
     def _sort(data: list[dict], order: str) -> list[dict]:

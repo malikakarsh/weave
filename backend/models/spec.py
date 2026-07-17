@@ -1,14 +1,36 @@
 from pydantic import BaseModel
 
 
+class LimitSpec(BaseModel):
+    """Keep only the top-N values of a named column, ranked by aggregated y.
+
+    Column-referenced so it can target any dimension (x-axis or grouping) without
+    ambiguity — e.g. {"column": "color", "n": 3} keeps the 3 highest-priced colors.
+    """
+    column: str
+    n: int
+    by: str = "y"  # ranking metric; currently only aggregated "y" is supported
+
+
+class FilterSpec(BaseModel):
+    """Keep only rows whose named column matches one of the given values.
+
+    e.g. {"column": "cut", "values": ["Premium", "Fair"]} keeps those two cuts.
+    """
+    column: str
+    values: list[str]
+
+
 class AxisMapping(BaseModel):
     chart_type: str = "line"
     x_column: str
     y_column: str
     group_column: str | None = None
-    group_filter: list[str] | None = None  # specific group values to include; None means all
+    group_filter: list[str] | None = None  # legacy: specific group values to include; None means all
+    filters: list[FilterSpec] | None = None  # column-referenced row filters (any dimension)
+    limit: LimitSpec | None = None          # column-referenced top-N on a chosen dimension
     aggregation: str = "sum"              # sum | mean | count | min | max
-    top_n: int | None = None              # keep only top N groups by aggregated y; None means all
+    top_n: int | None = None              # legacy: keep only top N groups by aggregated y; None means all
     sort_order: str = "asc"              # asc | desc | none — sort categories by y value (bar charts)
     time_unit: str | None = None         # year | month | day — truncate date x values before bucketing
     x_min: str | None = None             # inclusive lower bound on x (ISO date or number as string)

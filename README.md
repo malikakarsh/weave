@@ -206,6 +206,13 @@ python main.py sales.csv "show the top 5 products by total revenue as a bar char
 python main.py sales.csv "top 3 regions by average order value" --open
 ```
 
+**Dimension-targeted limiting & filtering** — in a grouped chart there are two categorical dimensions (x-axis and grouping), so "top three colors" is ambiguous if limits only ever apply to one of them. The LLM can instead emit **column-referenced** specs that name the dimension explicitly:
+
+- `limit` — `{"column": "color", "n": 3}` keeps the top 3 x-axis colors; `{"column": "cut", "n": 2}` keeps the top 2 groups. Ranked by the chart's aggregation.
+- `filters` — `[{"column": "cut", "values": ["Premium", "Fair"]}]` keeps only those values of any named column.
+
+Both are applied as row-level pre-filters before aggregation, so they work on the x-axis, the grouping, or any other column without the model having to guess which dimension you meant. (The legacy `top_n`/`group_filter` still work for plain single-dimension requests.)
+
 ### Examples
 
 **Line chart — single series:**
@@ -360,7 +367,7 @@ backend/
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # 44 test cases covering all chart types, refine, and fallbacks
+│   ├── cases.py                   # 45 test cases covering all chart types, refine, and fallbacks
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 ├── tests/
 │   ├── conftest.py                # shared fixtures (tmp_csv, flat_mapping)
@@ -392,7 +399,7 @@ python -m evals.runner --fast       # skip LLM calls; only validate transformer 
 
 **Execution modes** — by default the runner calls the model once per case sequentially and reports per-case and aggregate latency (useful for benchmarking). Pass `--batch` to build one request per case and submit them all at once: on Anthropic this uses the [Message Batches API](https://docs.anthropic.com/en/docs/build-with-claude/batch-processing) (one async job, ~50% cheaper but higher wall-clock latency); other providers fan the requests out concurrently. Only the eval runner batches — the app pipeline always uses single requests. `LLMMapper` exposes `build_map_request`/`parse_map_response` (and the refine equivalents) so the runner can build every prompt up front, submit the batch, then parse each response.
 
-Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 44 cases covering:
+Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 45 cases covering:
 
 | Category | What's tested |
 |---|---|
@@ -400,6 +407,7 @@ Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` th
 | Aggregation | sum, mean, count — triggered by intent words in the prompt |
 | Group / filter | multi-series grouping, single and multi-value group_filter |
 | Top N | top_n ranking by aggregated y value |
+| Dimension limit | column-referenced `limit` keeps the top N of a named dimension (e.g. top 3 colors in a color × cut grouped chart) |
 | Sort order | asc, desc, none — including "highest first" phrasing |
 | Date bucketing | time_unit year / month / day |
 | Date range filtering | x_min / x_max bounds |

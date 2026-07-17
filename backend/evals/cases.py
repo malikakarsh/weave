@@ -213,6 +213,31 @@ CASES = [
             "count": 3,
         },
     },
+    {
+        # Column-referenced limit on the x-axis dimension of a grouped chart —
+        # "top three colors" must limit the x-axis 'color' column, not the 'cut'
+        # grouping. Verifies the transformer keeps exactly the top 3 colors.
+        "name": "limit: top 3 colors of a grouped (color × cut) bar chart",
+        "csv": "samples/diamonds.csv",
+        "prompt": "grouped bar chart of average price with color on the x-axis and cut as the group",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "color",
+            "y_column": "price",
+            "group_column": "cut",
+            "aggregation": "mean",
+        },
+        "refine_instruction": "only the top three colors",
+        "expect_mapping": {
+            "limit": {"column": "color", "n": 3},
+        },
+        "expect_data": {
+            "grouped": True,
+            "values_count": 3,
+            "x_includes": ["H", "I", "J"],
+            "x_excludes": ["D", "E", "F", "G"],
+        },
+    },
 
     # ------------------------------------------------------------------ #
     # Sort order

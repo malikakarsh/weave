@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 from models import AxisMapping, ChartConfig
 from pipeline.csv_validator import validate_csv
@@ -21,18 +22,33 @@ from pipeline.decomposer import Decomposer
 from pipeline.pipeline import Pipeline
 from pipeline.providers import get_provider
 from pipeline.category_resolver import ClarificationNeeded
+from api.auth import router as auth_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Weave", description="CSV + prompt → interactive D3 chart")
 
+# Cookie-based auth requires explicit origins (browsers reject "*" with
+# credentials) and Authlib needs a signed session for the transient OAuth state.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", FRONTEND_URL).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET", "dev-insecure-change-me"),
+    same_site="lax",
+    https_only=os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes"),
+)
+
+app.include_router(auth_router)
 
 
 _SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "samples")

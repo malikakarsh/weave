@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { get, set, del } from "idb-keyval";
+import { useAuth } from "./useAuth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -788,6 +789,8 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated.current) return;
     if (!file) { del("weave:file").catch(() => {}); return; }
+  const { user, login, logout } = useAuth();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
     file.arrayBuffer().then(bytes =>
       set("weave:file", { name: file.name, type: file.type, bytes }).catch(() => {})
     );
@@ -1254,6 +1257,52 @@ export default function Home() {
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+
+          {/* Auth control */}
+          {user ? (
+            <div className="relative ml-3">
+              <button
+                onClick={() => setUserMenuOpen((o) => !o)}
+                className="flex items-center gap-2 rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors pl-1 pr-2.5 py-1 cursor-pointer"
+                title={user.email ?? undefined}
+              >
+                {user.picture
+                  ? <img src={user.picture} alt="" width={24} height={24} className="w-6 h-6 rounded-full" referrerPolicy="no-referrer" />
+                  : <span className={`flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold text-white ${dark ? "bg-indigo-500" : "bg-red-600"}`}>{(user.name ?? user.email ?? "?").charAt(0).toUpperCase()}</span>}
+                <span className="text-xs font-medium text-gray-700 dark:text-white/70 max-w-[120px] truncate hidden sm:block">{user.name ?? user.email}</span>
+              </button>
+              {userMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setUserMenuOpen(false)} />
+                  <div className="absolute right-0 mt-2 w-56 z-30 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#161822] shadow-lg overflow-hidden">
+                    <div className="px-3 py-2.5 border-b border-gray-100 dark:border-white/10">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user.name}</p>
+                      <p className="text-xs text-gray-400 dark:text-white/40 truncate">{user.email}</p>
+                    </div>
+                    <button
+                      onClick={() => { setUserMenuOpen(false); logout(); }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-white/70 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer"
+                    >
+                      Log out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={login}
+              className="ml-3 flex items-center gap-2 rounded-full border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:bg-gray-50 dark:hover:bg-white/10 transition-colors px-3 py-1.5 cursor-pointer"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z" />
+                <path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 0 0 2.18 7.06l3.66 2.84C6.71 7.3 9.14 5.38 12 5.38Z" />
+              </svg>
+              <span className="text-xs font-medium text-gray-700 dark:text-white/80">Sign in</span>
+            </button>
+          )}
               >
                 <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
                   onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />

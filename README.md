@@ -25,6 +25,8 @@ npm run dev
 
 Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Generate.
 
+Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY`). Google sign-in is optional: to enable it, create an OAuth 2.0 Web client in Google Cloud Console with redirect URI `http://localhost:8000/auth/google/callback`, then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, and `SESSION_SECRET` in the same file.
+
 ### Web UI features
 - **Chart generation** — same pipeline as the CLI, rendered live in the browser
 - **Iterative refinement** — after a chart is generated, keep chatting to refine it; the LLM sees the full conversation history and updates only the fields you ask about
@@ -46,6 +48,7 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 - **Palette refinement** — switch a chart's color scheme by name ("use a dark palette", "change the palette to tableau colors", "pastel palette"); the `vibrant`/`dark`/`light`/`muted` ramps share a golden-angle HCL hue scale (perceptually uniform, only chroma/lightness change) and `tableau10`/`category10`/`set2`/`dark2`/`pastel` are the familiar categorical schemes. Grouped charts use the full palette; single-series (unicolor) charts adopt the palette's first shade, so "dark palette" / "light palette" work on them too (an explicit "change color to …" still takes precedence)
 - **Mark-size refinement** — resize a chart's marks by plain English ("make the bars wider", "thinner bars", "thicker lines", "bigger points", "smaller bubbles"); a single `mark_scale` multiplier drives bar width, line/area stroke thickness, and scatter/bubble/facet point radius, and relative asks ("a bit bigger", "much smaller") scale the current size (clamped to 0.2–4×)
 - **Voice input** — a mic button on every prompt, add-chart, and refine bar uses the browser-native `SpeechRecognition` API; toggle recording with the **⌥/Alt+Shift+V** shortcut (targets the field you're working in — prompt on the landing page, the current chart's refine bar on the dashboard) and press **Enter** to submit the transcript
+- **Google sign-in** — optional login via Google OAuth. The FastAPI backend owns identity: Google only authenticates, then the backend mints its **own JWT** stored in an httpOnly cookie (`api/auth.py`), so it's the single source of truth for who the user is — the groundwork for user-scoped session persistence. The app stays fully usable signed-out; the navbar shows "Sign in with Google" or the user's avatar + a logout menu. Stateless for now (the JWT carries identity; no user table yet)
 - **Rounded chart container** — the chart iframe has rounded corners and a subtle shadow that adapts to light/dark mode
 - **Upload-gated prompt bar** — the prompt input, mic button, and generate button stay disabled until a CSV is uploaded, with a "Upload a CSV to get started…" hint
 - **Playground** — pick a sample dataset from the landing page (Stocks, Revenue, World Cities, Diamonds, NYC Restaurants, Iris) to see auto-generated dashboards and experiment with refinements; resets when you upload your own CSV
@@ -350,6 +353,11 @@ CLAUDE_MODEL=claude-haiku-4-5   # optional, this is the default
 ```
 backend/
 ├── main.py                        # CLI entry point
+├── requirements.txt               # Python dependencies
+├── .env.example                   # Template for LLM keys + Google OAuth / JWT config
+├── api/
+│   ├── main.py                    # FastAPI app: chart/dashboard/refine SSE endpoints, CORS, session
+│   └── auth.py                    # Google OAuth (Authlib) + httpOnly-cookie JWT session
 ├── models/
 │   ├── schema.py                  # ColumnType, ColumnInfo, Schema
 │   └── spec.py                    # AxisMapping, ChartConfig
@@ -481,6 +489,7 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - ~~Color refinement — `color` and `category_colors` fields in `AxisMapping`; overall color and per-category overrides via natural language~~
 - ~~Playground — sample dataset picker on landing page; backend serves CSVs via `GET /playground/csv/{id}`; reuses dashboard SSE pipeline; resets on own CSV upload~~
 - ~~Navbar cursor fix — pointer cursor on theme toggle and "← New" button~~
+- ~~Google OAuth login — FastAPI-owned flow (`api/auth.py`, Authlib): Google authenticates, backend mints its own httpOnly-cookie JWT; `/auth/login/google`, `/auth/google/callback`, `/auth/me`, `/auth/logout` + a `get_current_user` dependency; frontend `useAuth` hook + navbar sign-in/avatar. Stateless (JWT-carried identity) until the user table lands with persistence~~
 - Deployed with a live URL (Digital Ocean)
 
 **Test suite** ✓

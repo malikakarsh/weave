@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 
 from models import AxisMapping
@@ -87,6 +88,8 @@ class Transformer:
             return self._transform_map(rows, mapping)
         if mapping.chart_type in ("box_plot", "box"):
             return self._transform_box(rows, mapping)
+        if mapping.chart_type == "violin":
+            return self._transform_violin(rows, mapping)
         if mapping.label_column:
             return self._transform_labeled(rows, mapping)
         if mapping.group_column:
@@ -240,6 +243,97 @@ class Transformer:
             result.append(entry)
 
         # Preserve first-seen x order, then group order within each x.
+        result.sort(key=lambda e: (
+            x_order.index(e["x"]),
+            group_order.index(e["group"]) if grouped else 0,
+        ))
+        return result
+
+    @staticmethod
+    def _kde(values: list[float], sample_points: list[float], q1: float, q3: float) -> list[float]:
+        """Gaussian kernel density estimate evaluated at each sample point.
+
+        Bandwidth uses Silverman's rule of thumb, robust to spread via the IQR.
+        """
+        n = len(values)
+        if n == 0:
+            return [0.0] * len(sample_points)
+        mean = sum(values) / n
+        std = (sum((v - mean) ** 2 for v in values) / n) ** 0.5
+        iqr = q3 - q1
+        sigma = min(std, iqr / 1.34) if iqr > 0 else std
+        if sigma <= 0:
+            sigma = std if std > 0 else 1.0
+        h = 0.9 * sigma * n ** (-0.2)
+        if h <= 0:
+            h = 1.0
+        norm = 1.0 / (n * h * (2 * math.pi) ** 0.5)
+        out = []
+        for sp in sample_points:
+            total = 0.0
+            for v in values:
+                u = (sp - v) / h
+                total += math.exp(-0.5 * u * u)
+            out.append(norm * total)
+        return out
+
+    def _transform_violin(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """One violin per x category (optionally per group): a KDE curve plus the
+        five-number summary so the template can draw the density and an inner box.
+
+        Density is sampled over a shared y-range so violins align on the y-axis.
+        """
+        grouped = bool(mapping.group_column)
+        buckets: dict[tuple[str, str | None], list[float]] = {}
+        x_order: list[str] = []
+        group_order: list[str] = []
+
+        for row in rows:
+            raw_x = row.get(mapping.x_column, "").strip()
+            if not raw_x or not _in_range(raw_x, mapping.x_min, mapping.x_max):
+                continue
+            x = self._x_key(raw_x, mapping.time_unit) or raw_x
+            g = row.get(mapping.group_column, "").strip() if grouped else None
+            if grouped and not g:
+                continue
+            y = _to_float(row.get(mapping.y_column, "").strip())
+            if y is None:
+                continue
+            key = (x, g)
+            if key not in buckets:
+                buckets[key] = []
+                if x not in x_order:
+                    x_order.append(x)
+                if g and g not in group_order:
+                    group_order.append(g)
+            buckets[key].append(y)
+
+        all_vals = [v for vals in buckets.values() for v in vals]
+        if not all_vals:
+            return []
+        y_lo, y_hi = min(all_vals), max(all_vals)
+        span = y_hi - y_lo or 1.0
+        # Pad the sampled range slightly so the density tails aren't clipped.
+        y_lo -= span * 0.05
+        y_hi += span * 0.05
+        N = 48
+        sample_ys = [y_lo + (y_hi - y_lo) * i / (N - 1) for i in range(N)]
+
+        result = []
+        for (x, g), values in buckets.items():
+            stats = self._box_stats(values)
+            if stats is None:
+                continue
+            density = self._kde(values, sample_ys, stats["q1"], stats["q3"])
+            entry = {
+                "x": x,
+                "density": [[sy, d] for sy, d in zip(sample_ys, density)],
+                **stats,
+            }
+            if grouped:
+                entry["group"] = g
+            result.append(entry)
+
         result.sort(key=lambda e: (
             x_order.index(e["x"]),
             group_order.index(e["group"]) if grouped else 0,

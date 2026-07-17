@@ -103,6 +103,24 @@ CASES = [
             "x_includes": ["Iris-setosa", "Iris-versicolor", "Iris-virginica"],
         },
     },
+    {
+        "name": "violin: sepal length density by species",
+        "csv": "samples/iris.csv",
+        "prompt": "show the distribution shape of sepal length by species as a violin plot",
+        "expect_mapping": {
+            "chart_type": "violin",
+        },
+        "stub_mapping": {
+            "chart_type": "violin",
+            "x_column": "Species",
+            "y_column": "SepalLengthCm",
+        },
+        "expect_data": {
+            "grouped": False,
+            "count": 3,
+            "x_includes": ["Iris-setosa", "Iris-versicolor", "Iris-virginica"],
+        },
+    },
 
     # ------------------------------------------------------------------ #
     # Aggregation function

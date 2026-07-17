@@ -6,8 +6,9 @@ The prompt's requirement notes (CHART_REQUIREMENTS_NOTE) are advisory only: they
 reduce how often a user hits an error, but correctness never depends on them.
 
 Rules are declared per chart type in CHART_RULES. Each rule is a small, testable
-callable ``(mapping, view) -> ValidationError | None``. Adding a chart type means
-adding a registry entry, not editing a branchy function.
+callable ``(mapping, view) -> str | None`` returning a failure *reason*. The
+suggested alternative is NOT hardcoded — the validator computes which chart types
+actually validate against the same columns and suggests one of those.
 """
 
 from dataclasses import dataclass
@@ -52,101 +53,77 @@ def _pretty(chart_type: str) -> str:
     return chart_type.replace("_", " ")
 
 
-# ── Rules (each returns a ValidationError or None) ───────────────────────────────
+# ── Rules — each returns a failure reason (str) or None ──────────────────────────
 
-def r_numeric_value_y(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_numeric_value_y(m: AxisMapping, v: SchemaView) -> str | None:
     if m.aggregation != "count" and not v.is_numeric(m.y_column):
-        return ValidationError(
-            f"A {_pretty(m.chart_type)} chart needs a numeric value column for the y-axis, "
-            f"but '{m.y_column}' isn't numeric",
-            "Pick a numeric column, or count rows instead.")
+        return (f"A {_pretty(m.chart_type)} chart needs a numeric value column for the y-axis, "
+                f"but '{m.y_column}' isn't numeric")
     return None
 
 
-def r_numeric_xy(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_numeric_xy(m: AxisMapping, v: SchemaView) -> str | None:
     if not (v.is_numeric(m.x_column) and v.is_numeric(m.y_column)):
-        alt = "a bar chart or box plot" if v.is_categorical(m.x_column) else "a line chart"
-        return ValidationError(
-            f"A {_pretty(m.chart_type)} chart needs two numeric axes, but "
-            f"'{m.x_column}'/'{m.y_column}' aren't both numeric",
-            f"Try {alt} instead.")
+        return (f"A {_pretty(m.chart_type)} chart needs two numeric axes, but "
+                f"'{m.x_column}'/'{m.y_column}' aren't both numeric")
     return None
 
 
-def r_bubble_size(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_bubble_size(m: AxisMapping, v: SchemaView) -> str | None:
     if v.numeric_count() < 3 and not v.is_numeric(m.z_column):
-        return ValidationError(
-            f"A bubble chart needs a third numeric column to size the bubbles, but this data "
-            f"has only {v.numeric_count()} numeric column(s)",
-            "Try a scatter chart instead.")
+        return (f"A bubble chart needs a third numeric column to size the bubbles, but this data "
+                f"has only {v.numeric_count()} numeric column(s)")
     return None
 
 
-def r_numeric_x(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_numeric_x(m: AxisMapping, v: SchemaView) -> str | None:
     if not v.is_numeric(m.x_column):
-        return ValidationError(
-            f"A histogram needs a numeric column to bin, but '{m.x_column}' is categorical",
-            "Try a bar chart (counts per category) instead.")
+        return f"A histogram needs a numeric column to bin, but '{m.x_column}' is categorical"
     return None
 
 
-def r_map_coords(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_map_coords(m: AxisMapping, v: SchemaView) -> str | None:
     if not (v.is_numeric(m.x_column) and v.is_numeric(m.y_column)):
-        return ValidationError(
-            "A map needs numeric longitude and latitude columns, which this data doesn't have",
-            "Try a bar or scatter chart instead.")
+        return "A map needs numeric longitude and latitude columns, which this data doesn't have"
     return None
 
 
-def r_heatmap_axes(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_heatmap_axes(m: AxisMapping, v: SchemaView) -> str | None:
     # Two categorical axes → matrix heatmap; two numeric axes → binned density
-    # heatmap (2D histogram). A mix (one category + one numeric) isn't supported.
+    # heatmap. A mix (one category + one numeric) isn't supported.
     if m.x_column == m.y_column:
-        return ValidationError(
-            "A heatmap needs two different columns for its axes",
-            "Try a bar chart instead.")
+        return "A heatmap needs two different columns for its axes"
     both_categorical = v.is_categorical(m.x_column) and v.is_categorical(m.y_column)
     both_numeric = v.is_numeric(m.x_column) and v.is_numeric(m.y_column)
     if not (both_categorical or both_numeric):
-        return ValidationError(
-            "A heatmap needs two categorical axes (a matrix) or two numeric axes (a density map); "
-            f"'{m.x_column}' and '{m.y_column}' are a mix",
-            "Try a bar chart instead.")
+        return ("A heatmap needs two categorical axes (a matrix) or two numeric axes (a density map); "
+                f"'{m.x_column}' and '{m.y_column}' are a mix")
     return None
 
 
-def r_network_entities(m: AxisMapping, v: SchemaView) -> ValidationError | None:
-    # Both axes must be categorical (or date) entity columns AND different — a
-    # numeric axis (e.g. price) can't be a source/target node.
+def r_network_entities(m: AxisMapping, v: SchemaView) -> str | None:
     both_categorical = v.is_categorical(m.x_column) and v.is_categorical(m.y_column)
     if not both_categorical or m.x_column == m.y_column:
-        return ValidationError(
-            "A network graph needs two different categorical entity columns (source and target); "
-            f"'{m.x_column}' and '{m.y_column}' don't qualify",
-            "Try a bar chart instead.")
+        return ("A network graph needs two different categorical entity columns (source and target); "
+                f"'{m.x_column}' and '{m.y_column}' don't qualify")
     return None
 
 
-def r_stacking_group(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_stacking_group(m: AxisMapping, v: SchemaView) -> str | None:
     if not m.group_column:
         others = [c for c in v.categorical if c != m.x_column]
         if not others:
-            base = "bar" if m.chart_type == "stacked_bar" else "area"
-            return ValidationError(
-                f"A {_pretty(m.chart_type)} chart needs a second categorical column to stack by, "
-                f"but there isn't one",
-                f"Try a {base} chart instead.")
+            return (f"A {_pretty(m.chart_type)} chart needs a second categorical column to stack by, "
+                    f"but there isn't one")
     return None
 
 
-def r_radar_metrics(m: AxisMapping, v: SchemaView) -> ValidationError | None:
+def r_radar_metrics(m: AxisMapping, v: SchemaView) -> str | None:
     metrics = [mc for mc in (m.metric_columns or []) if v.is_numeric(mc)]
     long_form = bool(m.group_column) and v.is_numeric(m.y_column)
     if len(metrics) < 3 and not long_form and v.numeric_count() < 3:
-        return ValidationError(
-            f"A radar chart needs at least 3 numeric metrics to form the axes, "
-            f"but this data has {v.numeric_count()}",
-            "Try a bar or line chart instead.")
+        return (f"A radar chart needs at least 3 numeric metrics to form the axes, "
+                f"but this data has {v.numeric_count()}")
     return None
 
 
@@ -168,21 +145,47 @@ CHART_RULES: dict[str, list] = {
     "spider":       [r_radar_metrics],
 }
 
+# Order in which alternatives are offered when a chart is rejected — simple,
+# broadly-applicable types first.
+_SUGGEST_ORDER = ("bar", "box_plot", "line", "area", "scatter", "histogram",
+                  "violin", "pie", "heatmap", "radar")
+
 
 class ChartValidator:
-    """Runs the declared rules for a chart type against the dataset schema."""
+    """Runs the declared rules for a chart type against the dataset schema, and
+    suggests only chart types that would actually validate on the same columns."""
 
     def __init__(self, rules: dict[str, list] | None = None):
         self._rules = rules if rules is not None else CHART_RULES
 
-    def validate(self, mapping: AxisMapping, schema: Schema) -> ValidationError | None:
-        """Return the first failed requirement, or None if the chart is buildable."""
-        view = SchemaView(schema)
+    def _reason(self, mapping: AxisMapping, view: SchemaView) -> str | None:
         for rule in self._rules.get(mapping.chart_type, ()):
-            err = rule(mapping, view)
-            if err is not None:
-                return err
+            reason = rule(mapping, view)
+            if reason is not None:
+                return reason
         return None
+
+    def valid_alternatives(self, mapping: AxisMapping, schema: Schema) -> list[str]:
+        """Chart types (other than the requested one) that pass validation with
+        the CURRENT columns — i.e. actually-switchable alternatives."""
+        view = SchemaView(schema)
+        return [ct for ct in _SUGGEST_ORDER
+                if ct != mapping.chart_type
+                and self._reason(mapping.model_copy(update={"chart_type": ct}), view) is None]
+
+    def validate(self, mapping: AxisMapping, schema: Schema) -> ValidationError | None:
+        """Return the first failed requirement (with a validated suggestion) or None."""
+        view = SchemaView(schema)
+        reason = self._reason(mapping, view)
+        if reason is None:
+            return None
+        alts = self.valid_alternatives(mapping, schema)
+        if alts:
+            names = " or ".join(_pretty(a) for a in alts[:2])
+            suggestion = f"Try a {names} instead."
+        else:
+            suggestion = "No standard chart fits these columns — try different columns."
+        return ValidationError(reason, suggestion)
 
 
 DEFAULT_VALIDATOR = ChartValidator()

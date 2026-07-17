@@ -116,7 +116,14 @@ class TestValidatorClass:
         assert ChartValidator().validate(mapping(chart_type="treemap"), IRIS) is None
 
     def test_injectable_rules(self):
-        # the registry is injectable, so rules are testable in isolation
-        always_fail = lambda m, v: ValidationError("nope", "Try something else.")
+        # the registry is injectable; rules return a reason string
+        always_fail = lambda m, v: "nope"
         v = ChartValidator({"bar": [always_fail]})
         assert v.validate(mapping(chart_type="bar"), IRIS).reason == "nope"
+
+    def test_suggestion_only_offers_valid_alternatives(self):
+        # symbol_map on cut/price fails; scatter also fails, so it must NOT be suggested
+        s = schema(("cut", ColumnType.STRING), ("price", ColumnType.FLOAT))
+        err = ChartValidator().validate(mapping(chart_type="symbol_map", x_column="cut", y_column="price"), s)
+        assert "scatter" not in err.suggestion
+        assert "bar" in err.suggestion   # bar is a genuine option

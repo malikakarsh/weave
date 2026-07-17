@@ -84,6 +84,25 @@ CASES = [
             "grouped": False,
         },
     },
+    {
+        "name": "box_plot: sepal length distribution by species",
+        "csv": "samples/iris.csv",
+        "prompt": "show the distribution of sepal length by species as a box plot",
+        "expect_mapping": {
+            "chart_type": "box_plot",
+        },
+        # Full stub so --fast can build the mapping and exercise the box transform.
+        "stub_mapping": {
+            "chart_type": "box_plot",
+            "x_column": "Species",
+            "y_column": "SepalLengthCm",
+        },
+        "expect_data": {
+            "grouped": False,
+            "count": 3,
+            "x_includes": ["Iris-setosa", "Iris-versicolor", "Iris-virginica"],
+        },
+    },
 
     # ------------------------------------------------------------------ #
     # Aggregation function

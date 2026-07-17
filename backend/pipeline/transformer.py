@@ -85,6 +85,8 @@ class Transformer:
             return self._transform_heatmap(rows, mapping)
         if mapping.chart_type == "symbol_map":
             return self._transform_map(rows, mapping)
+        if mapping.chart_type in ("box_plot", "box"):
+            return self._transform_box(rows, mapping)
         if mapping.label_column:
             return self._transform_labeled(rows, mapping)
         if mapping.group_column:
@@ -156,6 +158,93 @@ class Transformer:
         if not time_unit:
             return raw_x
         return _truncate(raw_x, time_unit)
+
+    @staticmethod
+    def _quantile(sorted_vals: list[float], p: float) -> float:
+        """Linear-interpolation quantile, matching d3.quantile."""
+        n = len(sorted_vals)
+        if n == 1 or p <= 0:
+            return sorted_vals[0]
+        if p >= 1:
+            return sorted_vals[-1]
+        h = (n - 1) * p
+        lo = int(h)
+        frac = h - lo
+        if lo + 1 < n:
+            return sorted_vals[lo] + (sorted_vals[lo + 1] - sorted_vals[lo]) * frac
+        return sorted_vals[lo]
+
+    def _box_stats(self, values: list[float]) -> dict | None:
+        """Five-number summary + Tukey outliers for a list of numeric values."""
+        ys = sorted(values)
+        if not ys:
+            return None
+        q1 = self._quantile(ys, 0.25)
+        median = self._quantile(ys, 0.5)
+        q3 = self._quantile(ys, 0.75)
+        iqr = q3 - q1
+        lo_fence = q1 - 1.5 * iqr
+        hi_fence = q3 + 1.5 * iqr
+        inliers = [v for v in ys if lo_fence <= v <= hi_fence]
+        outliers = [v for v in ys if v < lo_fence or v > hi_fence]
+        return {
+            "q1": q1,
+            "median": median,
+            "q3": q3,
+            "whisker_low": inliers[0] if inliers else ys[0],
+            "whisker_high": inliers[-1] if inliers else ys[-1],
+            "outliers": outliers,
+            "mean": sum(ys) / len(ys),
+            "count": len(ys),
+        }
+
+    def _transform_box(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """One box (five-number summary) per x category, optionally per group.
+
+        Unlike the aggregating modes, this keeps the full distribution so the
+        template can draw quartiles, whiskers, and outliers.
+        """
+        grouped = bool(mapping.group_column)
+        buckets: dict[tuple[str, str | None], list[float]] = {}
+        x_order: list[str] = []
+        group_order: list[str] = []
+
+        for row in rows:
+            raw_x = row.get(mapping.x_column, "").strip()
+            if not raw_x or not _in_range(raw_x, mapping.x_min, mapping.x_max):
+                continue
+            x = self._x_key(raw_x, mapping.time_unit) or raw_x
+            g = row.get(mapping.group_column, "").strip() if grouped else None
+            if grouped and not g:
+                continue
+            y = _to_float(row.get(mapping.y_column, "").strip())
+            if y is None:
+                continue
+            key = (x, g)
+            if key not in buckets:
+                buckets[key] = []
+                if x not in x_order:
+                    x_order.append(x)
+                if g and g not in group_order:
+                    group_order.append(g)
+            buckets[key].append(y)
+
+        result = []
+        for (x, g), values in buckets.items():
+            stats = self._box_stats(values)
+            if stats is None:
+                continue
+            entry = {"x": x, **stats}
+            if grouped:
+                entry["group"] = g
+            result.append(entry)
+
+        # Preserve first-seen x order, then group order within each x.
+        result.sort(key=lambda e: (
+            x_order.index(e["x"]),
+            group_order.index(e["group"]) if grouped else 0,
+        ))
+        return result
 
     def _transform_network(self, rows: list[dict], mapping: AxisMapping) -> dict:
         """Aggregate edges by (source, target) and return {nodes, links}."""

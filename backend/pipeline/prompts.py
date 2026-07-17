@@ -60,8 +60,13 @@ AXIS_MAPPING_SYSTEM = (
     "  Requires group_column. x_column is a categorical String (or time-bucketed dates).\n"
     "  Use when comparing composition across discrete categories; prefer stacked_area for continuous time.\n"
     "- 'bar': x is an unordered string category (e.g. country, product, name)\n"
-    "  Also use 'bar' when user asks for box plot, violin, histogram by category, or distribution by category —\n"
+    "  Also use 'bar' when user asks for violin or histogram by category —\n"
     "  these are unsupported; fall back to bar with aggregation='mean' as the closest available alternative.\n"
+    "- 'box_plot': distribution of a numeric column across categories — shows median, quartiles, whiskers, and outliers\n"
+    "  (e.g. 'box plot', 'boxplot', 'box and whisker', 'distribution of X by Y', 'spread of X per category')\n"
+    "  x_column = the categorical column (one box per value); y_column = the numeric column whose distribution is shown.\n"
+    "  Optionally set group_column to draw multiple boxes per category. The box uses the raw distribution, so\n"
+    "  aggregation is ignored — but still keep aggregation as a valid string like 'mean' (never null).\n"
     "- 'pie': part-of-whole breakdown across a small number of categories (≤ 10)\n"
     "  (e.g. 'pie chart', 'donut', 'share of', 'breakdown', 'proportion', 'distribution')\n"
     "  For pie: x_column = the String label column, y_column = the Float value column.\n"
@@ -155,7 +160,7 @@ AXIS_MAPPING_SYSTEM = (
     "- x_label: a clean label for the x-axis (e.g. 'Year', 'Age', 'Country') — not the raw column name\n"
     "- y_label: a clean label for the y-axis (e.g. 'Total Revenue ($)', 'Average Price', 'Count') — include units if inferable\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|box_plot|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"filters": null, "limit": null, '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '

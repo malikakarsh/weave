@@ -58,14 +58,15 @@ DataLoader → LLMMapper → Transformer → Templater
 
 1. **DataLoader** — reads the CSV, auto-detects delimiter, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column.
 
-2. **LLMMapper** — sends the schema and your prompt to Claude, which decides the chart type (line, area, bar, pie, bubble, scatter, heatmap, network), picks the x/y/group/z/label columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns, and applies x_min/x_max bounds for time period filtering.
+2. **LLMMapper** — sends the schema and your prompt to Claude, which decides the chart type (line, area, bar, box_plot, pie, bubble, scatter, heatmap, network), picks the x/y/group/z/label columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns, and applies x_min/x_max bounds for time period filtering.
 
-3. **Transformer** — routes to one of five transform modes based on the mapping:
+3. **Transformer** — routes to one of six transform modes based on the mapping:
    - **flat** — aggregates rows by x into `{x, y}` pairs (single series)
    - **grouped** — aggregates by (group, x) into `{group, values}` objects (multi-series)
    - **labeled** — one point per row with no aggregation; `{x, y, z, label}` (bubble with named items)
    - **heatmap** — aggregates by (x_column, y_column) cell into `{x, y, z}` pairs
    - **network** — aggregates edges by (source, target) into `{nodes, links}` with per-node weight sums
+   - **box** — computes a five-number summary + outliers per category (no aggregation to a single value)
 
    Date x-values are optionally truncated to a period (year → `2024-01-01`, month → `2024-03-01`, day → `2024-03-15`) before bucketing. Missing values are kept as `null` so gaps are visible rather than silently dropped.
 
@@ -80,6 +81,7 @@ DataLoader → LLMMapper → Transformer → Templater
 | `stacked_area` | Cumulative composition over time | x (date), y (numeric), group (required) |
 | `stacked_bar` | Composition across discrete categories | x (string/bucketed date), y (numeric), group (required) |
 | `bar` | Comparing unordered categories | x (string), y (numeric), optional group |
+| `box_plot` | Distribution (median, quartiles, whiskers, outliers) per category | x (category), y (numeric), optional group |
 | `pie` | Part-of-whole across ≤ 10 categories | x (label), y (value) |
 | `bubble` | Three-variable relationships | x, y, z (size), optional label or group |
 | `scatter` | Two-numeric-axis relationships | x (numeric), y (numeric), optional group |
@@ -93,7 +95,6 @@ These are not yet supported. Weave currently falls back to the closest available
 
 | Type | Best for | Planned fallback today |
 |---|---|---|
-| `box_plot` | Distribution summary (median, quartiles, outliers) per category | bar + mean |
 | `violin` | Full distribution shape per category (kernel density) | bar + mean |
 | `histogram` | Frequency distribution of a single numeric variable | bar + count with binning |
 | `candlestick` | OHLC financial price data over time | line |
@@ -358,6 +359,7 @@ backend/
 │       ├── line_chart.html        # D3.js line chart (single + multi-series)
 │       ├── area_chart.html        # D3.js area chart (per-group gradients)
 │       ├── bar_chart.html         # D3.js bar chart (flat + grouped)
+│       ├── box_plot_chart.html    # D3.js box plot (quartiles, whiskers, outliers; flat + grouped)
 │       ├── pie_chart.html         # D3.js donut/pie chart with % labels
 │       ├── scatter_chart.html     # D3.js scatter chart
 │       ├── bubble_chart.html      # D3.js bubble chart (grouped or individually labeled)
@@ -368,7 +370,7 @@ backend/
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # 46 test cases covering all chart types, refine, and fallbacks
+│   ├── cases.py                   # 47 test cases covering all chart types, refine, and fallbacks
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 ├── tests/
 │   ├── conftest.py                # shared fixtures (tmp_csv, flat_mapping)
@@ -400,11 +402,11 @@ python -m evals.runner --fast       # skip LLM calls; only validate transformer 
 
 **Execution modes** — by default the runner calls the model once per case sequentially and reports per-case and aggregate latency (useful for benchmarking). Pass `--batch` to build one request per case and submit them all at once: on Anthropic this uses the [Message Batches API](https://docs.anthropic.com/en/docs/build-with-claude/batch-processing) (one async job, ~50% cheaper but higher wall-clock latency); other providers fan the requests out concurrently. Only the eval runner batches — the app pipeline always uses single requests. `LLMMapper` exposes `build_map_request`/`parse_map_response` (and the refine equivalents) so the runner can build every prompt up front, submit the batch, then parse each response.
 
-Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 46 cases covering:
+Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 47 cases covering:
 
 | Category | What's tested |
 |---|---|
-| Chart type selection | line, area, stacked_area, stacked_bar, bar, pie, bubble, scatter, heatmap, network, symbol_map, facet |
+| Chart type selection | line, area, stacked_area, stacked_bar, bar, box_plot, pie, bubble, scatter, heatmap, network, symbol_map, facet |
 | Aggregation | sum, mean, count — triggered by intent words in the prompt |
 | Group / filter | multi-series grouping, single and multi-value group_filter |
 | Top N | top_n ranking by aggregated y value |

@@ -48,6 +48,12 @@ class LLMMapper:
             numeric_cols = [c.name for c in schema.columns if c.type.value == "Float"]
             data["y_column"] = numeric_cols[0] if numeric_cols else schema.columns[-1].name
 
+        # Required string fields must never be None/empty — fall back to defaults
+        # (e.g. the LLM may return aggregation=null for chart types that don't aggregate).
+        for key, default in (("aggregation", "sum"), ("sort_order", "asc"), ("chart_type", "line")):
+            if not data.get(key):
+                data[key] = default
+
         mapping = AxisMapping(**data)
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping

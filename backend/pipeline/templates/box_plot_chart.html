@@ -103,8 +103,12 @@
     .grid line { stroke: #1e2235; stroke-dasharray: 4 4; }
     .grid path { stroke: none; }
 
-    .bar { cursor: pointer; transition: opacity 0.1s; }
-    .bar:hover { opacity: 0.75; }
+    .box { cursor: pointer; transition: opacity 0.1s; }
+    .box:hover { opacity: 0.85; }
+    .box-whisker, .box-cap { stroke: #94a3b8; stroke-width: 1.4; }
+    .box-median { stroke-width: 2.2; }
+    .box-mean   { stroke: #cbd5e1; stroke-width: 1.4; stroke-dasharray: 3 2; }
+    .box-outlier { stroke: #1a1d27; stroke-width: 0.5; }
 
     .tooltip {
       position: absolute;
@@ -116,13 +120,12 @@
       pointer-events: none;
       opacity: 0;
       transition: opacity 0.1s;
-      min-width: 140px;
+      min-width: 150px;
     }
 
     .tooltip .tip-date  { color: #64748b; font-size: 11px; margin-bottom: 6px; }
-    .tooltip .tip-row   { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
-    .tooltip .tip-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-    .tooltip .tip-label { color: #94a3b8; flex: 1; }
+    .tooltip .tip-row   { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 3px; }
+    .tooltip .tip-label { color: #94a3b8; }
     .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; }
   </style>
 </head>
@@ -160,7 +163,7 @@
         <input type="text" class="edit-text" id="edit-ylabel" placeholder="y-axis label">
       </div>
       <div class="edit-divider"></div>
-      <span class="edit-hint">Click any bar to change its color</span>
+      <span class="edit-hint">Click any box to change its color</span>
     </div>
   </div>
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
@@ -172,52 +175,36 @@
     const config = __CONFIG__;
     window.__weaveConfig = config;
 
-    const markScale = config.mark_scale || 1;   // multiplier for bar width
-    // Scaled bar width within a band, capped at the full step so bars can widen
-    // into the gap but never overlap; returns [width, leftOffset] to keep centered.
-    const _barW = (band, step) => Math.min(band * markScale, step);
-    const _barDx = (band, step) => (band - _barW(band, step)) / 2;
+    const markScale = config.mark_scale || 1;   // multiplier for box width
+    const _boxW  = (band, step) => Math.min(band * markScale, step);
+    const _boxDx = (band, step) => (band - _boxW(band, step)) / 2;
 
     let svgBg   = config.svg_bg || "#1a1d27";
     let editMode = false;
-    let activeSeries = null; // null = single series, string = group name
+    let activeSeries = null;   // "__x__<cat>" (flat) or group name (grouped)
 
+    // ── Color picker ──────────────────────────────────────────────────────────
     const floatingPick = document.getElementById("floating-color-pick");
     floatingPick.addEventListener("input", e => {
       const color = e.target.value;
-      if (activeSeries && activeSeries.startsWith("__x__")) {
-        // flat bar — recolor only the clicked bar by its x value
-        g.selectAll(`rect[data-x="${CSS.escape(activeSeries.slice(5))}"]`).attr("fill", color);
-      } else if (activeSeries) {
-        g.selectAll(`rect[data-group="${CSS.escape(activeSeries)}"]`).attr("fill", color);
-        svg.selectAll(`.legend-swatch[data-group="${CSS.escape(activeSeries)}"]`).attr("fill", color);
-      }
+      if (!activeSeries) return;
+      const sel = activeSeries.startsWith("__x__")
+        ? `[data-x="${CSS.escape(activeSeries.slice(5))}"]`
+        : `[data-group="${CSS.escape(activeSeries)}"]`;
+      g.selectAll(`.box${sel}`).attr("fill", color).attr("stroke", color);
+      g.selectAll(`.box-outlier${sel}`).attr("fill", color);
+      svg.selectAll(`.legend-swatch${sel}`).attr("fill", color);
     });
-
-    function highlightGroup(group) {
-      if (!isGrouped) return; // single series — nothing to fade
-      groups.forEach(grp => {
-        const active = grp === group;
-        g.selectAll(`rect[data-group="${CSS.escape(grp)}"]`).attr("opacity", active ? 1 : 0.15);
-        svg.selectAll(`.legend-swatch[data-group="${CSS.escape(grp)}"]`).attr("opacity", active ? 1 : 0.15);
-      });
-    }
-
-    function clearHighlight() {
-      g.selectAll(".bar").attr("opacity", 1);
-      svg.selectAll(".legend-swatch").attr("opacity", 1);
-    }
 
     function openColorPicker(currentColor, series, event) {
       activeSeries = series;
       floatingPick.value = toPickerHex(currentColor);
       floatingPick.style.left = event.clientX + "px";
       floatingPick.style.top  = event.clientY + "px";
-      floatingPick.getBoundingClientRect(); // flush layout so position applies before picker opens
+      floatingPick.getBoundingClientRect();
       floatingPick.click();
     }
 
-    // Convert any CSS color string to a 6-digit hex for <input type="color">
     function toPickerHex(color) {
       if (/^#[0-9a-f]{6}$/i.test(color)) return color;
       const tmp = Object.assign(document.createElement("div"), { style: `color:${color};position:fixed;opacity:0` });
@@ -228,14 +215,14 @@
       return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
     }
 
-    const isGrouped = raw.length > 0 && "group" in raw[0];
+    // ── Data shape ────────────────────────────────────────────────────────────
+    // raw = [{x, q1, median, q3, whisker_low, whisker_high, outliers[], mean, count, group?}]
+    const isGrouped  = raw.length > 0 && "group" in raw[0];
+    const categories = [...new Set(raw.map(d => d.x))];
+    const groups     = isGrouped ? [...new Set(raw.map(d => d.group))] : [null];
 
-    // For grouped bars, collect all categories and groups
-    let categories, groups, colorScale;
-
-    const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
-    const catColors  = config.category_colors || {};
-
+    const palette   = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
+    const catColors = config.category_colors || {};
     function resolveColor(key, fallback) {
       if (catColors[key]) return catColors[key];
       const kl = (key || "").toLowerCase();
@@ -244,30 +231,26 @@
       }
       return fallback;
     }
+    const _groupCS = d3.scaleOrdinal(palette).domain(groups);
+    const boxColor = d => isGrouped
+      ? resolveColor(d.group, _groupCS(d.group))
+      : resolveColor(d.x, config.color);
 
-    const _baseCS    = isGrouped
-      ? d3.scaleOrdinal(palette).domain(raw.map(g => g.group))
-      : () => config.color;
-    colorScale = key => resolveColor(key, _baseCS(key));
+    // ── y domain covers whiskers, quartiles, and outliers ─────────────────────
+    const allVals = [];
+    raw.forEach(d => {
+      allVals.push(d.whisker_low, d.whisker_high, d.q1, d.q3, d.median);
+      (d.outliers || []).forEach(o => allVals.push(o));
+    });
+    let yMin = d3.min(allVals);
+    let yMax = d3.max(allVals);
+    const yPad = (yMax - yMin) * 0.08 || 1;
+    yMin -= yPad; yMax += yPad;
 
-    if (isGrouped) {
-      categories = raw[0].values.map(d => d.x);
-      groups     = raw.map(g => g.group);
-    } else {
-      // Data is already aggregated by the backend
-      categories = raw.map(d => d.x);
-      groups = [null];
-    }
-
-    // Compute allY first so we can size the left margin from the widest tick label
-    const allY = isGrouped
-      ? raw.flatMap(g => g.values.map(v => v.y).filter(y => y !== null))
-      : raw.map(d => d.y).filter(y => y !== null);
-    const maxY = (d3.max(allY) || 0) * 1.2;
-    const widestTick = d3.format(config.y_format)(maxY);
+    const widestTick = d3.format(config.y_format)(yMax);
     const leftMargin = Math.max(64, Math.min(widestTick.length * 7.5 + 40, 160));
 
-    // Dimensions
+    // ── Dimensions ────────────────────────────────────────────────────────────
     const legendWidth = isGrouped ? 130 : 0;
     const manyCategories = categories.length > 20;
     const someCategories = categories.length > 6;
@@ -289,33 +272,22 @@
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Scales
-    let barPadding = 0.2;
-
-    const xOuter = d3.scaleBand()
-      .domain(categories)
-      .range([0, width])
-      .padding(barPadding);
-
+    // ── Scales ────────────────────────────────────────────────────────────────
+    const xOuter = d3.scaleBand().domain(categories).range([0, width]).padding(0.3);
     const xInner = isGrouped
-      ? d3.scaleBand().domain(groups).range([0, xOuter.bandwidth()]).padding(0.05)
+      ? d3.scaleBand().domain(groups).range([0, xOuter.bandwidth()]).padding(0.15)
       : null;
-
-    const yScale = d3.scaleLinear()
-      .domain([0, maxY])
-      .nice()
-      .range([height, 0]);
+    const yScale = d3.scaleLinear().domain([yMin, yMax]).nice().range([height, 0]);
 
     // Grid
     g.append("g").attr("class", "grid")
       .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
       .selectAll("line").attr("stroke", "#1e2235");
 
-    // X axis — rotate labels if many categories
+    // X axis
     const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(xOuter));
-
     xAxisG.selectAll("text")
       .attr("fill", "#64748b")
       .attr("font-size", manyCategories ? "10px" : "12px")
@@ -331,7 +303,7 @@
     yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "12px");
     yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 
-    // Labels — always created so edit panel can update them
+    // ── Labels ────────────────────────────────────────────────────────────────
     const titleEl = svg.append("text")
       .attr("x", (totalWidth - legendWidth) / 2).attr("y", 18)
       .attr("text-anchor", "middle")
@@ -339,13 +311,11 @@
       .text(config.title || "");
 
     const _prettify = s => s.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, c => c.toUpperCase());
-    const _xLabel = config.x_label || (config.x_column ? _prettify(config.x_column) : isTemporal ? "Date" : "");
+    const _xLabel = config.x_label || (config.x_column ? _prettify(config.x_column) : "");
     const xLabelEl = svg.append("text")
       .attr("x", margin.left + width / 2).attr("y", totalHeight - 12)
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(_xLabel);
-    // Position the x-axis label just below the tick labels (dynamic — accounts
-    // for rotated labels), instead of pinning it to the bottom of the SVG.
     (function(){
       try {
         const _axb = xAxisG.node().getBBox();
@@ -359,75 +329,115 @@
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(config.y_label || "");
 
-    // Draw bars
+    // ── Tooltip ───────────────────────────────────────────────────────────────
     const tooltip = document.getElementById("tooltip");
-    const formatY = d3.format(",.2f");
-
-    function showTooltip(event, label, rows) {
-      let html = `<div class="tip-date">${label}</div>`;
-      rows.forEach(({ name, value, color }) => {
-        html += `<div class="tip-row">
-          <span class="tip-swatch" style="background:${color}"></span>
-          <span class="tip-label">${name}</span>
-          <span class="tip-val">${value !== null ? formatY(value) : "—"}</span>
-        </div>`;
+    const fmt = d3.format(",.2f");
+    function showTooltip(event, d) {
+      const title = isGrouped ? `${d.x} · ${d.group}` : d.x;
+      let html = `<div class="tip-date">${title}</div>`;
+      const rows = [
+        ["Max (whisker)", d.whisker_high],
+        ["Q3", d.q3],
+        ["Median", d.median],
+        ["Mean", d.mean],
+        ["Q1", d.q1],
+        ["Min (whisker)", d.whisker_low],
+        ["Outliers", (d.outliers || []).length],
+        ["n", d.count],
+      ];
+      rows.forEach(([name, value]) => {
+        const shown = (name === "Outliers" || name === "n") ? value : fmt(value);
+        html += `<div class="tip-row"><span class="tip-label">${name}</span><span class="tip-val">${shown}</span></div>`;
       });
       tooltip.innerHTML = html;
       tooltip.style.opacity = 1;
-
       const rect = chartEl.getBoundingClientRect();
-      const tx = event.clientX - rect.left + 12;
-      const ty = event.clientY - rect.top  - 20;
+      const tw = tooltip.offsetWidth || 170;
+      let tx = event.clientX - rect.left + 12;
+      if (tx + tw > chartEl.offsetWidth) tx = event.clientX - rect.left - tw - 12;
       tooltip.style.left = `${tx}px`;
-      tooltip.style.top  = `${ty}px`;
+      tooltip.style.top  = `${event.clientY - rect.top - 20}px`;
     }
-
     function hideTooltip() { tooltip.style.opacity = 0; }
 
-    if (isGrouped) {
-      raw.forEach(grp => {
-        const color = colorScale(grp.group);
-        g.selectAll(`.bar-${CSS.escape(grp.group)}`)
-          .data(grp.values)
-          .join("rect")
-          .attr("class", "bar")
-          .attr("data-group", grp.group)
-          .attr("x",      d => xOuter(d.x) + xInner(grp.group) + _barDx(xInner.bandwidth(), xInner.step()))
-          .attr("y",      d => d.y !== null ? yScale(d.y) : height)
-          .attr("width",  _barW(xInner.bandwidth(), xInner.step()))
-          .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
-          .attr("fill",   color)
-          .attr("rx", 2)
-          .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: grp.group, value: d.y, color }]))
-          .on("mouseleave", hideTooltip)
-          .on("click", function(event) {
-            if (!editMode) return;
-            event.stopPropagation();
-            openColorPicker(d3.select(this).attr("fill"), grp.group, event);
-          });
-      });
-    } else {
-      g.selectAll(".bar")
-        .data(raw)
-        .join("rect")
-        .attr("class", "bar")
-        .attr("data-x", d => d.x)
-        .attr("x",      d => xOuter(d.x) + _barDx(xOuter.bandwidth(), xOuter.step()))
-        .attr("y",      d => d.y !== null ? yScale(d.y) : height)
-        .attr("width",  _barW(xOuter.bandwidth(), xOuter.step()))
-        .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
-        .attr("fill",   d => resolveColor(d.x, config.color))
-        .attr("rx", 2)
-        .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: resolveColor(d.x, config.color) }]))
-        .on("mouseleave", hideTooltip)
-        .on("click", function(event, d) {
-          if (!editMode) return;
-          event.stopPropagation();
-          openColorPicker(d3.select(this).attr("fill"), "__x__" + d.x, event);
-        });
+    // ── Draw boxes ────────────────────────────────────────────────────────────
+    function centerX(d) {
+      return isGrouped
+        ? xOuter(d.x) + xInner(d.group) + xInner.bandwidth() / 2
+        : xOuter(d.x) + xOuter.bandwidth() / 2;
+    }
+    function boxWidth() {
+      return isGrouped
+        ? _boxW(xInner.bandwidth(), xInner.step())
+        : _boxW(xOuter.bandwidth(), xOuter.step());
     }
 
-    // Legend (grouped only)
+    raw.forEach(d => {
+      const cx = centerX(d);
+      const bw = boxWidth();
+      const color = boxColor(d);
+      const sel = isGrouped ? { attr: "data-group", val: d.group } : { attr: "data-x", val: d.x };
+      const box = g.append("g");
+
+      // Whisker lines (vertical) + caps (horizontal)
+      box.append("line").attr("class", "box-whisker")
+        .attr("x1", cx).attr("x2", cx)
+        .attr("y1", yScale(d.q3)).attr("y2", yScale(d.whisker_high));
+      box.append("line").attr("class", "box-whisker")
+        .attr("x1", cx).attr("x2", cx)
+        .attr("y1", yScale(d.q1)).attr("y2", yScale(d.whisker_low));
+      box.append("line").attr("class", "box-cap")
+        .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
+        .attr("y1", yScale(d.whisker_high)).attr("y2", yScale(d.whisker_high));
+      box.append("line").attr("class", "box-cap")
+        .attr("x1", cx - bw / 4).attr("x2", cx + bw / 4)
+        .attr("y1", yScale(d.whisker_low)).attr("y2", yScale(d.whisker_low));
+
+      // Box (Q1–Q3)
+      box.append("rect")
+        .attr("class", "box")
+        .attr(sel.attr, sel.val)
+        .attr("x", cx - bw / 2)
+        .attr("y", yScale(d.q3))
+        .attr("width", bw)
+        .attr("height", Math.max(0, yScale(d.q1) - yScale(d.q3)))
+        .attr("rx", 2)
+        .attr("fill", color)
+        .attr("fill-opacity", 0.5)
+        .attr("stroke", color)
+        .attr("stroke-width", 1.5)
+        .on("mousemove", event => showTooltip(event, d))
+        .on("mouseleave", hideTooltip)
+        .on("click", function(event) {
+          if (!editMode) return;
+          event.stopPropagation();
+          openColorPicker(d3.select(this).attr("stroke"),
+            isGrouped ? d.group : "__x__" + d.x, event);
+        });
+
+      // Median line
+      box.append("line").attr("class", "box-median")
+        .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
+        .attr("y1", yScale(d.median)).attr("y2", yScale(d.median))
+        .attr("stroke", "#e2e8f0");
+
+      // Mean (dashed)
+      box.append("line").attr("class", "box-mean")
+        .attr("x1", cx - bw / 2).attr("x2", cx + bw / 2)
+        .attr("y1", yScale(d.mean)).attr("y2", yScale(d.mean));
+
+      // Outliers
+      (d.outliers || []).forEach(o => {
+        box.append("circle")
+          .attr("class", "box-outlier")
+          .attr(sel.attr, sel.val)
+          .attr("cx", cx).attr("cy", yScale(o))
+          .attr("r", 3 * markScale)
+          .attr("fill", color).attr("fill-opacity", 0.85);
+      });
+    });
+
+    // ── Legend (grouped only) ───────────────────────────────────────────────────
     if (isGrouped) {
       const lx = margin.left + width + 20;
       const ly = margin.top;
@@ -436,7 +446,7 @@
           .attr("class", "legend-swatch").attr("data-group", grp)
           .attr("x", lx).attr("y", ly + i * 22)
           .attr("width", 10).attr("height", 10).attr("rx", 2)
-          .attr("fill", colorScale(grp));
+          .attr("fill", _groupCS(grp));
         svg.append("text")
           .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
@@ -445,86 +455,70 @@
       });
     }
 
-    // --- SVG export ---
+    // ── SVG export ──────────────────────────────────────────────────────────────
     const SVG_PROPS = [
       "fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap",
       "stroke-opacity", "fill-opacity", "opacity", "font-size", "font-family",
       "font-weight", "text-anchor", "dominant-baseline",
     ];
-
     function toHex(color) {
       if (!color || color === "none" || color.startsWith("#") || color.startsWith("url(")) return color;
       const m = color.match(/\d+/g);
       if (!m || m.length < 3) return color;
       return "#" + m.slice(0, 3).map(v => parseInt(v).toString(16).padStart(2, "0")).join("");
     }
-
     function buildExportSVG() {
       const svgEl = document.querySelector("svg");
       const clone = svgEl.cloneNode(true);
       clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
       clone.setAttribute("width", totalWidth);
       clone.setAttribute("height", totalHeight);
-
       const srcEls = [...svgEl.querySelectorAll("*")];
       const dstEls = [...clone.querySelectorAll("*")];
-
       srcEls.forEach((el, i) => {
-        const dst     = dstEls[i];
+        const dst = dstEls[i];
         const computed = window.getComputedStyle(el);
         SVG_PROPS.forEach(prop => {
-          const raw = el.getAttribute(prop) || computed.getPropertyValue(prop);
-          const val = toHex(raw);
+          const rawv = el.getAttribute(prop) || computed.getPropertyValue(prop);
+          const val = toHex(rawv);
           if (val) dst.setAttribute(prop, val);
         });
         const fill = dst.getAttribute("fill") || "";
         if (fill.startsWith("url(")) dst.setAttribute("fill", "none");
       });
-
       const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       bg.setAttribute("width", "100%");
       bg.setAttribute("height", "100%");
       bg.setAttribute("fill", svgBg);
       clone.insertBefore(bg, clone.firstChild);
-
       return new XMLSerializer().serializeToString(clone);
     }
-
     async function copySVG() {
       const svgStr = buildExportSVG();
       const btn = document.getElementById("btn-copy");
       let ok = false;
-
-      // Clipboard API silently fails on file:// (not a secure context) — skip it
       if (location.protocol !== "file:") {
         try {
           const blob = new Blob([svgStr], { type: "image/svg+xml" });
           await navigator.clipboard.write([new ClipboardItem({ "image/svg+xml": blob })]);
           ok = true;
         } catch {}
-
-        if (!ok) {
-          try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {}
-        }
+        if (!ok) { try { await navigator.clipboard.writeText(svgStr); ok = true; } catch {} }
       }
-
       if (!ok) {
         try {
           const ta = Object.assign(document.createElement("textarea"), { value: svgStr });
           ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
           document.body.appendChild(ta);
-          ta.focus();
-          ta.select();
+          ta.focus(); ta.select();
           ok = document.execCommand("copy");
           document.body.removeChild(ta);
         } catch {}
       }
-
       btn.textContent = ok ? "Copied!" : "Failed";
       if (ok) btn.classList.add("success");
       setTimeout(() => { btn.textContent = "Copy SVG"; btn.classList.remove("success"); }, 1500);
     }
-
     function downloadSVG() {
       const svgStr = buildExportSVG();
       const blob = new Blob([svgStr], { type: "image/svg+xml" });
@@ -533,11 +527,10 @@
       a.href = url; a.download = "chart.svg"; a.click();
       URL.revokeObjectURL(url);
     }
-
     document.getElementById("btn-copy").addEventListener("click", copySVG);
     document.getElementById("btn-download").addEventListener("click", downloadSVG);
 
-    // --- Edit panel ---
+    // ── Edit panel ────────────────────────────────────────────────────────────
     const editPanel = document.getElementById("edit-panel");
     const btnEdit   = document.getElementById("btn-edit");
     btnEdit.addEventListener("click", () => {
@@ -545,24 +538,23 @@
       editPanel.classList.toggle("open", editMode);
       btnEdit.classList.toggle("active", editMode);
       btnEdit.textContent = editMode ? "Save" : "Edit";
-      g.selectAll(".bar").style("cursor", editMode ? "pointer" : "default");
-      if (!editMode) clearHighlight();
+      g.selectAll(".box").style("cursor", editMode ? "pointer" : "default");
     });
 
-    // SVG background picker + auto-contrast
     function isLightBg(hex) {
       const r = parseInt(hex.slice(1,3), 16);
       const g = parseInt(hex.slice(3,5), 16);
       const b = parseInt(hex.slice(5,7), 16);
       return (0.299*r + 0.587*g + 0.114*b) / 255 > 0.5;
     }
-
     function applyTheme(light) {
       const titleColor  = light ? "#1e293b" : "#e2e8f0";
       const labelColor  = light ? "#475569" : "#64748b";
       const axisColor   = light ? "#cbd5e1" : "#2d3148";
       const gridColor   = light ? "#d1d5db" : "#1e2235";
       const legendColor = light ? "#334155" : "#94a3b8";
+      const medianColor = light ? "#1e293b" : "#e2e8f0";
+      const whiskColor  = light ? "#475569" : "#94a3b8";
       titleEl.attr("fill", titleColor);
       xLabelEl.attr("fill", labelColor);
       yLabelEl.attr("fill", labelColor);
@@ -571,6 +563,8 @@
       xAxisG.selectAll("path, line").attr("stroke", axisColor);
       yAxisG.selectAll("path, line").attr("stroke", axisColor);
       g.selectAll(".grid line").attr("stroke", gridColor);
+      g.selectAll(".box-median").attr("stroke", medianColor);
+      g.selectAll(".box-whisker, .box-cap").attr("stroke", whiskColor);
       svg.selectAll(".legend-text").attr("fill", legendColor);
     }
 
@@ -582,7 +576,6 @@
       applyTheme(isLightBg(svgBg));
     });
 
-    // Chart size
     const STEP = 150, MIN_SIZE = 400 + 64;
     function resize(delta) {
       chartEl.style.width = Math.max(MIN_SIZE, chartEl.offsetWidth + delta) + "px";
@@ -590,36 +583,6 @@
     document.getElementById("ep-smaller").addEventListener("click", () => resize(-STEP));
     document.getElementById("ep-larger").addEventListener("click",  () => resize(+STEP));
 
-    // Bar width
-    const PAD_STEP = 0.08, PAD_MIN = 0.02, PAD_MAX = 0.85;
-    function adjustPadding(delta) {
-      barPadding = Math.min(PAD_MAX, Math.max(PAD_MIN, barPadding + delta));
-      xOuter.padding(barPadding);
-      if (xInner) xInner.range([0, xOuter.bandwidth()]);
-      if (isGrouped) {
-        raw.forEach(grp => {
-          g.selectAll(`rect[data-group="${grp.group}"]`)
-            .attr("x",     d => xOuter(d.x) + xInner(grp.group) + _barDx(xInner.bandwidth(), xInner.step()))
-            .attr("width", _barW(xInner.bandwidth(), xInner.step()));
-        });
-      } else {
-        g.selectAll(".bar")
-          .attr("x", d => xOuter(d.x) + _barDx(xOuter.bandwidth(), xOuter.step()))
-          .attr("width", _barW(xOuter.bandwidth(), xOuter.step()));
-      }
-      xAxisG.call(d3.axisBottom(xOuter));
-      xAxisG.selectAll("text")
-        .attr("fill", "#64748b").attr("font-size", manyCategories ? "10px" : "12px")
-        .attr("text-anchor", someCategories ? "end" : "middle")
-        .attr("transform", manyCategories ? "rotate(-90)" : someCategories ? "rotate(-45)" : null)
-        .attr("dy", manyCategories ? "-0.4em" : someCategories ? "0.2em" : "1.2em")
-        .attr("dx", someCategories ? "-0.5em" : null);
-      xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
-    }
-    document.getElementById("ep-thinner")?.addEventListener("click", () => adjustPadding(+PAD_STEP));
-    document.getElementById("ep-wider")?.addEventListener("click",   () => adjustPadding(-PAD_STEP));
-
-    // Title / axis labels
     const editTitleEl  = document.getElementById("edit-title");
     const editXLabelEl = document.getElementById("edit-xlabel");
     const editYLabelEl = document.getElementById("edit-ylabel");
@@ -629,6 +592,7 @@
     editTitleEl.addEventListener("input",  e => titleEl.text(e.target.value));
     editXLabelEl.addEventListener("input", e => xLabelEl.text(e.target.value));
     editYLabelEl.addEventListener("input", e => yLabelEl.text(e.target.value));
+
     requestAnimationFrame(() => {
       window.parent.postMessage({ type: "weave-height", height: document.body.scrollHeight }, "*");
     });

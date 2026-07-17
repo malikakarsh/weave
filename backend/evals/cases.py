@@ -712,6 +712,27 @@ CASES = [
         "expect_data": {},
     },
     {
+        # Mark-size refinement: "thinner bars" should reduce mark_scale below 1.0.
+        # The exact multiplier is the LLM's call, so we assert a range, not a value.
+        "name": "refine: thinner bars (mark size)",
+        "csv": "samples/sample.csv",
+        "prompt": "total revenue per company",
+        "refine_from": {
+            "chart_type": "bar",
+            "x_column": "company",
+            "y_column": "revenue",
+            "aggregation": "sum",
+        },
+        "refine_instruction": "make the bars thinner",
+        "expect_mapping": {
+            "chart_type": "bar",
+        },
+        "expect_mapping_custom": {
+            "mark_scale_lt": 1.0,
+        },
+        "expect_data": {},
+    },
+    {
         "name": "refine: per-category color",
         "csv": "samples/sample.csv",
         "prompt": "total revenue per company",

@@ -106,6 +106,14 @@ def _check_mapping_custom(mapping, expect_custom: dict) -> list[str]:
         cc = mapping.category_colors or {}
         if key not in cc:
             failures.append(f"  mapping.category_colors: key {key!r} not found (got {cc})")
+    if "mark_scale_lt" in expect_custom:
+        ms = mapping.mark_scale
+        if ms is None or ms >= expect_custom["mark_scale_lt"]:
+            failures.append(f"  mapping.mark_scale: expected < {expect_custom['mark_scale_lt']}, got {ms}")
+    if "mark_scale_gt" in expect_custom:
+        ms = mapping.mark_scale
+        if ms is None or ms <= expect_custom["mark_scale_gt"]:
+            failures.append(f"  mapping.mark_scale: expected > {expect_custom['mark_scale_gt']}, got {ms}")
     return failures
 
 

@@ -368,7 +368,7 @@ backend/
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
 ├── evals/
-│   ├── cases.py                   # 45 test cases covering all chart types, refine, and fallbacks
+│   ├── cases.py                   # 46 test cases covering all chart types, refine, and fallbacks
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 ├── tests/
 │   ├── conftest.py                # shared fixtures (tmp_csv, flat_mapping)
@@ -400,7 +400,7 @@ python -m evals.runner --fast       # skip LLM calls; only validate transformer 
 
 **Execution modes** — by default the runner calls the model once per case sequentially and reports per-case and aggregate latency (useful for benchmarking). Pass `--batch` to build one request per case and submit them all at once: on Anthropic this uses the [Message Batches API](https://docs.anthropic.com/en/docs/build-with-claude/batch-processing) (one async job, ~50% cheaper but higher wall-clock latency); other providers fan the requests out concurrently. Only the eval runner batches — the app pipeline always uses single requests. `LLMMapper` exposes `build_map_request`/`parse_map_response` (and the refine equivalents) so the runner can build every prompt up front, submit the batch, then parse each response.
 
-Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 45 cases covering:
+Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` the LLM returns and the transformer output shape/values. 46 cases covering:
 
 | Category | What's tested |
 |---|---|
@@ -415,6 +415,7 @@ Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` th
 | Box plot fallback | box plot / violin / histogram → bar + mean |
 | Refine: sort | "sort descending" / "sort ascending" changes only sort_order |
 | Refine: color | overall color change and per-category color override |
+| Refine: mark size | 'thinner bars' sets mark_scale below 1.0 |
 | Refine: background | chart background change via natural language ("change the background to white") |
 | Refine: chart type | switching chart type mid-conversation |
 | Refine: top N | reducing to top N via refine instruction |

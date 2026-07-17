@@ -380,7 +380,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
     body.append("instruction", instruction);
 
     try {
-      const res = await fetch(`${API}/refine/stream`, { method: "POST", body });
+      const res = await fetch(`${API}/refine/stream`, { method: "POST", body, credentials: "include" });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail ?? "Unknown error");
@@ -464,7 +464,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
       const body = new FormData();
       body.append("file", file);
       body.append("mapping", JSON.stringify(mapping));
-      const res = await fetch(`${API}/render`, { method: "POST", body });
+      const res = await fetch(`${API}/render`, { method: "POST", body, credentials: "include" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? "Render failed");
       onUpdate(session.id, {
@@ -490,7 +490,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
     body.append("mapping", JSON.stringify(session.mapping));
     body.append("prompt", session.history.find(m => m.role === "user")?.content ?? "");
     try {
-      const res = await fetch(`${API}/insights`, { method: "POST", body });
+      const res = await fetch(`${API}/insights`, { method: "POST", body, credentials: "include" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? "Insights failed");
       setInsights(data.insights);
@@ -899,7 +899,7 @@ export default function Home() {
     body.append("file", file);
     body.append("prompt", prompt);
     try {
-      const res = await fetch(`${API}/chart/stream`, { method: "POST", body });
+      const res = await fetch(`${API}/chart/stream`, { method: "POST", body, credentials: "include" });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.detail ?? "Unknown error");
@@ -947,7 +947,7 @@ export default function Home() {
     body.append("prompt", p);
 
     try {
-      const res = await fetch(`${API}/dashboard`, { method: "POST", body });
+      const res = await fetch(`${API}/dashboard`, { method: "POST", body, credentials: "include" });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.detail ?? "Unknown error");
@@ -1066,7 +1066,7 @@ export default function Home() {
     const offset = sessions.length;
 
     try {
-      const res = await fetch(`${API}/dashboard`, { method: "POST", body });
+      const res = await fetch(`${API}/dashboard`, { method: "POST", body, credentials: "include" });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.detail ?? "Unknown error");

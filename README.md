@@ -31,7 +31,7 @@ npm run dev
 
 Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Generate.
 
-Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY`) and `DATABASE_URL` (the default matches the docker-compose Postgres). Google sign-in is optional: to enable it, create an OAuth 2.0 Web client in Google Cloud Console with redirect URI `http://localhost:8000/auth/google/callback`, then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, and `SESSION_SECRET` in the same file.
+Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_API_KEY` / `GEMINI_API_KEY`) and `DATABASE_URL` (the default matches the docker-compose Postgres). Google sign-in gates chart generation (each generation/refine is metered per LLM call against a per-user daily limit): create an OAuth 2.0 Web client in Google Cloud Console with redirect URI `http://localhost:8000/auth/google/callback`, then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, and `SESSION_SECRET`. Put your own email in `ADMIN_EMAILS` for unlimited admin access; `DAILY_REQUEST_LIMIT` (default 20) sets the cap for everyone else.
 
 ### Web UI features
 - **Chart generation** — same pipeline as the CLI, rendered live in the browser
@@ -363,9 +363,11 @@ backend/
 ├── .env.example                   # Template for LLM keys + Google OAuth / JWT config
 ├── api/
 │   ├── main.py                    # FastAPI app: chart/dashboard/refine SSE endpoints, CORS, session
-│   ├── auth.py                    # Google OAuth (Authlib) + httpOnly-cookie JWT session; user upsert
+│   ├── auth.py                    # Google OAuth (Authlib) + httpOnly-cookie JWT session; roles; user upsert
+│   ├── usage.py                   # Per-user daily rate limiting (metered per LLM call; admins exempt)
+│   ├── threads.py                 # User-scoped thread CRUD + chart persistence
 │   ├── db.py                      # Async SQLAlchemy engine, session factory, get_db dependency
-│   └── db_models.py               # ORM models: User, Dataset, Chart
+│   └── db_models.py               # ORM models: User, Thread, Chart, DailyUsage
 ├── alembic/                       # DB migrations (async env; versions/ holds each revision)
 ├── alembic.ini                    # Alembic config (DB URL injected from DATABASE_URL)
 ├── models/
@@ -535,9 +537,11 @@ Architecture:
 - ~~**⌥/Alt+Shift+V** keyboard shortcut toggles recording for the field in context (prompt on the landing page, the current chart's refine bar on the dashboard); **Enter** submits the transcript~~
 
 **Session persistence**
-- ~~Database foundation — Postgres (local: docker-compose, bind-mounted to `./.pgdata`), async SQLAlchemy 2.0 + asyncpg, Alembic migrations; `User` / `Dataset` / `Chart` models (`api/db_models.py`); the user is upserted from their Google profile on every login~~
-- Save CSVs, mappings, generated HTML, and conversation history across page reloads (endpoints gated by `current_user_required`, scoped to the signed-in user)
-- Session history sidebar — past sessions clickable to restore full state
+- ~~Database foundation — Postgres (local: docker-compose, bind-mounted to `./.pgdata`), async SQLAlchemy 2.0 + asyncpg, Alembic migrations; `User` / `Thread` / `Chart` / `DailyUsage` models (`api/db_models.py`); the user is upserted from their Google profile on every login~~
+- ~~Roles + rate limiting — `User.role` (admin via `ADMIN_EMAILS`); per-user daily limit (`DAILY_REQUEST_LIMIT`, default 20) **metered per LLM call** in a `daily_usage` table (`api/usage.py`), admins exempt. Every LLM endpoint requires login and charges quota; a multi-chart dashboard is capped to the remaining quota and returns `429` when exhausted~~
+- ~~Thread persistence (backend) — a **thread** is one CSV-upload workspace (title + CSV + its charts, each keeping its refine history). User-scoped CRUD in `api/threads.py` (`POST/GET/GET{id}/PUT charts/PATCH/DELETE /threads`); ownership enforced (404 on someone else's thread)~~
+- Frontend — thread sidebar (list past threads, new thread on CSV upload, click to restore), usage indicator, and login-gated generation
+- Save CSVs, mappings, generated HTML, and conversation history across page reloads (done server-side; frontend wiring pending)
 
 **Data storytelling**
 - Intelligent peer selection — when a user focuses on one entity, the LLM picks structurally similar peers based on scale, sector, and growth trajectory

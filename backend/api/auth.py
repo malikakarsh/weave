@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 
+from api import usage
 from api.db import SessionLocal
 from api.db_models import User
 
@@ -25,6 +26,10 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-insecure-change-me")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+# Emails that get the admin role (unlimited, full access), comma-separated.
+ADMIN_EMAILS = {
+    e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()
+}
 
 JWT_ALG = "HS256"
 JWT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
@@ -50,10 +55,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def _mint_token(user: dict) -> str:
     now = int(time.time())
     payload = {
-        "sub": user["sub"],
+        "sub": user["sub"],          # Google's stable subject id
+        "uid": user["uid"],          # our User row UUID — DB key for usage/threads
         "email": user.get("email"),
         "name": user.get("name"),
         "picture": user.get("picture"),
+        "role": user.get("role", "user"),
         "iat": now,
         "exp": now + JWT_TTL_SECONDS,
     }
@@ -67,8 +74,10 @@ def _decode_token(token: str) -> dict | None:
         return None
 
 
-async def _upsert_user(info: dict) -> None:
-    """Create or update the user's row from their Google profile on each login."""
+async def _upsert_user(info: dict) -> tuple[str, str]:
+    """Create or update the user's row from their Google profile on each login.
+    Returns (role, user_row_uuid). Admin if the email is in ADMIN_EMAILS."""
+    role = "admin" if (info.get("email") or "").lower() in ADMIN_EMAILS else "user"
     async with SessionLocal() as db:
         user = (
             await db.execute(select(User).where(User.google_sub == info["sub"]))
@@ -79,7 +88,10 @@ async def _upsert_user(info: dict) -> None:
         user.email = info.get("email")
         user.name = info.get("name")
         user.picture = info.get("picture")
+        user.role = role
         await db.commit()
+        await db.refresh(user)
+        return role, str(user.id)
 
 
 def _set_session_cookie(response, token: str) -> None:
@@ -100,7 +112,12 @@ def current_user_optional(request: Request) -> dict | None:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
-    return _decode_token(token)
+    claims = _decode_token(token)
+    # Tokens minted before the 'uid' claim existed can't key DB rows — treat
+    # them as logged-out so the user re-authenticates and gets a fresh token.
+    if claims is not None and "uid" not in claims:
+        return None
+    return claims
 
 
 def current_user_required(request: Request) -> dict:
@@ -133,13 +150,15 @@ async def google_callback(request: Request):
     if not info.get("sub"):
         return RedirectResponse(f"{FRONTEND_URL}?auth_error=1")
 
-    await _upsert_user(info)
+    role, uid = await _upsert_user(info)
 
     session_jwt = _mint_token({
         "sub": info["sub"],
+        "uid": uid,
         "email": info.get("email"),
         "name": info.get("name"),
         "picture": info.get("picture"),
+        "role": role,
     })
     response = RedirectResponse(FRONTEND_URL)
     _set_session_cookie(response, session_jwt)
@@ -148,14 +167,22 @@ async def google_callback(request: Request):
 
 @router.get("/me")
 async def me(user: dict | None = Depends(current_user_optional)):
-    """Return the current user's profile, or 401 if not signed in."""
+    """Return the current user's profile + role and today's usage, or 401."""
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    role = user.get("role", "user")
+    admin = role == "admin"
     return {
         "sub": user["sub"],
         "email": user.get("email"),
         "name": user.get("name"),
         "picture": user.get("picture"),
+        "role": role,
+        "usage": {
+            "used": await usage.get_used(user["uid"]),
+            "limit": None if admin else usage.daily_limit(),
+            "remaining": await usage.remaining(user),
+        },
         "expires_at": datetime.fromtimestamp(user["exp"], tz=timezone.utc).isoformat(),
     }
 

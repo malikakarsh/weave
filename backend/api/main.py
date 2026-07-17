@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -22,7 +22,9 @@ from pipeline.decomposer import Decomposer
 from pipeline.pipeline import Pipeline
 from pipeline.providers import get_provider
 from pipeline.category_resolver import ClarificationNeeded
-from api.auth import router as auth_router
+from api.auth import router as auth_router, current_user_required
+from api.threads import router as threads_router
+from api import usage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -49,6 +51,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(threads_router)
 
 
 _SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "samples")
@@ -279,6 +282,7 @@ async def generate_chart(
     color: str = Form(default="#6366f1"),
     y_format: str = Form(default=",.0f"),
     sort: str | None = Form(default=None),
+    user: dict = Depends(current_user_required),
 ):
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv")
@@ -289,6 +293,9 @@ async def generate_chart(
         validate_csv(csv_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    await usage.ensure_quota(user)
+    await usage.add_usage(user["uid"], 1)
 
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
@@ -339,6 +346,7 @@ async def generate_chart_stream(
     color: str = Form(default="#6366f1"),
     y_format: str = Form(default=",.0f"),
     sort: str | None = Form(default=None),
+    user: dict = Depends(current_user_required),
 ):
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv")
@@ -348,6 +356,9 @@ async def generate_chart_stream(
         validate_csv(csv_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    await usage.ensure_quota(user)
+    await usage.add_usage(user["uid"], 1)
 
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
@@ -407,12 +418,16 @@ async def refine_chart_stream(
     instruction: str = Form(...),
     provider: str | None = Form(default=None),
     model: str | None = Form(default=None),
+    user: dict = Depends(current_user_required),
 ):
     csv_bytes = await file.read()
     try:
         validate_csv(csv_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    await usage.ensure_quota(user)          # one refine = one LLM call
+    await usage.add_usage(user["uid"], 1)
 
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
@@ -492,6 +507,7 @@ async def refine_chart(
     instruction: str = Form(..., description="User's refinement instruction"),
     provider: str | None = Form(default=None),
     model: str | None = Form(default=None),
+    user: dict = Depends(current_user_required),
 ):
     csv_bytes = await file.read()
 
@@ -499,6 +515,9 @@ async def refine_chart(
         validate_csv(csv_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    await usage.ensure_quota(user)
+    await usage.add_usage(user["uid"], 1)
 
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
@@ -578,6 +597,7 @@ async def generate_insights(
     prompt: str = Form(default=""),
     provider: str | None = Form(default=None),
     model: str | None = Form(default=None),
+    user: dict = Depends(current_user_required),
 ):
     csv_bytes = await file.read()
 
@@ -585,6 +605,9 @@ async def generate_insights(
         validate_csv(csv_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    await usage.ensure_quota(user)
+    await usage.add_usage(user["uid"], 1)
 
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
@@ -636,6 +659,7 @@ async def generate_dashboard(
     prompt: str = Form(..., description="Plain-English description — single chart or multi-chart intent"),
     provider: str | None = Form(default=None),
     model: str | None = Form(default=None),
+    user: dict = Depends(current_user_required),
 ):
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv")
@@ -647,6 +671,10 @@ async def generate_dashboard(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Quota is metered per LLM call: block up front if the user is out, then
+    # charge the decompose call and cap the number of charts to what's left.
+    await usage.ensure_quota(user)
+
     with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
         tmp.write(csv_bytes)
         tmp_path = tmp.name
@@ -655,17 +683,30 @@ async def generate_dashboard(
         llm_provider = get_provider(provider, model)
         schema, _ = DataLoader().load(tmp_path)
         sub_prompts = Decomposer(llm_provider).decompose(prompt, schema)
+        await usage.add_usage(user["uid"], 1)  # decompose LLM call
         pipeline = Pipeline(llm_provider)
         config = ChartConfig()
+    except HTTPException:
+        os.unlink(tmp_path)
+        raise
     except Exception as e:
         os.unlink(tmp_path)
         logger.exception("Dashboard setup error")
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Cap charts to remaining quota (admins: unlimited). Each chart = 1 LLM call.
+    rem = await usage.remaining(user)
+    skipped = 0
+    if rem is not None and len(sub_prompts) > rem:
+        skipped = len(sub_prompts) - rem
+        sub_prompts = sub_prompts[:rem]
+
     async def stream():
         loop = asyncio.get_event_loop()
 
         async def run_one(index: int, sub_prompt: str, progress_queue: asyncio.Queue) -> dict:
+            await usage.add_usage(user["uid"], 1)  # this chart's mapping LLM call
+
             def on_progress(stage: str) -> None:
                 loop.call_soon_threadsafe(
                     progress_queue.put_nowait, {"index": index, "stage": stage}
@@ -690,7 +731,11 @@ async def generate_dashboard(
             # tell the client how many charts to expect and their sub-prompts up front
             yield {
                 "event": "start",
-                "data": json.dumps({"count": len(sub_prompts), "sub_prompts": sub_prompts}),
+                "data": json.dumps({
+                    "count": len(sub_prompts),
+                    "sub_prompts": sub_prompts,
+                    "skipped": skipped,  # charts dropped because the daily limit was hit
+                }),
             }
 
             progress_queue: asyncio.Queue[dict] = asyncio.Queue()

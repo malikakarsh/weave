@@ -41,9 +41,10 @@ Open `http://localhost:3000` — drop a CSV, describe your chart, and hit Genera
 - **Per-chart sessions** — every chart has its own isolated conversation history, mapping, and refine bar; changes in one chart never affect another
 - **Add chart** — append new charts to a live dashboard at any time without clearing existing ones
 - **Color refinement** — change any chart's overall color or a specific category's color via plain English ("change color to red", "make Not Applicable yellow")
-- **Background refinement** — set a chart's background via plain English ("change the background to white", "make it navy"); axis/label/text colors auto-flip to stay legible and the choice overrides the app theme for that chart
+- **Palette refinement** — switch a grouped chart's whole color scheme by name ("use a dark palette", "change the palette to tableau colors", "pastel palette"); the `vibrant`/`dark`/`light`/`muted` ramps share a golden-angle HCL hue scale (perceptually uniform, only chroma/lightness change) and `tableau10`/`category10`/`set2`/`dark2`/`pastel` are the familiar categorical schemes
 - **Voice input** — a mic button on every prompt, add-chart, and refine bar uses the browser-native `SpeechRecognition` API; toggle recording with the **⌥/Alt+Shift+V** shortcut (targets the field you're working in — prompt on the landing page, the current chart's refine bar on the dashboard) and press **Enter** to submit the transcript
 - **Rounded chart container** — the chart iframe has rounded corners and a subtle shadow that adapts to light/dark mode
+- **Upload-gated prompt bar** — the prompt input, mic button, and generate button stay disabled until a CSV is uploaded, with a "Upload a CSV to get started…" hint
 - **Playground** — pick a sample dataset from the landing page (Stocks, Revenue, World Cities, Diamonds, NYC Restaurants, Iris) to see auto-generated dashboards and experiment with refinements; resets when you upload your own CSV
 
 ## How it works
@@ -342,6 +343,7 @@ backend/
 │   ├── data_loader.py             # CSV ingestion and type detection
 │   ├── llm_mapper.py              # Claude axis and chart type selection
 │   ├── prompts.py                 # System prompts for LLM
+│   ├── palettes.py                # Named color palettes (HCL ramps + categorical schemes)
 │   ├── transformer.py             # Five transform modes (flat/grouped/labeled/heatmap/network)
 │   ├── templater.py               # HTML rendering
 │   └── templates/

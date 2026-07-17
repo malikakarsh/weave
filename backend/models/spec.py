@@ -22,6 +22,7 @@ class AxisMapping(BaseModel):
     y_label: str = ""
     color: str | None = None             # CSS color for single-series charts; null means use default palette
     category_colors: dict[str, str] | None = None  # per-category color overrides: {"CategoryName": "#hex"}
+    palette: str | None = None            # named palette for grouped charts (e.g. 'dark', 'light', 'tableau10')
     background: str | None = None         # chart background color (CSS hex); null means use theme default
 
 

@@ -6,6 +6,7 @@ from pipeline.llm_mapper import LLMMapper
 from pipeline.providers import LLMProvider
 from pipeline.transformer import Transformer
 from pipeline.templater import Templater
+from pipeline.palettes import resolve_palette
 
 
 def _pretty(col: str) -> str:
@@ -65,6 +66,7 @@ class Pipeline:
             **({"svg_bg": mapping.background} if mapping.background else {}),
             **({"color": mapping.color} if mapping.color else {}),
             **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
+            **({"palette": resolve_palette(mapping.palette)} if resolve_palette(mapping.palette) else {}),
         })
 
         _emit("transforming")
@@ -109,6 +111,7 @@ class Pipeline:
             **({"svg_bg": mapping.background} if mapping.background else {}),
             **({"color": mapping.color} if mapping.color else {}),
             **({"category_colors": mapping.category_colors} if mapping.category_colors else {}),
+            **({"palette": resolve_palette(mapping.palette)} if resolve_palette(mapping.palette) else {}),
         })
 
         _emit("transforming")

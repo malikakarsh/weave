@@ -95,7 +95,8 @@ const MicButton = forwardRef<MicHandle, {
   dark: boolean;
   small?: boolean;
   onEnter?: (transcript: string) => void;
-}>(function MicButton({ onTranscript, dark, small = false, onEnter }, ref) {
+  disabled?: boolean;
+}>(function MicButton({ onTranscript, dark, small = false, onEnter, disabled = false }, ref) {
   const [supported, setSupported] = useState(false);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +153,7 @@ const MicButton = forwardRef<MicHandle, {
   }
 
   function toggle() {
+    if (disabled) return;
     if (recording) { stop(); } else { start(); }
   }
 
@@ -159,6 +161,7 @@ const MicButton = forwardRef<MicHandle, {
     <button
       type="button"
       onClick={toggle}
+      disabled={disabled}
       onKeyDown={(e) => {
         // While the mic button holds focus, Enter should stop recording AND
         // submit — otherwise it only fires the button's default click (stop).
@@ -169,8 +172,9 @@ const MicButton = forwardRef<MicHandle, {
           onEnter?.(t);
         }
       }}
-      title={error ?? (recording ? "Stop recording (⌥/Alt+Shift+V)" : "Speak your prompt (⌥/Alt+Shift+V)")}
-      className={`flex items-center justify-center shrink-0 rounded-xl transition-colors cursor-pointer
+      title={disabled ? "Upload a CSV first" : error ?? (recording ? "Stop recording (⌥/Alt+Shift+V)" : "Speak your prompt (⌥/Alt+Shift+V)")}
+      className={`flex items-center justify-center shrink-0 rounded-xl transition-colors
+        ${disabled ? "opacity-80 cursor-not-allowed" : "cursor-pointer"}
         ${small ? "w-10" : "w-12"}
         ${error
           ? "bg-yellow-400/20 border border-yellow-400/50"
@@ -1086,7 +1090,7 @@ export default function Home() {
               preserveAspectRatio="xMidYMid meet"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
-              style={{ width: "105%", height: "340px", left: "-2.5%", top: "-145px", pointerEvents: "none" }}
+              style={{ width: "92%", height: "296px", left: "4%", top: "-140px", pointerEvents: "none" }}
             >
               <path
                 d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1204 90,1235 82,1264 78"
@@ -1095,7 +1099,7 @@ export default function Home() {
               />
               <path d="M 1272 68 L 1031 357 L 1035 361 L 1276 74 Z"
                 fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"} />
-              <path d="M 1031 357 L 1033 367 L 1035 361 Z"
+              <path d="M 1031 357 L 1028 365 L 1035 361 Z"
                 fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"} />
               <ellipse cx="1264" cy="78" rx="3.5" ry="9" transform="rotate(-46 1264 78)"
                 fill={dark ? "#0f1117" : "#f0f2f5"} />
@@ -1164,20 +1168,21 @@ export default function Home() {
                   style={{ background: dark ? "rgba(20,22,35,0.8)" : "rgba(255,255,255,0.9)" }}
                   className="flex-1 border border-white/25 rounded-xl
                     px-3 py-2 text-sm placeholder-gray-400 dark:placeholder-white/40 text-gray-900 dark:text-white
-                    focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-400 focus:border-red-500"
-                  placeholder="e.g. show revenue over time for each company"
+                    focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-400 focus:border-red-500
+                    disabled:cursor-not-allowed"
+                  placeholder={file ? "e.g. show revenue over time for each company" : "Upload a CSV to get started…"}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={(e) => { if (isVoiceShortcut(e)) { e.preventDefault(); promptMicRef.current?.toggle(); return; } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const t = promptMicRef.current?.getTranscript(); promptMicRef.current?.stop(); generate(t || (e.target as HTMLInputElement).value); } }}
-                  disabled={generating}
+                  disabled={!file || generating}
                   autoFocus
                 />
-                <MicButton ref={promptMicRef} onTranscript={(t) => setPrompt(t)} onEnter={(t) => generate(t || prompt)} dark={dark} />
+                <MicButton ref={promptMicRef} onTranscript={(t) => setPrompt(t)} onEnter={(t) => generate(t || prompt)} dark={dark} disabled={!file || generating} />
                 <button
                   onClick={() => generate()}
                   disabled={!file || !prompt.trim() || generating}
                   className={`flex items-center justify-center rounded-xl ${dark ? "bg-indigo-500 hover:bg-indigo-400" : "bg-red-600 hover:bg-red-500"}
-                    disabled:opacity-40 disabled:cursor-not-allowed transition-colors px-4 shrink-0`}
+                    disabled:opacity-80 disabled:cursor-not-allowed transition-colors px-4 shrink-0`}
                 >
                   <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />

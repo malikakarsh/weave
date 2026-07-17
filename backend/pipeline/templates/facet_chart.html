@@ -350,9 +350,9 @@
       .text(config.title || "");
 
     const _prettify = s => s.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, c => c.toUpperCase());
-    const _xLabel = config.x_label || (config.x_column ? _prettify(config.x_column) : isTemporal ? "Date" : isNumeric ? "Value" : "");
+    const _xLabel = config.x_label || (config.x_column ? _prettify(config.x_column) : isTemporal ? "Date" : isNumericX ? "Value" : "");
     const xLabelEl = svg.append("text")
-      .attr("x", margin.left + width / 2).attr("y", totalHeight - 12)
+      .attr("x", totalWidth / 2).attr("y", totalHeight - 12)
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(_xLabel);
 

@@ -170,6 +170,7 @@
     const raw    = __DATA__;
     const config = __CONFIG__;
     window.__weaveConfig = config;
+    const markScale = config.mark_scale || 1;   // multiplier for point radius / line stroke
 
     const facetDirection = config.facet_direction || "columns";
     const facetFreeY     = config.facet_free_y    || false;
@@ -446,7 +447,7 @@
           .attr("class", "panel-dot").attr("data-group", grp.group)
           .attr("cx", d => xScale(d.x))
           .attr("cy", d => yScale(d.y))
-          .attr("r", 4)
+          .attr("r", 4 * markScale)
           .attr("fill", color)
           .attr("fill-opacity", 0.72)
           .attr("stroke", "#1a1d27").attr("stroke-width", 0.5)
@@ -499,7 +500,7 @@
           .attr("class", "panel-line").attr("data-group", grp.group)
           .attr("fill", "none")
           .attr("stroke", color)
-          .attr("stroke-width", 2)
+          .attr("stroke-width", 2 * markScale)
           .attr("d", lineGen);
 
         // Wide transparent hit target for click-to-recolor in edit mode

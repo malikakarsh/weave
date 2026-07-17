@@ -172,6 +172,7 @@
     const raw    = __DATA__;
     const config = __CONFIG__;
     window.__weaveConfig = config;
+    const markScale = config.mark_scale || 1;   // multiplier for line stroke thickness
 
     let svgBg        = config.svg_bg || "#1a1d27";
     let editMode     = false;
@@ -418,6 +419,7 @@
         .attr("class", "line-path")
         .attr("data-series", key)
         .attr("stroke", color)
+        .attr("stroke-width", 2 * markScale)
         .attr("d", lineGen);
     });
 

@@ -46,6 +46,7 @@ class AxisMapping(BaseModel):
     category_colors: dict[str, str] | None = None  # per-category color overrides: {"CategoryName": "#hex"}
     palette: str | None = None            # named palette for grouped charts (e.g. 'dark', 'light', 'tableau10')
     background: str | None = None         # chart background color (CSS hex); null means use theme default
+    mark_scale: float | None = None       # size multiplier for marks (bar width, line stroke, point radius); 1.0 = default
 
 
 class ChartConfig(BaseModel):
@@ -56,6 +57,7 @@ class ChartConfig(BaseModel):
     show_area: bool = True
     curve: str = "monotoneX"     # any d3.curve* suffix: monotoneX, linear, step, natural
     y_format: str = ",.0f"       # d3 format string for y-axis ticks
+    mark_scale: float = 1.0      # size multiplier for marks (bar width, line stroke, point radius)
     title: str = ""
     x_label: str = ""
     y_label: str = ""

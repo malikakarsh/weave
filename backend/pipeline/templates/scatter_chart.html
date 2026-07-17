@@ -247,7 +247,7 @@
     const allPoints = groups.flatMap(grp => grp.values.map(d => ({ ...d, group: grp.group })));
 
     const DOT_OPACITY = isGrouped ? 0.75 : 0.8;
-    const DOT_RADIUS  = Math.max(3, Math.min(6, Math.round(200 / Math.sqrt(allPoints.length))));
+    const DOT_RADIUS  = Math.max(3, Math.min(6, Math.round(200 / Math.sqrt(allPoints.length)))) * (config.mark_scale || 1);
 
     // Dimensions
     const legendWidth = isGrouped ? 130 : 0;

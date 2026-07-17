@@ -172,6 +172,12 @@
     const config = __CONFIG__;
     window.__weaveConfig = config;
 
+    const markScale = config.mark_scale || 1;   // multiplier for bar width
+    // Scaled bar width within a band, capped at the full step so bars can widen
+    // into the gap but never overlap; returns [width, leftOffset] to keep centered.
+    const _barW = (band, step) => Math.min(band * markScale, step);
+    const _barDx = (band, step) => (band - _barW(band, step)) / 2;
+
     let svgBg   = config.svg_bg || "#1a1d27";
     let editMode = false;
     let activeSeries = null; // null = single series, string = group name
@@ -386,9 +392,9 @@
           .join("rect")
           .attr("class", "bar")
           .attr("data-group", grp.group)
-          .attr("x",      d => xOuter(d.x) + xInner(grp.group))
+          .attr("x",      d => xOuter(d.x) + xInner(grp.group) + _barDx(xInner.bandwidth(), xInner.step()))
           .attr("y",      d => d.y !== null ? yScale(d.y) : height)
-          .attr("width",  xInner.bandwidth())
+          .attr("width",  _barW(xInner.bandwidth(), xInner.step()))
           .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
           .attr("fill",   color)
           .attr("rx", 2)
@@ -406,9 +412,9 @@
         .join("rect")
         .attr("class", "bar")
         .attr("data-x", d => d.x)
-        .attr("x",      d => xOuter(d.x))
+        .attr("x",      d => xOuter(d.x) + _barDx(xOuter.bandwidth(), xOuter.step()))
         .attr("y",      d => d.y !== null ? yScale(d.y) : height)
-        .attr("width",  xOuter.bandwidth())
+        .attr("width",  _barW(xOuter.bandwidth(), xOuter.step()))
         .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
         .attr("fill",   d => resolveColor(d.x, config.color))
         .attr("rx", 2)
@@ -593,11 +599,13 @@
       if (isGrouped) {
         raw.forEach(grp => {
           g.selectAll(`rect[data-group="${grp.group}"]`)
-            .attr("x",     d => xOuter(d.x) + xInner(grp.group))
-            .attr("width", xInner.bandwidth());
+            .attr("x",     d => xOuter(d.x) + xInner(grp.group) + _barDx(xInner.bandwidth(), xInner.step()))
+            .attr("width", _barW(xInner.bandwidth(), xInner.step()));
         });
       } else {
-        g.selectAll(".bar").attr("x", d => xOuter(d.x)).attr("width", xOuter.bandwidth());
+        g.selectAll(".bar")
+          .attr("x", d => xOuter(d.x) + _barDx(xOuter.bandwidth(), xOuter.step()))
+          .attr("width", _barW(xOuter.bandwidth(), xOuter.step()));
       }
       xAxisG.call(d3.axisBottom(xOuter));
       xAxisG.selectAll("text")

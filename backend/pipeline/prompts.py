@@ -34,7 +34,13 @@ REFINE_SYSTEM = (
     "  Set to null to remove the limit.\n"
     "- To keep only specific values of a dimension (e.g. 'only Premium and Fair cuts', 'just Q1 and Q2'):\n"
     "  set the 'filters' field to a list like [{\"column\": <exact column name>, \"values\": [\"Premium\", \"Fair\"]}].\n"
-    "  Name the column the values belong to. Set to null (or []) to remove filters.\n\n"
+    "  Name the column the values belong to. Set to null (or []) to remove filters.\n"
+    "- For mark-size changes — bar width, line/area stroke thickness, scatter/bubble point size\n"
+    "  (e.g. 'make the bars wider', 'thinner bars', 'thicker lines', 'bigger points', 'smaller bubbles'):\n"
+    "  set the 'mark_scale' field to a multiplier where 1.0 is the default. For RELATIVE requests, multiply the\n"
+    "  CURRENT mark_scale (default 1.0 if unset): 'bigger/wider/thicker' → ×1.5, 'much bigger' → ×2.5,\n"
+    "  'a bit bigger' → ×1.25, 'smaller/thinner/narrower' → ×0.6, 'much smaller' → ×0.4. Clamp to [0.2, 4.0].\n"
+    "  Set to 1.0 to reset to the default size.\n\n"
     "Respond with ONLY valid JSON, no other text, no markdown fences.\n"
 )
 
@@ -155,6 +161,6 @@ AXIS_MAPPING_SYSTEM = (
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
     '"z_column": "<column name or null>", "label_column": "<column name or null>", '
-    '"facet_direction": "columns|rows|null", "facet_free_y": false, '
+    '"facet_direction": "columns|rows|null", "facet_free_y": false, "mark_scale": null, '
     '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>", "color": null, "category_colors": null}'
 )

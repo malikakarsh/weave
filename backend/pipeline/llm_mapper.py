@@ -39,7 +39,7 @@ class LLMMapper:
         # LLMs sometimes return "null" as a string instead of JSON null
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
                     "z_column", "label_column", "facet_direction", "color", "category_colors",
-                    "filters", "limit", "palette", "background"):
+                    "filters", "limit", "palette", "background", "mark_scale"):
             if data.get(key) == "null":
                 data[key] = None
 
@@ -84,7 +84,7 @@ class LLMMapper:
 
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
                     "z_column", "label_column", "facet_direction", "color", "category_colors",
-                    "filters", "limit", "palette", "background"):
+                    "filters", "limit", "palette", "background", "mark_scale"):
             if data.get(key) == "null":
                 data[key] = None
 

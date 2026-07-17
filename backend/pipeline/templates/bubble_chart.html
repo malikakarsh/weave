@@ -234,7 +234,8 @@
       .range([height, 0]);
 
     // Bubble size: area proportional to z (sqrt scale); fallback to fixed radius if no z
-    const MAX_R = Math.max(6, Math.min(40, Math.round(180 / Math.sqrt(allPoints.length))));
+    const _mScale = config.mark_scale || 1;   // multiplier for bubble radius
+    const MAX_R = Math.max(6, Math.min(40, Math.round(180 / Math.sqrt(allPoints.length)))) * _mScale;
     const MIN_R = Math.max(3, MAX_R * 0.2);
     const rScale = hasZ
       ? d3.scaleSqrt()

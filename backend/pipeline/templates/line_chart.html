@@ -172,6 +172,7 @@
     const raw    = __DATA__;
     const config = __CONFIG__;
     window.__weaveConfig = config;
+    const markScale = config.mark_scale || 1;   // multiplier for line stroke thickness
 
     let svgBg        = config.svg_bg || "#1a1d27";
     let editMode     = false;
@@ -200,12 +201,12 @@
         const active = (grp.group ?? "__single__") === series;
         g.selectAll(`.line-path[data-series="${s}"]`)
           .attr("opacity", active ? 1 : 0.12)
-          .attr("stroke-width", active ? 2.5 : 1.5);
+          .attr("stroke-width", (active ? 2.5 : 1.5) * markScale);
       });
     }
 
     function clearHighlight() {
-      g.selectAll(".line-path").attr("opacity", 1).attr("stroke-width", 2);
+      g.selectAll(".line-path").attr("opacity", 1).attr("stroke-width", 2.5 * markScale);
     }
 
     function openColorPicker(currentColor, series, event) {
@@ -432,6 +433,7 @@
         .attr("class", "line-path")
         .attr("data-series", grp.group ?? "__single__")
         .attr("stroke", color)
+        .attr("stroke-width", 2.5 * markScale)
         .attr("d", lineGen);
 
       // Wide transparent overlay for easy clicking in edit mode

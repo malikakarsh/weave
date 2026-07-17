@@ -170,6 +170,10 @@
     const config = __CONFIG__;
     window.__weaveConfig = config;
 
+    const markScale = config.mark_scale || 1;   // multiplier for bar width
+    const _barW  = (band, step) => Math.min(band * markScale, step);
+    const _barDx = (band, step) => (band - _barW(band, step)) / 2;
+
     let svgBg     = config.svg_bg || "#1a1d27";
     let editMode  = false;
     let activeSeries = null;
@@ -402,10 +406,10 @@
         .attr("class", "bar-seg")
         .attr("data-series", name)
         .attr("data-xk", d => d.data._xk)
-        .attr("x", d => xScale(d.data._xk))
+        .attr("x", d => xScale(d.data._xk) + _barDx(xScale.bandwidth(), xScale.step()))
         .attr("y", d => yScale(d[1]))
         .attr("height", d => Math.max(0, yScale(d[0]) - yScale(d[1])))
-        .attr("width", xScale.bandwidth())
+        .attr("width", _barW(xScale.bandwidth(), xScale.step()))
         // Grouped: one color per series. Flat: one color per x category.
         .attr("fill", d => isGrouped ? colorScale(name) : colorScale(d.data._xk))
         .attr("fill-opacity", 0.88)

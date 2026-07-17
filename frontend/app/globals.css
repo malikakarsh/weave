@@ -28,3 +28,68 @@ body {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
+
+/* ── Sample-card mini-chart glyphs ──────────────────────────────────────────
+   Each card is a `.group`. Glyphs sit faded at rest and come to full color +
+   replay their entrance animation when the card is hovered. */
+.card-glyph {
+  opacity: 0.2;
+  transition: opacity 0.3s ease;
+}
+.group:hover .card-glyph {
+  opacity: 1;
+}
+/* Solid at rest (no dash); the dash + draw-in exists only during the hover
+   animation, so the line is always visible when not hovered. */
+.group:hover .card-glyph :where(.draw) {
+  animation: cg-draw 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes cg-draw {
+  from { stroke-dasharray: 80; stroke-dashoffset: 80; }
+  to   { stroke-dasharray: 80; stroke-dashoffset: 0; }
+}
+
+.card-glyph :where(.bar) { transform-origin: bottom; }
+.group:hover .card-glyph :where(.bar) {
+  animation: cg-grow 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes cg-grow {
+  from { transform: scaleY(0.3); }
+  to   { transform: scaleY(1); }
+}
+
+.card-glyph :where(.dot) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.group:hover .card-glyph :where(.dot) {
+  animation: cg-pop 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes cg-pop {
+  0%   { opacity: 0.35; transform: scale(0.55); }
+  100% { opacity: 1;    transform: scale(1); }
+}
+
+.group:hover .card-glyph :where(.slice) {
+  animation: cg-fade 0.5s ease;
+}
+@keyframes cg-fade {
+  from { opacity: 0.4; }
+  to   { opacity: 1; }
+}
+
+/* stagger so bars/dots cascade rather than snap together */
+.card-glyph :where(.bar):nth-child(2) { animation-delay: 0.05s; }
+.card-glyph :where(.bar):nth-child(3) { animation-delay: 0.10s; }
+.card-glyph :where(.bar):nth-child(4) { animation-delay: 0.15s; }
+.card-glyph :where(.bar):nth-child(5) { animation-delay: 0.20s; }
+.card-glyph :where(.bar):nth-child(6) { animation-delay: 0.25s; }
+.card-glyph :where(.dot):nth-child(2) { animation-delay: 0.05s; }
+.card-glyph :where(.dot):nth-child(3) { animation-delay: 0.10s; }
+.card-glyph :where(.dot):nth-child(4) { animation-delay: 0.15s; }
+.card-glyph :where(.dot):nth-child(5) { animation-delay: 0.20s; }
+.card-glyph :where(.dot):nth-child(6) { animation-delay: 0.25s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .group:hover .card-glyph :where(.draw, .bar, .dot, .slice) { animation: none; }
+}

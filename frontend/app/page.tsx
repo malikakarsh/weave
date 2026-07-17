@@ -18,59 +18,126 @@ const PLAYGROUND_DATASETS = [
     id: "stocks",
     name: "Stock Prices",
     description: "AAPL, AMZN, GOOG, IBM & MSFT - daily closes 2000-2010",
-    emoji: "📈",
+    viz: "line",
     prompt: "show stock price trend over time for each company as a multi-series line chart, and show average stock price per company as a bar chart",
   },
   {
     id: "revenue",
     name: "Company Revenue",
     description: "Monthly revenue across multiple companies over several years",
-    emoji: "💰",
+    viz: "bar",
     prompt: "show total revenue per company as a bar chart sorted descending, and revenue trend over time for each company as a line chart",
   },
   {
     id: "world_cities",
     name: "World Cities",
     description: "55 major cities with population and continent",
-    emoji: "🌍",
+    viz: "map",
     prompt: "plot world cities on a symbol map sized by population and colored by continent, and show total population by continent as a bar chart",
   },
   {
     id: "diamonds",
     name: "Diamonds",
     description: "Prices and attributes: cut, color, clarity, carat",
-    emoji: "💎",
+    viz: "groupedBar",
     prompt: "show average diamond price by cut as a bar chart, and show average diamond price with diamond color on the x-axis and cut as the group column as a bar chart (not stacked)",
   },
   {
     id: "restaurants",
     name: "NYC Restaurants",
     description: "Inspection records with grades, violations, and borough",
-    emoji: "🍕",
+    viz: "pie",
     prompt: "show inspection count by borough as a bar chart, and a breakdown of inspection grades as a pie chart",
   },
   {
     id: "iris",
     name: "Iris Flowers",
     description: "Classic dataset: sepal/petal measurements for 3 species",
-    emoji: "🌸",
+    viz: "scatter",
     prompt: "show sepal length vs sepal width as a scatter plot colored by species, and average petal length by species as a bar chart",
   },
 ] as const;
 
+type VizKind = (typeof PLAYGROUND_DATASETS)[number]["viz"];
+
+// Tiny stylized chart drawn per sample card; animates in on card hover (see
+// `.card-glyph` rules in globals.css). Stroke uses currentColor so the parent
+// sets the accent (indigo in dark, red in light).
+function CardGlyph({ kind }: { kind: VizKind }) {
+  const common = { className: "card-glyph", width: 30, height: 20, viewBox: "0 0 30 20", fill: "none" as const };
+  if (kind === "line") {
+    return (
+      <svg {...common}>
+        <polyline className="draw" points="1,15 7,9 12,12 18,4 24,7 29,2"
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (kind === "bar") {
+    const bars = [[2, 12], [9, 7], [16, 10], [23, 3]];
+    return (
+      <svg {...common}>
+        {bars.map(([x, y], i) => (
+          <rect key={i} className="bar" x={x} y={y} width="5" height={19 - y} rx="1" fill="currentColor" />
+        ))}
+      </svg>
+    );
+  }
+  if (kind === "groupedBar") {
+    // three groups of two bars (paired), alternating opacity within a group
+    const groups = [[3, 9], [12, 5], [21, 11]];
+    return (
+      <svg {...common}>
+        {groups.flatMap(([x, y], g) => [
+          <rect key={`${g}a`} className="bar" x={x} y={y} width="3" height={19 - y} rx="0.8" fill="currentColor" />,
+          <rect key={`${g}b`} className="bar" x={x + 3.6} y={y - 3} width="3" height={19 - (y - 3)} rx="0.8" fill="currentColor" fillOpacity="0.55" />,
+        ])}
+      </svg>
+    );
+  }
+  if (kind === "scatter") {
+    // tight diagonal cluster (a correlation)
+    const pts = [[5, 15], [9, 13], [12, 11], [14, 8], [18, 7], [22, 4]];
+    return (
+      <svg {...common}>
+        {pts.map(([cx, cy], i) => (
+          <circle key={i} className="dot" cx={cx} cy={cy} r="1.9" fill="currentColor" />
+        ))}
+      </svg>
+    );
+  }
+  if (kind === "map") {
+    // dots spread across the width like pins on a map, varied sizes
+    const pins = [[3, 12, 1.7], [8, 6, 2.1], [13, 14, 1.6], [17, 9, 2.4], [22, 5, 1.8], [27, 12, 2.0]];
+    return (
+      <svg {...common}>
+        {pins.map(([cx, cy, r], i) => (
+          <circle key={i} className="dot" cx={cx} cy={cy} r={r} fill="currentColor" fillOpacity={0.55 + (i % 3) * 0.18} />
+        ))}
+      </svg>
+    );
+  }
+  // pie
+  return (
+    <svg {...common} viewBox="0 0 20 20">
+      <path className="slice" d="M10 10 L10 1 A9 9 0 0 1 18 13 Z" fill="currentColor" />
+      <path className="slice" d="M10 10 L18 13 A9 9 0 0 1 3 15 Z" fill="currentColor" fillOpacity="0.6" />
+      <path className="slice" d="M10 10 L3 15 A9 9 0 0 1 10 1 Z" fill="currentColor" fillOpacity="0.32" />
+    </svg>
+  );
+}
+
+// Faint engineering grid — a single fine hairline per tile, low opacity, so it
+// reads as ambient depth rather than a pronounced dotted pattern.
 const LIGHT_WEAVE_SVG = encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">' +
-  '<rect x="0" y="0" width="4" height="4" fill="black" fill-opacity="0.07"/>' +
-  '<rect x="4" y="4" width="4" height="4" fill="black" fill-opacity="0.07"/>' +
-  '<path d="M0 0H8M0 4H8M0 0V8M4 0V8" stroke="black" stroke-opacity="0.07" stroke-width="0.4"/>' +
+  '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26">' +
+  '<path d="M26 0H0V26" fill="none" stroke="black" stroke-opacity="0.07" stroke-width="0.5"/>' +
   '</svg>'
 );
 
 const DARK_WEAVE_SVG = encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">' +
-  '<rect x="0" y="0" width="5" height="5" fill="white" fill-opacity="0.045"/>' +
-  '<rect x="5" y="5" width="5" height="5" fill="white" fill-opacity="0.045"/>' +
-  '<path d="M0 0H10M0 5H10M0 0V10M5 0V10" stroke="white" stroke-opacity="0.07" stroke-width="0.5"/>' +
+  '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26">' +
+  '<path d="M26 0H0V26" fill="none" stroke="white" stroke-opacity="0.03" stroke-width="0.5"/>' +
   '</svg>'
 );
 
@@ -722,6 +789,8 @@ export default function Home() {
   const [isPlayground, setIsPlayground] = useState(false);
   const [playgroundName, setPlaygroundName] = useState("");
   const [loadingPlayground, setLoadingPlayground] = useState<string | null>(null);
+  const { user, login, logout } = useAuth();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
   const promptMicRef = useRef<MicHandle | null>(null);
@@ -789,8 +858,6 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated.current) return;
     if (!file) { del("weave:file").catch(() => {}); return; }
-  const { user, login, logout } = useAuth();
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
     file.arrayBuffer().then(bytes =>
       set("weave:file", { name: file.name, type: file.type, bytes }).catch(() => {})
     );
@@ -1118,14 +1185,17 @@ export default function Home() {
       style={dark ? {
         backgroundColor: "#0f1117",
         backgroundImage: [
-          "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.14) 0%, transparent 100%)",
+          // layered radial mesh for depth — warm indigo top, cool violet lower-left
+          "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.16) 0%, transparent 60%)",
+          "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(139,92,246,0.10) 0%, transparent 55%)",
           `url("data:image/svg+xml,${DARK_WEAVE_SVG}")`,
         ].join(", "),
       } : {
-        backgroundColor: "#f5f5f3",
+        backgroundColor: "#f0f1f5",
         backgroundImage: [
-          // fade out toward center so texture feels ambient, not loud
-          "radial-gradient(ellipse 70% 60% at 50% 40%, rgba(245,245,243,0.85) 0%, transparent 100%)",
+          // same radial geometry as dark mode, in the red brand hue (softened)
+          "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(244,63,94,0.04) 0%, transparent 60%)",
+          "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(220,38,38,0.03) 0%, transparent 55%)",
           `url("data:image/svg+xml,${LIGHT_WEAVE_SVG}")`,
         ].join(", "),
       }}
@@ -1187,76 +1257,6 @@ export default function Home() {
               </svg>
             </span>
           </button>
-        </header>
-      </div>
-
-      {/* ── Landing state ── */}
-      {!hasSessions && !generating && (
-        <div className="flex flex-col items-center justify-center px-6 py-6 text-center" style={{ minHeight: "calc(100vh - 56px)", marginTop: "56px" }}>
-          <div className="relative flex flex-col gap-3 w-full max-w-2xl">
-            {/* Decorative needle + thread */}
-            <svg
-              className="absolute pointer-events-none"
-              viewBox="0 0 1400 520"
-              preserveAspectRatio="xMidYMid meet"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              style={{ width: "92%", height: "296px", left: "4%", top: "-140px", pointerEvents: "none" }}
-            >
-              <path
-                d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1204 90,1235 82,1264 78"
-                stroke={dark ? "rgba(167,139,250,0.55)" : "rgba(220,38,38,0.55)"}
-                strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none"
-              />
-              <path d="M 1272 68 L 1031 357 L 1035 361 L 1276 74 Z"
-                fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"} />
-              <path d="M 1031 357 L 1028 365 L 1035 361 Z"
-                fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"} />
-              <ellipse cx="1264" cy="78" rx="3.5" ry="9" transform="rotate(-46 1264 78)"
-                fill={dark ? "#0f1117" : "#f0f2f5"} />
-            </svg>
-
-            <div className="relative flex flex-col gap-5" style={{ zIndex: 1 }}>
-              {/* Heading */}
-              <div className="mb-1" style={{ fontFamily: "var(--font-sora), sans-serif" }}>
-                <div className="flex flex-col items-center gap-0 md:hidden">
-                  <p className="text-lg sm:text-2xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>
-                    If you can describe it,
-                  </p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-lg sm:text-2xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>we can</span>
-                    <span className="text-3xl sm:text-5xl font-extrabold uppercase tracking-tight leading-none" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#dc2626", textShadow: "0 0 40px rgba(220,38,38,0.2), 0 0 80px rgba(220,38,38,0.1)" }) }}>WEAVE</span>
-                    <span className="text-lg sm:text-2xl font-extrabold uppercase tracking-tight leading-tight" style={dark ? { background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { color: "#0f172a" }}>it.</span>
-                  </div>
-                </div>
-                <div className="hidden md:flex" style={{ alignItems: "flex-end", gap: "1rem", justifyContent: "center" }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                    <p className="text-xl lg:text-2xl font-extrabold uppercase tracking-tight" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>
-                      If you can describe it,
-                    </p>
-                    <p className="text-xl lg:text-2xl font-extrabold uppercase tracking-tight text-right" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>
-                      we can
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
-                    <span className="text-4xl lg:text-5xl font-extrabold uppercase tracking-tight" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 50px rgba(167,139,250,0.6), 0 0 100px rgba(129,140,248,0.3)" } : { color: "#dc2626", textShadow: "0 0 40px rgba(220,38,38,0.2), 0 0 80px rgba(220,38,38,0.1)" }) }}>WEAVE</span>
-                    <span className="text-xl lg:text-2xl font-extrabold uppercase tracking-tight" style={dark ? { lineHeight: 1, background: "linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, color: "#0f172a" }}>it.</span>
-                  </div>
-                </div>
-                <p className="mt-3 text-sm text-gray-400 dark:text-white/35">
-                  Drop a CSV. Describe what you want. Get interactive charts - no code, no config.
-                </p>
-              </div>
-
-              {/* CSV dropzone */}
-              <div
-                style={{ background: dragging ? (dark ? "rgba(99,102,241,0.15)" : "rgba(220,38,38,0.1)") : dark ? "rgba(20,22,35,0.8)" : "rgba(255,255,255,0.9)" }}
-                className={`flex items-center gap-3 rounded-xl border-2 border-dashed px-3 py-2 cursor-pointer transition-colors
-                  ${dragging ? "border-indigo-400" : "border-white/25 hover:border-indigo-400/60"}`}
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
 
           {/* Auth control */}
           {user ? (
@@ -1303,48 +1303,153 @@ export default function Home() {
               <span className="text-xs font-medium text-gray-700 dark:text-white/80">Sign in</span>
             </button>
           )}
-              >
-                <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
-                  onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
-                <svg className="w-4 h-4 text-gray-400 dark:text-white/30 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-                {file
-                  ? <span className={`text-sm font-medium ${dark ? "text-indigo-400" : "text-red-600"}`}>{file.name}</span>
-                  : <span className="text-sm text-gray-400 dark:text-white/40">Drop a CSV here · or click to browse</span>}
-                {file && (
-                  <button onClick={(e) => { e.stopPropagation(); setFile(null); setError(null); }}
-                    className="ml-auto text-gray-400 dark:text-white/30 hover:text-white/60 transition-colors text-xl leading-none">×</button>
-                )}
+        </header>
+      </div>
+
+      {/* ── Landing state ── */}
+      {!hasSessions && !generating && (
+        <div className="flex flex-col items-center justify-center px-6 py-6 text-center" style={{ minHeight: "calc(100vh - 56px)", marginTop: "56px" }}>
+          <div className="relative flex flex-col gap-3 w-full max-w-2xl">
+            {/* Decorative needle + thread */}
+            <svg
+              className="absolute pointer-events-none"
+              viewBox="0 0 1400 520"
+              preserveAspectRatio="xMidYMid meet"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ width: "92%", height: "296px", left: "4%", top: "-140px", pointerEvents: "none" }}
+            >
+              <defs>
+                <filter id="thread-glow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              {/* soft glow underlay */}
+              <path
+                d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1204 90,1235 82,1264 78"
+                stroke={dark ? "rgba(167,139,250,0.35)" : "rgba(220,38,38,0.3)"}
+                strokeWidth="3" strokeLinecap="round" fill="none" filter="url(#thread-glow)"
+              />
+              {/* crisp thin thread */}
+              <path
+                d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1204 90,1235 82,1264 78"
+                stroke={dark ? "rgba(196,181,253,0.7)" : "rgba(220,38,38,0.6)"}
+                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"
+              />
+              <path d="M 1272 68 L 1031 357 L 1035 361 L 1276 74 Z"
+                fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"} />
+              <path d="M 1031 357 L 1028 365 L 1035 361 Z"
+                fill={dark ? "rgba(220,220,230,0.75)" : "rgba(30,41,59,0.7)"} />
+              <ellipse cx="1264" cy="78" rx="3.5" ry="9" transform="rotate(-46 1264 78)"
+                fill={dark ? "#0f1117" : "#f0f2f5"} />
+            </svg>
+
+            <div className="relative flex flex-col gap-5" style={{ zIndex: 1 }}>
+              {/* Heading */}
+              <div className="mb-1" style={{ fontFamily: "var(--font-sora), sans-serif" }}>
+                <div className="flex flex-col items-center gap-0 md:hidden">
+                  <p className="text-lg sm:text-2xl font-semibold uppercase tracking-tight leading-tight" style={dark ? { backgroundImage: "linear-gradient(135deg, #818cf8 0%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { backgroundImage: "linear-gradient(135deg, #0f172a 0%, #dc2626 135%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                    If you can describe it,
+                  </p>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-lg sm:text-2xl font-semibold uppercase tracking-tight leading-tight" style={dark ? { backgroundImage: "linear-gradient(135deg, #818cf8 0%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { backgroundImage: "linear-gradient(135deg, #0f172a 0%, #dc2626 135%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>we can</span>
+                    <span className="text-3xl sm:text-5xl font-bold uppercase tracking-tight leading-none" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 24px rgba(196,181,253,0.75), 0 0 60px rgba(129,140,248,0.5), 0 0 110px rgba(129,140,248,0.25)" } : { color: "#dc2626", textShadow: "0 0 22px rgba(220,38,38,0.35), 0 0 55px rgba(244,63,94,0.28), 0 0 110px rgba(244,63,94,0.14)" }) }}>WEAVE</span>
+                    <span className="text-lg sm:text-2xl font-semibold uppercase tracking-tight leading-tight" style={dark ? { backgroundImage: "linear-gradient(135deg, #818cf8 0%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { backgroundImage: "linear-gradient(135deg, #0f172a 0%, #dc2626 135%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>it.</span>
+                  </div>
+                </div>
+                <div className="hidden md:flex" style={{ alignItems: "flex-end", gap: "1rem", justifyContent: "center" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                    <p className="text-xl lg:text-2xl font-semibold uppercase tracking-tight" style={dark ? { lineHeight: 1, backgroundImage: "linear-gradient(135deg, #818cf8 0%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, backgroundImage: "linear-gradient(135deg, #0f172a 0%, #dc2626 135%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                      If you can describe it,
+                    </p>
+                    <p className="text-xl lg:text-2xl font-semibold uppercase tracking-tight text-right" style={dark ? { lineHeight: 1, backgroundImage: "linear-gradient(135deg, #818cf8 0%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, backgroundImage: "linear-gradient(135deg, #0f172a 0%, #dc2626 135%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                      we can
+                    </p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
+                    <span className="text-4xl lg:text-5xl font-bold uppercase tracking-tight" style={{ lineHeight: 1, ...(dark ? { color: "#ffffff", textShadow: "0 0 24px rgba(196,181,253,0.75), 0 0 60px rgba(129,140,248,0.5), 0 0 110px rgba(129,140,248,0.25)" } : { color: "#dc2626", textShadow: "0 0 22px rgba(220,38,38,0.35), 0 0 55px rgba(244,63,94,0.28), 0 0 110px rgba(244,63,94,0.14)" }) }}>WEAVE</span>
+                    <span className="text-xl lg:text-2xl font-semibold uppercase tracking-tight" style={dark ? { lineHeight: 1, backgroundImage: "linear-gradient(135deg, #818cf8 0%, #c4b5fd 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" } : { lineHeight: 1, backgroundImage: "linear-gradient(135deg, #0f172a 0%, #dc2626 135%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>it.</span>
+                  </div>
+                </div>
+                <p className="mt-3 text-sm font-light tracking-wide text-gray-500 dark:text-white/40">
+                  Drop a CSV. Describe what you want. Get interactive charts — no code, no config.
+                </p>
               </div>
 
-              {/* Prompt bar */}
-              <div className="flex gap-2">
-                <input
-                  data-prompt-input="1"
-                  style={{ background: dark ? "rgba(20,22,35,0.8)" : "rgba(255,255,255,0.9)" }}
-                  className="flex-1 border border-white/25 rounded-xl
-                    px-3 py-2 text-sm placeholder-gray-400 dark:placeholder-white/40 text-gray-900 dark:text-white
-                    focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-400 focus:border-red-500
-                    disabled:cursor-not-allowed"
-                  placeholder={file ? "e.g. show revenue over time for each company" : "Upload a CSV to get started…"}
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => { if (isVoiceShortcut(e)) { e.preventDefault(); promptMicRef.current?.toggle(); return; } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const t = promptMicRef.current?.getTranscript(); promptMicRef.current?.stop(); generate(t || (e.target as HTMLInputElement).value); } }}
-                  disabled={!file || generating}
-                  autoFocus
-                />
-                <MicButton ref={promptMicRef} onTranscript={(t) => setPrompt(t)} onEnter={(t) => generate(t || prompt)} dark={dark} disabled={!file || generating} />
-                <button
-                  onClick={() => generate()}
-                  disabled={!file || !prompt.trim() || generating}
-                  className={`flex items-center justify-center rounded-xl ${dark ? "bg-indigo-500 hover:bg-indigo-400" : "bg-red-600 hover:bg-red-500"}
-                    disabled:opacity-80 disabled:cursor-not-allowed transition-colors px-4 shrink-0`}
+              {/* Unified command palette — CSV attach + prompt in one frosted box */}
+              <div
+                className="flex flex-col rounded-2xl p-2 transition-shadow focus-within:ring-2 focus-within:ring-indigo-400/40"
+                style={dark ? {
+                  background: "rgba(20,22,35,0.55)",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  backdropFilter: "blur(14px)",
+                  WebkitBackdropFilter: "blur(14px)",
+                  boxShadow: "0 8px 40px rgba(0,0,0,0.35)",
+                } : {
+                  background: "rgba(255,255,255,0.85)",
+                  border: "1px solid rgba(15,23,42,0.05)",
+                  backdropFilter: "blur(14px)",
+                  WebkitBackdropFilter: "blur(14px)",
+                  boxShadow: "0 12px 40px rgba(15,23,42,0.10), 0 2px 6px rgba(15,23,42,0.04), inset 0 1px 0 rgba(255,255,255,0.7)",
+                }}
+              >
+                {/* Attach-CSV row */}
+                <div
+                  style={dragging ? { background: dark ? "rgba(99,102,241,0.14)" : "rgba(220,38,38,0.08)" } : undefined}
+                  className="flex items-center gap-2.5 rounded-xl px-2.5 py-1.5 cursor-pointer transition-colors hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
                 >
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+                  <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
+                    onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
+                  <svg className={`w-4 h-4 shrink-0 ${file ? (dark ? "text-indigo-400" : "text-red-500") : "text-gray-400 dark:text-white/30"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
-                </button>
+                  {file
+                    ? <span className={`text-sm font-medium ${dark ? "text-indigo-300" : "text-red-600"}`}>{file.name}</span>
+                    : <span className="text-sm text-gray-400 dark:text-white/40">Drop a CSV here · or click to browse</span>}
+                  {file && (
+                    <button onClick={(e) => { e.stopPropagation(); setFile(null); setError(null); }}
+                      className="ml-auto text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 transition-colors text-lg leading-none">×</button>
+                  )}
+                </div>
+
+                {/* Divider */}
+                <div className="h-px mx-1 my-1" style={{ background: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }} />
+
+                {/* Prompt row */}
+                <div className="flex items-stretch gap-2 pl-1.5">
+                  <input
+                    data-prompt-input="1"
+                    className="flex-1 bg-transparent border-0 px-1.5 py-1.5 text-sm placeholder-gray-400 dark:placeholder-white/40 text-gray-900 dark:text-white
+                      focus:outline-none disabled:cursor-not-allowed"
+                    placeholder={file ? "e.g. show revenue over time for each company" : "Upload a CSV to get started…"}
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    onKeyDown={(e) => { if (isVoiceShortcut(e)) { e.preventDefault(); promptMicRef.current?.toggle(); return; } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const t = promptMicRef.current?.getTranscript(); promptMicRef.current?.stop(); generate(t || (e.target as HTMLInputElement).value); } }}
+                    disabled={!file || generating}
+                    autoFocus
+                  />
+                  <MicButton ref={promptMicRef} onTranscript={(t) => setPrompt(t)} onEnter={(t) => generate(t || prompt)} dark={dark} disabled={!file || generating} />
+                  <button
+                    onClick={() => generate()}
+                    disabled={!file || !prompt.trim() || generating}
+                    style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18)" }}
+                    className={`group/send flex items-center justify-center rounded-xl h-9 w-10 shrink-0 transition-all
+                      ${dark ? "bg-indigo-500 hover:bg-indigo-400 hover:shadow-[0_0_20px_rgba(129,140,248,0.55)]" : "bg-red-600 hover:bg-red-500 hover:shadow-[0_0_18px_rgba(220,38,38,0.4)]"}
+                      disabled:opacity-70 disabled:shadow-none disabled:cursor-not-allowed`}
+                  >
+                    <svg className="w-4 h-4 text-white transition-transform group-hover/send:translate-x-px" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {error && (
@@ -1364,12 +1469,22 @@ export default function Home() {
                       key={ds.id}
                       onClick={() => loadPlayground(ds.id, ds.prompt, ds.name)}
                       disabled={loadingPlayground !== null}
-                      className={`flex flex-col gap-0.5 rounded-xl border px-2.5 py-2 text-left transition-colors cursor-pointer
-                        ${dark
-                          ? "border-white/15 hover:border-indigo-400/60"
-                          : "border-gray-200 bg-white hover:border-red-300 hover:bg-red-50"
-                        } disabled:opacity-40 disabled:cursor-not-allowed`}
-                      style={dark ? { background: "rgba(13, 15, 26, 0.75)" } : undefined}
+                      className="group flex flex-col gap-0.5 rounded-xl px-2.5 py-2 text-left transition-colors cursor-pointer
+                        disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={dark ? {
+                        background: "rgba(255,255,255,0.03)",
+                        border: "1px solid rgba(255,255,255,0.10)",
+                        backdropFilter: "blur(8px)",
+                        WebkitBackdropFilter: "blur(8px)",
+                      } : {
+                        background: "rgba(255,255,255,0.8)",
+                        border: "1px solid rgba(15,23,42,0.05)",
+                        backdropFilter: "blur(8px)",
+                        WebkitBackdropFilter: "blur(8px)",
+                        boxShadow: "0 4px 16px rgba(15,23,42,0.05), inset 0 1px 0 rgba(255,255,255,0.6)",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = dark ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.97)"; e.currentTarget.style.borderColor = dark ? "rgba(129,140,248,0.45)" : "rgba(220,38,38,0.35)"; if (!dark) e.currentTarget.style.boxShadow = "0 10px 28px rgba(220,38,38,0.10), inset 0 1px 0 rgba(255,255,255,0.7)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = dark ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.8)"; e.currentTarget.style.borderColor = dark ? "rgba(255,255,255,0.10)" : "rgba(15,23,42,0.05)"; if (!dark) e.currentTarget.style.boxShadow = "0 4px 16px rgba(15,23,42,0.05), inset 0 1px 0 rgba(255,255,255,0.6)"; }}
                     >
                       {loadingPlayground === ds.id ? (
                         <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-white/40">
@@ -1381,7 +1496,9 @@ export default function Home() {
                         </div>
                       ) : (
                         <>
-                          <span className="text-base leading-none">{ds.emoji}</span>
+                          <span className={`mb-0.5 ${dark ? "text-indigo-300" : "text-red-500"}`}>
+                            <CardGlyph kind={ds.viz} />
+                          </span>
                           <span className={`text-xs font-semibold ${dark ? "text-white" : "text-gray-900"}`}>{ds.name}</span>
                           <span className="text-xs text-gray-400 dark:text-white/40 leading-snug">{ds.description}</span>
                         </>

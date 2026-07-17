@@ -60,8 +60,11 @@ AXIS_MAPPING_SYSTEM = (
     "  Requires group_column. x_column is a categorical String (or time-bucketed dates).\n"
     "  Use when comparing composition across discrete categories; prefer stacked_area for continuous time.\n"
     "- 'bar': x is an unordered string category (e.g. country, product, name)\n"
-    "  Also use 'bar' when user asks for a histogram by category —\n"
-    "  unsupported; fall back to bar with aggregation='mean' as the closest available alternative.\n"
+    "- 'histogram': frequency distribution of ONE numeric column, binned into ranges\n"
+    "  (e.g. 'histogram of price', 'distribution of age', 'how are prices distributed', 'frequency of X')\n"
+    "  x_column = the NUMERIC column to bin (Float); the y-axis is the count per bin (no y column needed —\n"
+    "  set y_column to the same numeric column). Set y_label to 'Count'. Optionally group_column to overlay\n"
+    "  one histogram per group. Do NOT use histogram for 'distribution of X BY <category>' — that is box_plot/violin.\n"
     "- 'box_plot': distribution of a numeric column across categories — shows median, quartiles, whiskers, and outliers\n"
     "  (e.g. 'box plot', 'boxplot', 'box and whisker', 'distribution of X by Y', 'spread of X per category')\n"
     "  x_column = the categorical column (one box per value); y_column = the numeric column whose distribution is shown.\n"
@@ -164,7 +167,7 @@ AXIS_MAPPING_SYSTEM = (
     "- x_label: a clean label for the x-axis (e.g. 'Year', 'Age', 'Country') — not the raw column name\n"
     "- y_label: a clean label for the y-axis (e.g. 'Total Revenue ($)', 'Average Price', 'Count') — include units if inferable\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|box_plot|violin|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|histogram|box_plot|violin|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], '
     '"filters": null, "limit": null, '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '

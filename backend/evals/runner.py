@@ -137,6 +137,16 @@ def _check_data(data, expect: dict) -> list[str]:
                     failures.append(f"  node_ids: '{nid}' not found in nodes")
         return failures
 
+    # Histogram bin data: list of {x0, x1, count}
+    if expect.get("binned"):
+        if not data or not all(isinstance(d, dict) and "x0" in d and "x1" in d and "count" in d for d in data):
+            failures.append("  binned: expected each item to have x0/x1/count keys")
+        elif "total_count" in expect:
+            total = sum(d["count"] for d in data)
+            if total != expect["total_count"]:
+                failures.append(f"  total_count: expected {expect['total_count']}, got {total}")
+        return failures
+
     is_grouped = _is_grouped(data)
 
     if "grouped" in expect:

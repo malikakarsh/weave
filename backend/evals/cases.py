@@ -104,6 +104,23 @@ CASES = [
         },
     },
     {
+        "name": "histogram: price distribution (binned frequency)",
+        "csv": "samples/diamonds.csv",
+        "prompt": "show a histogram of diamond price",
+        "expect_mapping": {
+            "chart_type": "histogram",
+        },
+        "stub_mapping": {
+            "chart_type": "histogram",
+            "x_column": "price",
+            "y_column": "price",
+        },
+        "expect_data": {
+            "binned": True,
+            "total_count": 10000,
+        },
+    },
+    {
         "name": "violin: sepal length density by species",
         "csv": "samples/iris.csv",
         "prompt": "show the distribution shape of sepal length by species as a violin plot",

@@ -90,6 +90,8 @@ class Transformer:
             return self._transform_box(rows, mapping)
         if mapping.chart_type == "violin":
             return self._transform_violin(rows, mapping)
+        if mapping.chart_type == "histogram":
+            return self._transform_histogram(rows, mapping)
         if mapping.label_column:
             return self._transform_labeled(rows, mapping)
         if mapping.group_column:
@@ -276,6 +278,67 @@ class Transformer:
                 total += math.exp(-0.5 * u * u)
             out.append(norm * total)
         return out
+
+    def _bin_edges(self, values: list[float]) -> list[float]:
+        """Equal-width bin edges. Bin count via Freedman-Diaconis, clamped to [5, 60]."""
+        n = len(values)
+        vmin, vmax = min(values), max(values)
+        if vmax <= vmin:
+            return [vmin, vmin + 1]
+        sorted_v = sorted(values)
+        iqr = self._quantile(sorted_v, 0.75) - self._quantile(sorted_v, 0.25)
+        if iqr > 0:
+            width = 2 * iqr / (n ** (1 / 3))
+            nbins = math.ceil((vmax - vmin) / width) if width > 0 else 0
+        else:
+            nbins = math.ceil(math.sqrt(n))
+        nbins = max(5, min(60, nbins or 10))
+        return [vmin + (vmax - vmin) * i / nbins for i in range(nbins + 1)]
+
+    def _transform_histogram(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """Bin the numeric x_column and count rows per bin. y_column/aggregation are
+        ignored — the value is always the frequency. Optional group_column produces
+        one series per group over shared bin edges (overlaid in the template)."""
+        grouped = bool(mapping.group_column)
+        entries: list[tuple[float, str | None]] = []
+        group_order: list[str] = []
+        for row in rows:
+            raw_x = row.get(mapping.x_column, "").strip()
+            if not raw_x or not _in_range(raw_x, mapping.x_min, mapping.x_max):
+                continue
+            v = _to_float(raw_x)
+            if v is None:
+                continue
+            g = row.get(mapping.group_column, "").strip() if grouped else None
+            if grouped and not g:
+                continue
+            if grouped and g not in group_order:
+                group_order.append(g)
+            entries.append((v, g))
+
+        if not entries:
+            return []
+
+        edges = self._bin_edges([v for v, _ in entries])
+        nb = len(edges) - 1
+        binw = (edges[-1] - edges[0]) / nb
+        def idx(v: float) -> int:
+            i = int((v - edges[0]) / binw) if binw > 0 else 0
+            return max(0, min(nb - 1, i))
+
+        def bins_for(counts: list[int]) -> list[dict]:
+            return [{"x0": edges[i], "x1": edges[i + 1], "count": counts[i]} for i in range(nb)]
+
+        if grouped:
+            counts: dict[str, list[int]] = {g: [0] * nb for g in group_order}
+            for v, g in entries:
+                counts[g][idx(v)] += 1
+            return [{"group": g, "values": bins_for(counts[g])} for g in group_order]
+
+        flat = [0] * nb
+        for v, _ in entries:
+            flat[idx(v)] += 1
+        return bins_for(flat)
 
     def _transform_violin(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
         """One violin per x category (optionally per group): a KDE curve plus the

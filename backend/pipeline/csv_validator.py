@@ -2,6 +2,8 @@ import csv
 import io
 import logging
 
+from pipeline.numeric import PLACEHOLDERS, is_number
+
 logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -69,9 +71,8 @@ def _check_formula_injection(rows: list[list[str]]) -> None:
     flagged = []
     for row_idx, row in enumerate(rows[:100], start=1):
         for col_idx, cell in enumerate(row):
-            stripped = cell.strip()
-            if stripped and stripped[0] in _FORMULA_PREFIXES and not _is_numeric(stripped):
-                flagged.append((row_idx, col_idx, stripped[:30]))
+            if _looks_like_formula(cell):
+                flagged.append((row_idx, col_idx, cell.strip()[:30]))
 
     if flagged:
         logger.warning(
@@ -81,13 +82,18 @@ def _check_formula_injection(rows: list[list[str]]) -> None:
         )
         raise ValueError(
             "CSV contains cells that look like spreadsheet formulas "
-            "(values starting with =, +, @). Please export a clean CSV without formulas."
+            "(values starting with =, +, -, @). Please export a clean CSV without formulas."
         )
 
 
-def _is_numeric(value: str) -> bool:
-    try:
-        float(value)
-        return True
-    except ValueError:
+def _looks_like_formula(cell: str) -> bool:
+    """A cell is a formula-injection risk only if it starts with a dangerous
+    prefix AND isn't a legitimate data value. Formatted numbers ($6.52,
+    -1,200.00, (350.00), 85%) and lone punctuation placeholders (-, +, .) are
+    common in real spreadsheets and are not formulas."""
+    stripped = cell.strip()
+    if not stripped or stripped[0] not in _FORMULA_PREFIXES:
         return False
+    if stripped in PLACEHOLDERS or is_number(stripped):
+        return False
+    return True

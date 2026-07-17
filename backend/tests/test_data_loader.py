@@ -96,6 +96,44 @@ class TestLoad:
         assert len(loaded) == 5
 
 
+# ── header / preamble detection ───────────────────────────────────────────────
+
+def _write_raw(tmp_path, text: str) -> str:
+    p = tmp_path / "raw.csv"
+    p.write_text(text)
+    return str(p)
+
+
+class TestHeaderDetection:
+    def test_title_banner_skipped(self, tmp_path, loader):
+        # a title row + blank row above the real table (as exported from Sheets)
+        text = (
+            "Expenses-USA - Sept-25,,,\n"
+            "\n"
+            "Item,Date of Purchase,Price (USD),Category\n"
+            "Gym Lock,09/02/25,$6.52,Room Essentials\n"
+            "Mint Gummies,09/02/25,$3.27,Food\n"
+        )
+        schema, rows = loader.load(_write_raw(tmp_path, text))
+        names = [c.name for c in schema.columns]
+        assert names == ["Item", "Date of Purchase", "Price (USD)", "Category"]
+        assert rows[0]["Item"] == "Gym Lock"
+        price = next(c for c in schema.columns if c.name == "Price (USD)")
+        assert price.type == ColumnType.FLOAT  # $6.52 parsed as numeric
+
+    def test_trailing_empty_columns_dropped(self, tmp_path, loader):
+        text = "Item,Price,,,\nGym Lock,6.52,,,\nMint Gummies,3.27,,,\n"
+        schema, rows = loader.load(_write_raw(tmp_path, text))
+        assert [c.name for c in schema.columns] == ["Item", "Price"]
+        assert rows[0] == {"Item": "Gym Lock", "Price": "6.52"}
+
+    def test_no_preamble_uses_first_row(self, tmp_path, loader):
+        text = "name,score\nAlice,90\nBob,80\n"
+        schema, rows = loader.load(_write_raw(tmp_path, text))
+        assert [c.name for c in schema.columns] == ["name", "score"]
+        assert len(rows) == 2
+
+
 # ── _validate() ───────────────────────────────────────────────────────────────
 
 class TestValidate:

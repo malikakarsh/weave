@@ -58,7 +58,7 @@ Weave runs a four-stage pipeline:
 DataLoader → LLMMapper → Transformer → Templater
 ```
 
-1. **DataLoader** — reads the CSV, auto-detects delimiter, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column.
+1. **DataLoader** — reads the CSV, auto-detects delimiter, skips title/banner and blank preamble rows to find the real header, drops empty trailing/interior columns, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column. Numeric detection is format-tolerant — `$6.52`, `-1,200.00`, `(350.00)` accounting negatives, `85%`, and `-` placeholder gaps are all recognised.
 
 2. **LLMMapper** — sends the schema and your prompt to Claude, which decides the chart type (line, area, bar, histogram, box_plot, violin, radar, pie, bubble, scatter, heatmap, network), picks the x/y/group/z/label columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns, and applies x_min/x_max bounds for time period filtering.
 
@@ -354,7 +354,9 @@ backend/
 │   ├── schema.py                  # ColumnType, ColumnInfo, Schema
 │   └── spec.py                    # AxisMapping, ChartConfig
 ├── pipeline/
-│   ├── data_loader.py             # CSV ingestion and type detection
+│   ├── data_loader.py             # CSV ingestion, header/preamble detection, type detection
+│   ├── numeric.py                 # Tolerant numeric parsing ($, commas, %, accounting negatives)
+│   ├── csv_validator.py           # Upload safety checks (size, encoding, formula-injection guard)
 │   ├── llm_mapper.py              # Claude axis and chart type selection
 │   ├── prompts.py                 # System prompts for LLM
 │   ├── palettes.py                # Named color palettes (HCL ramps + categorical schemes)
@@ -384,7 +386,9 @@ backend/
 │   └── runner.py                  # CLI eval runner with keyword filtering and --fast mode
 ├── tests/
 │   ├── conftest.py                # shared fixtures (tmp_csv, flat_mapping)
-│   ├── test_data_loader.py        # DataLoader unit tests (type detection, load, validate)
+│   ├── test_data_loader.py        # DataLoader unit tests (type detection, header detection, load, validate)
+│   ├── test_numeric.py            # Tolerant numeric parser (currency, separators, negatives, placeholders)
+│   ├── test_csv_validator.py      # Formula-injection guard (real formulas vs formatted numbers)
 │   ├── test_transformer.py        # Transformer unit tests (all transform modes, sort, bucketing, range)
 │   ├── test_llm_mapper.py         # LLMMapper unit tests (deterministic helpers + mocked provider)
 │   ├── test_chart_requirements.py # ChartValidator rules (valid + mismatch cases)
@@ -473,7 +477,7 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - ~~Multi-chart dashboard — `POST /dashboard` SSE endpoint; LLM decomposes one prompt into N focused sub-prompts, runs N pipelines in parallel via `asyncio.as_completed`, streams each chart to the browser as it finishes~~
 - ~~Per-chart session state — each chart has its own isolated conversation history, mapping, and refine bar; refinements in one chart never affect another~~
 - ~~"Add chart" button — append new charts to the dashboard at any time without clearing existing ones~~
-- ~~CSV validation — size limit (10 MB), encoding check, null-byte detection, parse verification, formula injection guard~~
+- ~~CSV validation — size limit (10 MB), encoding check, null-byte detection, parse verification, formula injection guard (formatted numbers and `-`/`+`/`.` placeholders are not mistaken for formulas)~~
 - ~~Color refinement — `color` and `category_colors` fields in `AxisMapping`; overall color and per-category overrides via natural language~~
 - ~~Playground — sample dataset picker on landing page; backend serves CSVs via `GET /playground/csv/{id}`; reuses dashboard SSE pipeline; resets on own CSV upload~~
 - ~~Navbar cursor fix — pointer cursor on theme toggle and "← New" button~~

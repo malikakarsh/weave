@@ -2,6 +2,7 @@ import math
 from datetime import datetime
 
 from models import AxisMapping
+from pipeline.numeric import parse_number
 
 _DATE_FORMATS = [
     "%Y-%m-%dT%H:%M:%S.%f",
@@ -25,11 +26,9 @@ def _parse_dt(s: str) -> datetime | None:
 
 
 def _to_float(s: str) -> float | None:
-    """Parse a row value as float; return None if it can't be converted."""
-    try:
-        return float(s)
-    except (ValueError, TypeError):
-        return None
+    """Parse a row value as float; return None if it can't be converted.
+    Tolerates currency, thousands separators, percent and accounting negatives."""
+    return parse_number(s)
 
 
 def _parse_comparable(s: str):
@@ -37,10 +36,8 @@ def _parse_comparable(s: str):
     d = _parse_dt(s)
     if d:
         return d
-    try:
-        return float(s)
-    except ValueError:
-        return s
+    n = parse_number(s)
+    return n if n is not None else s
 
 
 def _in_range(raw_x: str, x_min: str | None, x_max: str | None) -> bool:

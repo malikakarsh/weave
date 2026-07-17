@@ -58,7 +58,7 @@ Weave runs a four-stage pipeline:
 DataLoader → LLMMapper → Transformer → Templater
 ```
 
-1. **DataLoader** — reads the CSV, auto-detects delimiter, skips title/banner and blank preamble rows to find the real header, drops empty trailing/interior columns, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column. Numeric detection is format-tolerant — `$6.52`, `-1,200.00`, `(350.00)` accounting negatives, `85%`, and `-` placeholder gaps are all recognised.
+1. **DataLoader** — reads the CSV, auto-detects delimiter, skips title/banner and blank preamble rows to find the real header, drops empty trailing/interior columns, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column. Numeric detection is format-tolerant — `$6.52`, `-1,200.00`, `(350.00)` accounting negatives, `85%`, and `-` placeholder gaps are all recognised. Date detection covers ISO, day/month/year and month/day/year with 4- or 2-digit years (`09/02/25`), dashed variants, and abbreviated-month forms (`Aug 19 2004`).
 
 2. **LLMMapper** — sends the schema and your prompt to Claude, which decides the chart type (line, area, bar, histogram, box_plot, violin, radar, pie, bubble, scatter, heatmap, network), picks the x/y/group/z/label columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns, and applies x_min/x_max bounds for time period filtering.
 

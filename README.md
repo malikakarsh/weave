@@ -543,8 +543,8 @@ Architecture:
 - ~~Roles + rate limiting — `User.role` (admin via `ADMIN_EMAILS`); per-user daily limit (`DAILY_REQUEST_LIMIT`, default 20) **metered per LLM call** in a `daily_usage` table (`api/usage.py`), admins exempt. Every LLM endpoint requires login and charges quota; a multi-chart dashboard is capped to the remaining quota and returns `429` when exhausted~~
 - ~~Thread persistence (backend) — a **thread** is one CSV-upload workspace (title + CSV + its charts, each keeping its refine history). User-scoped CRUD in `api/threads.py` (`POST/GET/GET{id}/PUT charts/PATCH/DELETE /threads`); ownership enforced (404 on someone else's thread)~~
 - ~~Frontend — thread sidebar (list past threads, new thread on CSV upload, click to restore full state incl. refine history), navbar usage indicator (`remaining/limit`, admin badge) that refreshes after each call, and login-gated generation. Charts auto-save (debounced) to the current thread; `app/threads.ts` is the API client, `app/useAuth.ts` exposes role + usage~~
-- Charts persist server-side per user (Postgres), so they survive logout, browser close, and other devices — restored from the sidebar on next sign-in
-- Auto-open the most recent thread on login (currently lands on a fresh page; history lives in the sidebar)
+- ~~Charts persist server-side per user (Postgres), so they survive logout, browser close, and other devices — restored from the sidebar on next sign-in~~
+- ~~Auto-open the most recent thread on sign-in / page load (unless the user has already started a new one), so work resumes where it left off~~
 
 **Data storytelling**
 - Intelligent peer selection — when a user focuses on one entity, the LLM picks structurally similar peers based on scale, sector, and growth trajectory

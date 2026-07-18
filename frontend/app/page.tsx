@@ -799,6 +799,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const currentThreadIdRef = useRef<string | null>(null);
   useEffect(() => { currentThreadIdRef.current = currentThreadId; }, [currentThreadId]);
+  const didAutoOpenRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
   const promptMicRef = useRef<MicHandle | null>(null);
@@ -915,8 +916,7 @@ export default function Home() {
   }, [sessions, currentThreadId, generating, adding, refreshThreads]);
 
   // Restore a saved thread: rebuild the File from stored CSV and load its charts.
-  async function openThread(id: string) {
-    setSidebarOpen(false);
+  const openThread = useCallback(async (id: string) => {
     try {
       const t = await getThread(id);
       setFile(new File([t.csv_content], t.csv_name, { type: "text/csv" }));
@@ -937,7 +937,20 @@ export default function Home() {
     } catch {
       setError("Couldn't open that thread.");
     }
-  }
+  }, []);
+
+  // Auto-open the most recent thread once on sign-in / page load, but never
+  // hijack the page once the user has started working (uploaded / generated).
+  useEffect(() => {
+    if (didAutoOpenRef.current) return;
+    if (!user || threads.length === 0) return;
+    if (sessions.length > 0 || file || currentThreadId) return;
+    didAutoOpenRef.current = true;
+    // openThread only setStates after `await getThread(...)`, so this isn't a
+    // synchronous effect update despite what the static rule assumes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    openThread(threads[0].id);  // threads are ordered most-recent first
+  }, [user, threads, sessions.length, file, currentThreadId, openThread]);
 
   function newThread() {
     setSidebarOpen(false);
@@ -1456,7 +1469,7 @@ export default function Home() {
                 threads.map((t) => (
                   <div
                     key={t.id}
-                    onClick={() => openThread(t.id)}
+                    onClick={() => { setSidebarOpen(false); openThread(t.id); }}
                     className={`group flex items-center gap-2 rounded-lg px-3 py-2 mb-0.5 cursor-pointer transition-colors
                       ${t.id === currentThreadId
                         ? (dark ? "bg-white/10" : "bg-gray-100")

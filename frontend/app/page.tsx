@@ -1692,22 +1692,25 @@ export default function Home() {
               </div>
               <button onClick={() => setSchemaView(null)} className="text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 text-xl leading-none cursor-pointer">×</button>
             </div>
-            <div className="max-h-[60vh] overflow-y-auto p-2">
+            <div
+              className="max-h-[60vh] overflow-auto p-2"
+              style={{ scrollbarWidth: "thin", scrollbarColor: dark ? "#374151 transparent" : "#cbd5e1 transparent" }}
+            >
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-400 dark:text-white/30">
-                    <th className="px-3 py-2 font-medium">Column</th>
-                    <th className="px-3 py-2 font-medium">Type</th>
-                    <th className="px-3 py-2 font-medium">Min</th>
-                    <th className="px-3 py-2 font-medium">Max</th>
-                    <th className="px-3 py-2 font-medium">Sample</th>
+                    <th className="px-5 py-2.5 font-medium">Column</th>
+                    <th className="px-5 py-2.5 font-medium">Type</th>
+                    <th className="px-5 py-2.5 font-medium">Min</th>
+                    <th className="px-5 py-2.5 font-medium">Max</th>
+                    <th className="px-5 py-2.5 font-medium">Sample</th>
                   </tr>
                 </thead>
                 <tbody>
                   {schemaView.columns.map((c) => (
                     <tr key={c.name} className="border-t border-gray-100 dark:border-white/5">
-                      <td className="px-3 py-2 font-medium text-gray-800 dark:text-white/80 break-all">{c.name}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-5 py-2.5 font-medium text-gray-800 dark:text-white/80 whitespace-nowrap">{c.name}</td>
+                      <td className="px-5 py-2.5">
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                           c.type === "Float" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
                           : c.type === "Date" ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"
@@ -1715,9 +1718,9 @@ export default function Home() {
                           {c.type === "Float" ? "number" : c.type === "Date" ? "date" : "text"}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-gray-500 dark:text-white/50 tabular-nums truncate max-w-[10rem]">{c.min ?? "—"}</td>
-                      <td className="px-3 py-2 text-gray-500 dark:text-white/50 tabular-nums truncate max-w-[10rem]">{c.max ?? "—"}</td>
-                      <td className="px-3 py-2 text-gray-400 dark:text-white/40 truncate max-w-[16rem]">{c.sample.join(", ") || "—"}</td>
+                      <td className="px-5 py-2.5 text-gray-500 dark:text-white/50 tabular-nums truncate max-w-[10rem]">{c.min ?? "—"}</td>
+                      <td className="px-5 py-2.5 text-gray-500 dark:text-white/50 tabular-nums truncate max-w-[10rem]">{c.max ?? "—"}</td>
+                      <td className="px-5 py-2.5 text-gray-400 dark:text-white/40 truncate max-w-[16rem]">{c.sample.join(", ") || "—"}</td>
                     </tr>
                   ))}
                 </tbody>

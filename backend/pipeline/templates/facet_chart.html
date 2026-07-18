@@ -296,7 +296,7 @@
     const xScale = isTemporal
       ? d3.scaleTime().domain(d3.extent(allXVals)).range([0, panelW])
       : isNumericX
-        ? d3.scaleLinear().domain([d3.min(allXVals), d3.max(allXVals) * 1.2]).range([0, panelW])
+        ? d3.scaleLinear().domain(d3.extent(allXVals)).range([0, panelW])
         : d3.scalePoint().domain([...new Set(allXVals)]).range([0, panelW]).padding(0.5);
 
     // Shared x-axis tick definition — cap ticks by panel width so narrow panels don't crowd
@@ -308,7 +308,16 @@
       const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
       xAxisDef = d3.axisBottom(xScale).ticks(maxXTicks).tickFormat(fmt).tickSize(4);
     } else if (isNumericX) {
-      xAxisDef = d3.axisBottom(xScale).ticks(maxXTicks).tickSize(4);
+      // Integer x (years, ages): integer tick values + no thousands separator.
+      const xIsInt = allXVals.every(v => Number.isInteger(v));
+      if (xIsInt) {
+        const [x0, x1] = xScale.domain();
+        const step = Math.max(1, Math.ceil((x1 - x0) / maxXTicks));
+        const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
+        xAxisDef = d3.axisBottom(xScale).tickValues(vals).tickFormat(d3.format("d")).tickSize(4);
+      } else {
+        xAxisDef = d3.axisBottom(xScale).ticks(maxXTicks).tickSize(4);
+      }
     } else {
       const allCats = [...new Set(allXVals)];
       const step    = allCats.length > maxXTicks ? Math.ceil(allCats.length / maxXTicks) : 1;

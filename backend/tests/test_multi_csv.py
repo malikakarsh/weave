@@ -126,6 +126,30 @@ class TestDetect:
         cands = detect_joins(conn, tables)
         assert any(c.left_col == "country" and c.right_col == "country" for c in cands)
 
+    def test_fk_referencing_tail_of_large_dimension(self, tmp_path):
+        # Regression: a FK that references only the TAIL of a dimension table larger
+        # than the sample cap (sprint_results.raceId → the most recent races) must
+        # still be detected. Two independently-capped samples would never intersect
+        # (races' sample is raceId 1..cap, the FK points at raceId cap+..) → overlap 0.
+        races = "raceId,year\n" + "".join(f"{i},{1950 + i // 20}\n" for i in range(1, 1126))
+        sprint = "raceId,driverId\n" + "".join(
+            f"{rid},{d}\n" for rid in range(1050, 1110) for d in range(1, 7)
+        )
+        conn, tables = load_tables([
+            _write(tmp_path, "sprint_results.csv", sprint),
+            _write(tmp_path, "races.csv", races),
+        ])
+        cands = detect_joins(conn, tables, sample=500)
+        top = next(c for c in cands
+                   if c.left_table == "sprint_results" and c.right_table == "races")
+        assert top.left_col == "raceId" and top.right_col == "raceId"
+        assert top.overlap == 1.0
+        # and it plans + joins without fan-out (all 360 sprint rows preserved)
+        plan, unjoined = suggest_plan(tables, cands)
+        assert unjoined == []
+        _, rows = execute_join(conn, plan, tables)
+        assert len(rows) == 360
+
 
 class TestSuggestPlan:
     def test_connects_all_tables(self, tmp_path):
@@ -223,6 +247,27 @@ class TestExecute:
         ])
         _, rows = execute_join(conn, plan, tables)
         assert len(rows) == 4  # not a cartesian blow-up
+
+    def test_steps_are_order_independent(self, tmp_path):
+        # Regression: a plan whose steps are both anchored on a NON-base table, listed
+        # so the step touching the base comes last, must still validate + execute — the
+        # graph (races—sprint_results—status) is connected regardless of step order.
+        conn, tables = load_tables([
+            _write(tmp_path, "races.csv", "raceId,year\nra1,2021\nra2,2021\n"),
+            _write(tmp_path, "status.csv", "statusId,label\n1,Finished\n2,Retired\n"),
+            _write(tmp_path, "sprint_results.csv",
+                   "raceId,driverId,statusId\nra1,d1,1\nra1,d2,2\nra2,d1,1\n"),
+        ])
+        # base is races; the step reaching races is listed SECOND (was "disconnected")
+        plan = JoinPlan(base_table="races", steps=[
+            JoinStep(left_table="sprint_results", left_col="statusId",
+                     right_table="status", right_col="statusId"),
+            JoinStep(left_table="sprint_results", left_col="raceId",
+                     right_table="races", right_col="raceId"),
+        ])
+        cols, rows = execute_join(conn, plan, tables)  # must not raise "disconnected"
+        assert "label" in cols and "year" in cols
+        assert len(rows) == 3  # every sprint row, with its race + status attached
 
     def test_to_csv_roundtrips(self, db):
         conn, tables = db

@@ -289,12 +289,12 @@
     } else {
       const xPad = (d3.max(allPoints, d => d.x) - d3.min(allPoints, d => d.x)) * 0.04 || 1;
       xScale = d3.scaleLinear()
-        .domain([d3.min(allPoints, d => d.x) - xPad, d3.max(allPoints, d => d.x) * 1.2])
+        .domain([d3.min(allPoints, d => d.x) - xPad, d3.max(allPoints, d => d.x) + xPad])
         .range([0, width]);
     }
 
     const yScale = d3.scaleLinear()
-      .domain([d3.min(allPoints, d => d.y) - yPad, d3.max(allPoints, d => d.y) * 1.2])
+      .domain([d3.min(allPoints, d => d.y) - yPad, d3.max(allPoints, d => d.y) + yPad])
       .range([height, 0]);
 
     // Grid + axes
@@ -313,7 +313,18 @@
       const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
       xAxisCall = d3.axisBottom(xScale).ticks(6).tickFormat(fmt);
     } else {
-      xAxisCall = d3.axisBottom(xScale).ticks(6).tickFormat(d => d3.format(",.2~f")(d));
+      // Integer x (years, ages): integer tick VALUES (so "d" formatting can't round
+      // 2021.5→2022 into duplicate labels) with no thousands separator. Floats keep
+      // grouped 2-decimal formatting.
+      const xIsInt = allPoints.every(d => Number.isInteger(d.x));
+      if (xIsInt) {
+        const [x0, x1] = xScale.domain();
+        const step = Math.max(1, Math.ceil((x1 - x0) / 6));
+        const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
+        xAxisCall = d3.axisBottom(xScale).tickValues(vals).tickFormat(d3.format("d"));
+      } else {
+        xAxisCall = d3.axisBottom(xScale).ticks(6).tickFormat(d => d3.format(",.2~f")(d));
+      }
     }
     const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
@@ -435,10 +446,18 @@
         html += `<div class="tip-row"><span class="tip-key">${config.x_label || "x"}</span><span class="tip-val">${formatXV(found.x)}</span></div>`;
         html += `<div class="tip-row"><span class="tip-key">${config.y_label || "y"}</span><span class="tip-val">${formatYV(found.y)}</span></div>`;
         tooltip.innerHTML = html;
+        const vpW = document.documentElement.clientWidth;
+        const vpH = document.documentElement.clientHeight;
         const _ttW = tooltip.offsetWidth || 180;
-        const _ttX = event.clientX + 14;
-        tooltip.style.left    = (_ttX + _ttW > document.documentElement.clientWidth) ? `${event.clientX - _ttW - 14}px` : `${_ttX}px`;
-        tooltip.style.top     = `${event.clientY - 14}px`;
+        const _ttH = tooltip.offsetHeight || 80;
+        // Prefer right of the cursor; flip left on overflow, then clamp within the
+        // viewport on both axes so the box never spills past the chart edge.
+        let ttLeft = event.clientX + 14;
+        if (ttLeft + _ttW > vpW - 8) ttLeft = event.clientX - _ttW - 14;
+        ttLeft = Math.max(8, Math.min(ttLeft, vpW - _ttW - 8));
+        let ttTop = Math.max(8, Math.min(event.clientY - 14, vpH - _ttH - 8));
+        tooltip.style.left    = `${ttLeft}px`;
+        tooltip.style.top     = `${ttTop}px`;
         tooltip.style.opacity = 1;
       })
       .on("mouseleave", () => {

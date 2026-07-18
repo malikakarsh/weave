@@ -322,7 +322,7 @@
     const xScale = isTemporal
       ? d3.scaleTime().domain(d3.extent(allPoints, d => d.x)).range([0, width])
       : isNumeric
-        ? d3.scaleLinear().domain([d3.min(allPoints, d => d.x), d3.max(allPoints, d => d.x) * 1.2]).range([0, width])
+        ? d3.scaleLinear().domain(d3.extent(allPoints, d => d.x)).range([0, width])
         : d3.scalePoint().domain([...new Set(allPoints.map(d => d.x))]).range([0, width]).padding(0.5);
 
     const yScale = d3.scaleLinear()
@@ -345,7 +345,16 @@
       const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
       xAxis = d3.axisBottom(xScale).ticks(interval).tickFormat(fmt);
     } else if (isNumeric) {
-      xAxis = d3.axisBottom(xScale).ticks(6);
+      // Integer x (years, ages): integer tick values + no thousands separator.
+      const xIsInt = allPoints.every(d => Number.isInteger(d.x));
+      if (xIsInt) {
+        const [x0, x1] = xScale.domain();
+        const step = Math.max(1, Math.ceil((x1 - x0) / 6));
+        const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
+        xAxis = d3.axisBottom(xScale).tickValues(vals).tickFormat(d3.format("d"));
+      } else {
+        xAxis = d3.axisBottom(xScale).ticks(6);
+      }
     } else {
       const allX = [...new Set(allPoints.map(d => d.x))];
       const step = allX.length > 8 ? Math.ceil(allX.length / 8) : 1;
@@ -478,6 +487,17 @@
     const formatY = d3.format(",.2f");
     const formatX = isTemporal ? d3.timeFormat("%b %d, %Y") : d => d;
 
+    // Canonical x reference = the UNION of every group's x values, so the hovered
+    // year snaps against ALL data, not just groups[0] — otherwise the header year
+    // and guide line disagree with the per-group values whenever the first group is
+    // missing an x the others have. Keyed by time-ms for dates.
+    const xKey = v => isTemporal ? +v : v;
+    const xUnion = new Map();
+    allPoints.forEach(d => { const k = xKey(d.x); if (!xUnion.has(k)) xUnion.set(k, d.x); });
+    const xRef = [...xUnion.values()]
+      .sort((a, b) => (isTemporal || isNumeric) ? xKey(a) - xKey(b) : d3.ascending(a, b))
+      .map(x => ({ x }));
+
     const hoverOverlay = g.append("rect")
       .attr("width", width).attr("height", height)
       .attr("fill", "none").attr("pointer-events", "all")
@@ -485,26 +505,21 @@
         const [mx] = d3.pointer(event);
         const xVal = (isTemporal || isNumeric) ? xScale.invert(mx) : null;
 
-        const ref = groups[0].values;
         const idx = (isTemporal || isNumeric)
-          ? bisect(ref, xVal)
-          : Math.round((mx / width) * (ref.length - 1));
-        const safeIdx = Math.max(0, Math.min(idx, ref.length - 1));
+          ? bisect(xRef, xVal)
+          : Math.round((mx / width) * (xRef.length - 1));
+        const safeIdx = Math.max(0, Math.min(idx, xRef.length - 1));
 
-        const cx = xScale(ref[safeIdx].x);
+        const targetX = xRef[safeIdx].x;
+        const targetK = xKey(targetX);
+        const cx = xScale(targetX);
         hoverLine.attr("x1", cx).attr("x2", cx).attr("opacity", 1);
 
-        const groupPts = groups.map(grp => {
-          if (!grp.values.length) return null;
-          if (isTemporal || isNumeric) {
-            const minX = grp.values[0].x;
-            const maxX = grp.values[grp.values.length - 1].x;
-            if (xVal < minX || xVal > maxX) return null;
-            const gi = Math.max(0, Math.min(bisect(grp.values, xVal), grp.values.length - 1));
-            return grp.values[gi];
-          }
-          return grp.values[safeIdx] ?? null;
-        });
+        // Each group shows its value AT the snapped x (null if absent), so every
+        // tooltip row corresponds to the same year in the header.
+        const groupPts = groups.map(grp =>
+          grp.values.find(d => xKey(d.x) === targetK) ?? null
+        );
 
         groups.forEach((grp, i) => {
           const pt = groupPts[i];
@@ -515,7 +530,7 @@
           }
         });
 
-        let html = `<div class="tip-date">${formatX(ref[safeIdx].x)}</div>`;
+        let html = `<div class="tip-date">${formatX(targetX)}</div>`;
         groups.forEach((grp, i) => {
           const pt  = groupPts[i];
           const val = pt && pt.y !== null ? formatY(pt.y) : "—";
@@ -530,10 +545,22 @@
         tooltip.innerHTML = html;
 
         const chartRect = document.getElementById("chart").getBoundingClientRect();
+        const vpW = document.documentElement.clientWidth;
+        const vpH = document.documentElement.clientHeight;
         const _ttW = tooltip.offsetWidth || 180;
-        const _ttX = chartRect.left + margin.left + cx + 12;
-        tooltip.style.left    = (_ttX + _ttW > document.documentElement.clientWidth) ? `${chartRect.left + margin.left + cx - _ttW - 12}px` : `${_ttX}px`;
-        tooltip.style.top     = `${chartRect.top  + margin.top  + yScale(ref[safeIdx].y ?? 0) - 20}px`;
+        const _ttH = tooltip.offsetHeight || 80;
+        const anchorX = chartRect.left + margin.left + cx;
+        // Horizontally sit beside the guide line (flip to its left near the right
+        // edge); vertically FOLLOW THE CURSOR rather than a series' data value, so the
+        // box never lands on top of the pointer. Both axes clamp inside the viewport.
+        let ttLeft = anchorX + 14;
+        if (ttLeft + _ttW > vpW - 8) ttLeft = anchorX - _ttW - 14;
+        ttLeft = Math.max(8, Math.min(ttLeft, vpW - _ttW - 8));
+        let ttTop = event.clientY + 16;
+        if (ttTop + _ttH > vpH - 8) ttTop = event.clientY - _ttH - 16;
+        ttTop = Math.max(8, Math.min(ttTop, vpH - _ttH - 8));
+        tooltip.style.left    = `${ttLeft}px`;
+        tooltip.style.top     = `${ttTop}px`;
         tooltip.style.opacity = 1;
       })
       .on("mouseleave", () => {

@@ -298,7 +298,7 @@
     const xScale = isTemporal
       ? d3.scaleTime().domain(d3.extent(pivoted, d => d.x)).range([0, width])
       : isNumeric
-        ? d3.scaleLinear().domain([d3.min(pivoted, d => d.x), d3.max(pivoted, d => d.x) * 1.2]).range([0, width])
+        ? d3.scaleLinear().domain(d3.extent(pivoted, d => d.x)).range([0, width])
         : d3.scalePoint().domain(xKeys.map(k => xMap.get(k))).range([0, width]).padding(0.5);
 
     const yScale = d3.scaleLinear()
@@ -323,7 +323,16 @@
       xAxis = d3.axisBottom(xScale).ticks(interval)
         .tickFormat(years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y"));
     } else if (isNumeric) {
-      xAxis = d3.axisBottom(xScale).ticks(6);
+      // Integer x (years, ages): integer tick values + no thousands separator.
+      const xIsInt = pivoted.every(d => Number.isInteger(d.x));
+      if (xIsInt) {
+        const [x0, x1] = xScale.domain();
+        const step = Math.max(1, Math.ceil((x1 - x0) / 6));
+        const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
+        xAxis = d3.axisBottom(xScale).tickValues(vals).tickFormat(d3.format("d"));
+      } else {
+        xAxis = d3.axisBottom(xScale).ticks(6);
+      }
     } else {
       const allX = xKeys.map(k => xMap.get(k));
       const step = allX.length > 8 ? Math.ceil(allX.length / 8) : 1;

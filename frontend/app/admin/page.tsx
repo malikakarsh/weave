@@ -39,6 +39,8 @@ interface ModelMetric {
   p95_latency_ms: number | null;
   input_tokens: number;
   output_tokens: number;
+  avg_input_tokens: number | null;
+  avg_output_tokens: number | null;
   cost_usd: number | null;
   last_used: string | null;
   calls_per_min: number;
@@ -48,7 +50,9 @@ interface Metrics {
   models: ModelMetric[];
   totals: {
     calls: number; errors: number; error_rate: number;
-    input_tokens: number; output_tokens: number; cost_usd: number | null; calls_per_min: number;
+    input_tokens: number; output_tokens: number;
+    avg_input_tokens: number | null; avg_output_tokens: number | null;
+    cost_usd: number | null; calls_per_min: number;
   };
   ts: string;
 }
@@ -227,15 +231,16 @@ export default function AdminPage() {
                   <th className="px-4 py-3 font-medium text-right">p95 ms</th>
                   <th className="px-4 py-3 font-medium text-right">Errors</th>
                   <th className="px-4 py-3 font-medium text-right">Tokens (in / out)</th>
+                  <th className="px-4 py-3 font-medium text-right">Avg tokens (in / out)</th>
                   <th className="px-4 py-3 font-medium text-right">Est. cost</th>
                   <th className="px-4 py-3 font-medium">Last call</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-white/5">
                 {!metrics ? (
-                  <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400 dark:text-white/40">Waiting for the first metrics…</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400 dark:text-white/40">Waiting for the first metrics…</td></tr>
                 ) : metrics.models.length === 0 ? (
-                  <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400 dark:text-white/40">No LLM calls yet — generate a chart to see live stats.</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400 dark:text-white/40">No LLM calls yet — generate a chart to see live stats.</td></tr>
                 ) : (
                   metrics.models.map((m) => (
                     <tr key={`${m.provider}/${m.model}`} className="hover:bg-gray-50 dark:hover:bg-white/5">
@@ -251,6 +256,7 @@ export default function AdminPage() {
                         {m.errors ? `${m.errors} (${(m.error_rate * 100).toFixed(0)}%)` : "0"}
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums text-gray-500 dark:text-white/50">{fmtInt(m.input_tokens)} / {fmtInt(m.output_tokens)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-500 dark:text-white/50">{m.avg_input_tokens ?? "—"} / {m.avg_output_tokens ?? "—"}</td>
                       <td className="px-4 py-3 text-right tabular-nums">{fmtCost(m.cost_usd)}</td>
                       <td className="px-4 py-3 text-gray-500 dark:text-white/50 whitespace-nowrap">{when(m.last_used)}</td>
                     </tr>

@@ -225,12 +225,16 @@
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
     // ── Scales ───────────────────────────────────────────────────────────
+    // Pad each coordinate axis by a fraction of its RANGE (not a multiple of its
+    // max — a year × 1.2 would blow the axis out to 2400 and crush the data).
+    const xPad = (d3.max(allPoints, d => d.x) - d3.min(allPoints, d => d.x)) * 0.06 || 1;
+    const yPad = (d3.max(allPoints, d => d.y) - d3.min(allPoints, d => d.y)) * 0.06 || 1;
     const xScale = d3.scaleLinear()
-      .domain([d3.min(allPoints, d => d.x), d3.max(allPoints, d => d.x) * 1.2])
+      .domain([d3.min(allPoints, d => d.x) - xPad, d3.max(allPoints, d => d.x) + xPad])
       .range([0, width]);
 
     const yScale = d3.scaleLinear()
-      .domain([d3.min(allPoints, d => d.y), d3.max(allPoints, d => d.y) * 1.2])
+      .domain([d3.min(allPoints, d => d.y) - yPad, d3.max(allPoints, d => d.y) + yPad])
       .range([height, 0]);
 
     // Bubble size: area proportional to z (sqrt scale); fallback to fixed radius if no z
@@ -252,9 +256,20 @@
       .call(d3.axisBottom(xScale).tickSize(height).tickFormat(""))
       .selectAll("line").attr("stroke", "#1e2235");
 
+    // Integer x (years, ages): integer tick values, no thousands separator; floats
+    // keep grouped 1-decimal formatting.
+    const xIsInt = allPoints.every(d => Number.isInteger(d.x));
+    const xBubbleAxis = d3.axisBottom(xScale).ticks(6);
+    if (xIsInt) {
+      const [x0, x1] = xScale.domain();
+      const step = Math.max(1, Math.ceil((x1 - x0) / 6));
+      xBubbleAxis.tickValues(d3.range(Math.ceil(x0), Math.floor(x1) + 1, step)).tickFormat(d3.format("d"));
+    } else {
+      xBubbleAxis.tickFormat(d => d3.format(",.1~f")(d));
+    }
     const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(xScale).ticks(6).tickFormat(d => d3.format(",.1~f")(d)));
+      .call(xBubbleAxis);
     xAxisG.selectAll("text").attr("dy", "1.2em").attr("fill", "#64748b").attr("font-size", "12px");
     xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 

@@ -154,6 +154,28 @@ def _distinct_values(conn, table, col, limit) -> set[str]:
     }
 
 
+def _membership_overlap(conn, left_vals: set[str], table, col) -> float:
+    """Fraction of `left_vals` that appear in `table.col`, tested against the FULL
+    column (not a capped sample). This is the correct foreign-key signal: a FK that
+    references the tail of a large dimension table (sprint_results.raceId → the most
+    recent races) still overlaps 1.0, where intersecting two independently-capped
+    samples would spuriously read 0."""
+    if not left_vals:
+        return 0.0
+    vals = list(left_vals)
+    present = 0
+    chunk = 900   # keep under SQLite's variable limit; chunks are disjoint so counts add
+    for i in range(0, len(vals), chunk):
+        part = vals[i:i + chunk]
+        ph = ", ".join("?" for _ in part)
+        (n,) = conn.execute(
+            f"SELECT COUNT(DISTINCT {_q(col)}) FROM {_q(table)} "
+            f"WHERE {_q(col)} IN ({ph})", part
+        ).fetchone()
+        present += n
+    return present / len(left_vals)
+
+
 def _is_numeric_col(conn, table, col, sample: int = 50) -> bool:
     """True if a sample of non-empty values all parse as numbers — used to tell a
     numeric MEASURE (points, wins) from a string dimension (country) that share a
@@ -199,9 +221,10 @@ def _composite_uniqueness(conn, table, cols: list[str]) -> float:
 def _composite_tuples(conn, table, cols: list[str], limit: int) -> set[tuple]:
     expr = ", ".join(_q(c) for c in cols)
     where = " AND ".join(f"{_q(c)} != ''" for c in cols)
+    limit_sql = f" LIMIT {int(limit)}" if limit else ""   # limit=0 → uncapped (full column)
     return {
         tuple(r) for r in conn.execute(
-            f"SELECT DISTINCT {expr} FROM {_q(table)} WHERE {where} LIMIT {int(limit)}"
+            f"SELECT DISTINCT {expr} FROM {_q(table)} WHERE {where}{limit_sql}"
         ).fetchall()
     }
 
@@ -249,14 +272,7 @@ def detect_joins(
                 if len(sa) < min_distinct:
                     continue
                 for cb in tables[b].columns:
-                    sb = value_sets[(b, cb)]
-                    if not sb:
-                        continue
-                    overlap = len(sa & sb) / len(sa)
-                    if overlap < min_overlap:
-                        continue
-                    uniq = _uniqueness(conn, b, cb)
-                    if uniq < 0.9:        # right side should be roughly a key
+                    if not value_sets[(b, cb)]:
                         continue
                     # Reject spurious overlaps between DIFFERENT entities. A valid
                     # join key is either key columns referring to the SAME entity
@@ -267,6 +283,8 @@ def detect_joins(
                     # and `orders.id` are both `id` but must NOT join (that would
                     # beat the real `orders.user_id → users.id`). This also stops
                     # `statusId`~`raceId` and same-named MEASURES (points~points).
+                    # Checked BEFORE the overlap scan so the full-column membership
+                    # query only runs for name-plausible pairs.
                     same_name = ca.lower() == cb.lower()
                     key_like = _looks_like_fk(ca) and _looks_like_fk(cb)
                     if key_like:
@@ -275,6 +293,15 @@ def detect_joins(
                     elif same_name and not _is_numeric_col(conn, b, cb):
                         pass                      # shared string dimension, e.g. country
                     else:
+                        continue
+                    # Overlap of the FK side against the FULL referenced column, so a
+                    # key that points at the tail of a large dimension table is not
+                    # missed by two independently-capped samples failing to intersect.
+                    overlap = _membership_overlap(conn, sa, b, cb)
+                    if overlap < min_overlap:
+                        continue
+                    uniq = _uniqueness(conn, b, cb)
+                    if uniq < 0.9:        # right side should be roughly a key
                         continue
                     name_bonus = 0.1 if same_name else 0.0
                     conf = min(1.0, overlap * 0.7 + uniq * 0.3 + name_bonus)
@@ -315,8 +342,11 @@ def detect_composite_joins(
                 lt, lc, rt, rc, ru, lu = a, a_cols, b, b_cols, uniq_b, uniq_a
             else:
                 lt, lc, rt, rc, ru, lu = b, b_cols, a, a_cols, uniq_a, uniq_b
+            # Left (FK) side is sampled to bound work; the right (referenced) side is
+            # read in FULL so a composite key pointing at the tail of a large table
+            # still matches — the single-column path's sampling bug applied to tuples.
             left_tuples = _composite_tuples(conn, lt, lc, sample)
-            right_tuples = _composite_tuples(conn, rt, rc, sample)
+            right_tuples = _composite_tuples(conn, rt, rc, 0)
             if not left_tuples:
                 continue
             overlap = len(left_tuples & right_tuples) / len(left_tuples)
@@ -436,17 +466,30 @@ def _validate_plan(plan: JoinPlan, tables: dict[str, TableInfo]) -> None:
 
     if plan.base_table not in tables:
         raise JoinError(f"Unknown base table '{plan.base_table}'")
-    reachable = {plan.base_table}
     for s in plan.steps:
         for lc, rc in s.col_pairs:
             check(s.left_table, lc)
             check(s.right_table, rc)
         if s.how not in ("left", "inner"):
             raise JoinError(f"Invalid join type '{s.how}'")
+
+    # Connectivity is checked as an UNDIRECTED graph reachable from the base, not by
+    # step order: steps are treated as edges and grown to a fixpoint. A plan whose
+    # steps are listed out of order (e.g. both anchored on a table that only
+    # connects to the base via a later step) is still valid as long as every step's
+    # tables end up in the base's connected component.
+    reachable = {plan.base_table}
+    changed = True
+    while changed:
+        changed = False
+        for s in plan.steps:
+            if (s.left_table in reachable) != (s.right_table in reachable):
+                reachable.add(s.left_table)
+                reachable.add(s.right_table)
+                changed = True
+    for s in plan.steps:
         if s.left_table not in reachable and s.right_table not in reachable:
             raise JoinError(f"Join step is disconnected: {s.left_table}/{s.right_table}")
-        reachable.add(s.left_table)
-        reachable.add(s.right_table)
 
 
 def execute_join(
@@ -458,26 +501,37 @@ def execute_join(
     disambiguated by prefixing the source table."""
     _validate_plan(plan, tables)
 
-    # Each table joins exactly once. A step that would re-add an already-joined
-    # table (a cyclic / redundant/false-positive join) is skipped so it can't
+    # Each table joins exactly once. Steps are applied to a fixpoint rather than in
+    # list order: a step is emitted once exactly one of its tables is already in the
+    # FROM chain (so its ON clause can reference both sides), whichever order the
+    # user's plan happens to list them in. A step whose tables are both already
+    # joined (a cyclic / redundant / false-positive join) is skipped so it can't
     # blow up into a cartesian product.
     joined = {plan.base_table}
     order = [plan.base_table]
     join_clauses: list[str] = []
-    for s in plan.steps:
-        if s.left_table in joined and s.right_table in joined:
-            continue                                   # redundant / cyclic
-        new = s.right_table if s.left_table in joined else s.left_table
-        if new in joined:
-            continue
-        joined.add(new)
-        order.append(new)
-        jt = "INNER JOIN" if s.how == "inner" else "LEFT JOIN"
-        on = " AND ".join(
-            f"{_q(s.left_table)}.{_q(lc)} = {_q(s.right_table)}.{_q(rc)}"
-            for lc, rc in s.col_pairs
-        )
-        join_clauses.append(f" {jt} {_q(new)} ON {on}")
+    pending = list(plan.steps)
+    progress = True
+    while progress:
+        progress = False
+        for s in list(pending):
+            l_in, r_in = s.left_table in joined, s.right_table in joined
+            if l_in and r_in:
+                pending.remove(s)                      # redundant / cyclic
+                continue
+            if not l_in and not r_in:
+                continue                               # neither side joined yet — wait
+            new = s.right_table if l_in else s.left_table
+            joined.add(new)
+            order.append(new)
+            jt = "INNER JOIN" if s.how == "inner" else "LEFT JOIN"
+            on = " AND ".join(
+                f"{_q(s.left_table)}.{_q(lc)} = {_q(s.right_table)}.{_q(rc)}"
+                for lc, rc in s.col_pairs
+            )
+            join_clauses.append(f" {jt} {_q(new)} ON {on}")
+            pending.remove(s)
+            progress = True
 
     # unique output column names
     counts: dict[str, int] = {}

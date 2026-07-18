@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import Link from "next/link";
 
 // ── content data ────────────────────────────────────────────────────────────
@@ -50,11 +50,16 @@ const CHART_TYPES: [string, string, string][] = [
   ["network", "Node-link relationships", "x (source), y (target), optional z (weight)"],
 ];
 
-// Theme-neutral inline code + section heading (defined at module scope so they
-// aren't recreated on every render).
-const Code = ({ children }: { children: React.ReactNode }) => (
-  <code className="rounded px-1.5 py-0.5 text-[0.85em] font-mono bg-indigo-500/12 text-indigo-500">{children}</code>
-);
+// Theme flows through context so the module-scope Code chip can match the app's
+// accent — indigo in dark, red in light — without being recreated per render.
+const DarkCtx = createContext(true);
+
+const Code = ({ children }: { children: React.ReactNode }) => {
+  const dark = useContext(DarkCtx);
+  return (
+    <code className={`rounded px-1.5 py-0.5 text-[0.85em] font-mono ${dark ? "bg-indigo-500/15 text-indigo-300" : "bg-red-500/10 text-red-600"}`}>{children}</code>
+  );
+};
 
 const H = ({ id, children }: { id: string; children: React.ReactNode }) => (
   <h2 id={id} className="scroll-mt-20 text-xl font-semibold mb-3 mt-10 first:mt-0">{children}</h2>
@@ -71,11 +76,12 @@ export default function DocsPage() {
     card: dark ? "bg-white/5 border-white/10" : "bg-gray-50 border-gray-200",
     th: dark ? "text-white/50 border-white/10" : "text-gray-500 border-gray-200",
     tr: dark ? "border-white/5" : "border-gray-100",
-    accent: dark ? "text-indigo-300" : "text-indigo-600",
+    accent: dark ? "text-indigo-300" : "text-red-600",
     tocActive: dark ? "text-white" : "text-gray-900",
   };
 
   return (
+    <DarkCtx.Provider value={dark}>
     <main className={`min-h-screen ${c.page}`}>
       <header className={`sticky top-0 z-10 border-b ${c.header}`}>
         <div className="max-w-5xl mx-auto px-6 h-14 flex items-center gap-3">
@@ -221,5 +227,6 @@ export default function DocsPage() {
         <div className="hidden xl:block" />
       </div>
     </main>
+    </DarkCtx.Provider>
   );
 }

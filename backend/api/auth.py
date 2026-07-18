@@ -195,7 +195,7 @@ async def me(user: dict | None = Depends(current_user_optional)):
         "role": role,
         "usage": {
             "used": await usage.get_used(user["uid"]),
-            "limit": None if admin else usage.daily_limit(),
+            "limit": None if admin else await usage.effective_limit(user["uid"]),
             "remaining": await usage.remaining(user),
         },
         "expires_at": datetime.fromtimestamp(user["exp"], tz=timezone.utc).isoformat(),

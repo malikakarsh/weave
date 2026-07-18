@@ -14,11 +14,21 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import select
 
 from api.db import SessionLocal
-from api.db_models import DailyUsage
+from api.db_models import DailyUsage, User
 
 
-def daily_limit() -> int:
+def default_limit() -> int:
+    """Global daily limit for users without a per-user override."""
     return int(os.getenv("DAILY_REQUEST_LIMIT", "20"))
+
+
+async def effective_limit(user_id: str) -> int:
+    """A user's daily limit: their override if set, else the global default."""
+    async with SessionLocal() as db:
+        row = await db.get(User, uuid.UUID(str(user_id)))
+        if row is not None and row.daily_limit is not None:
+            return row.daily_limit
+    return default_limit()
 
 
 def is_admin(user: dict) -> bool:
@@ -56,15 +66,16 @@ async def remaining(user: dict) -> int | None:
     """Requests left today, or None for admins (unlimited)."""
     if is_admin(user):
         return None
-    return max(0, daily_limit() - await get_used(user["uid"]))
+    return max(0, await effective_limit(user["uid"]) - await get_used(user["uid"]))
 
 
 async def ensure_quota(user: dict) -> None:
     """Raise 429 if the user has no requests left today. Admins pass through."""
     if is_admin(user):
         return
-    if await get_used(user["uid"]) >= daily_limit():
+    limit = await effective_limit(user["uid"])
+    if await get_used(user["uid"]) >= limit:
         raise HTTPException(
             status_code=429,
-            detail=f"Daily limit of {daily_limit()} requests reached. Resets at midnight UTC.",
+            detail=f"Daily limit of {limit} requests reached. Resets at midnight UTC.",
         )

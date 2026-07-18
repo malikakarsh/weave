@@ -15,6 +15,8 @@ interface AdminUser {
   visits: number;
   total_usage: number;
   today_usage: number;
+  daily_limit: number | null;      // per-user override, or null = default
+  effective_limit: number;
   created_at: string | null;
   last_seen_at: string | null;
 }
@@ -23,6 +25,7 @@ interface Stats {
   users: number;
   calls_total: number;
   calls_today: number;
+  default_limit: number;
 }
 
 function when(iso: string | null): string {
@@ -37,8 +40,39 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const isAdmin = user?.role === "admin";
+
+  async function saveLimit(u: AdminUser) {
+    const trimmed = draft.trim();
+    // empty input clears the override (back to the global default)
+    const value = trimmed === "" ? null : Number(trimmed);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/admin/users/${u.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daily_limit: value }),
+      });
+      if (!res.ok) throw new Error();
+      const upd = await res.json();
+      setUsers((prev) =>
+        (prev ?? []).map((x) =>
+          x.id === u.id ? { ...x, daily_limit: upd.daily_limit, effective_limit: upd.effective_limit } : x
+        )
+      );
+      setEditingId(null);
+    } catch {
+      setError("Failed to update the limit.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -85,11 +119,12 @@ export default function AdminPage() {
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Stat cards */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           {[
             { label: "Users", value: stats?.users },
             { label: "LLM calls today", value: stats?.calls_today },
             { label: "LLM calls total", value: stats?.calls_total },
+            { label: "Default daily limit", value: stats?.default_limit },
           ].map((c) => (
             <div key={c.label} className="rounded-xl border border-gray-200 bg-white p-5">
               <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{c.label}</p>
@@ -110,15 +145,16 @@ export default function AdminPage() {
                 <th className="px-4 py-3 font-medium text-right">Page opens</th>
                 <th className="px-4 py-3 font-medium text-right">Today</th>
                 <th className="px-4 py-3 font-medium text-right">Total calls</th>
+                <th className="px-4 py-3 font-medium">Daily limit</th>
                 <th className="px-4 py-3 font-medium">Last seen</th>
                 <th className="px-4 py-3 font-medium">Joined</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {users === null ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Loading…</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Loading…</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No users yet.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No users yet.</td></tr>
               ) : (
                 users.map((u) => (
                   <tr key={u.id} className="hover:bg-gray-50">
@@ -140,6 +176,37 @@ export default function AdminPage() {
                     <td className="px-4 py-3 text-right tabular-nums">{u.visits}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{u.today_usage}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{u.total_usage}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {u.role === "admin" ? (
+                        <span className="text-gray-400">Unlimited</span>
+                      ) : editingId === u.id ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min={0}
+                            autoFocus
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") saveLimit(u); if (e.key === "Escape") setEditingId(null); }}
+                            placeholder={String(stats?.default_limit ?? "")}
+                            className="w-16 rounded border border-gray-300 px-2 py-1 text-sm tabular-nums focus:outline-none focus:border-indigo-400"
+                          />
+                          <button disabled={saving} onClick={() => saveLimit(u)} className="text-xs font-medium text-indigo-600 hover:underline disabled:opacity-50">Save</button>
+                          <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="tabular-nums">{u.effective_limit}</span>
+                          {u.daily_limit === null && <span className="text-xs text-gray-400">(default)</span>}
+                          <button
+                            onClick={() => { setEditingId(u.id); setDraft(u.daily_limit === null ? "" : String(u.daily_limit)); setError(null); }}
+                            className="text-xs font-medium text-indigo-600 hover:underline"
+                          >
+                            Edit
+                          </button>
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{when(u.last_seen_at)}</td>
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{when(u.created_at)}</td>
                   </tr>

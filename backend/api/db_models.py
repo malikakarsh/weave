@@ -33,6 +33,8 @@ class User(Base):
     # "admin" (unlimited, full access) or "user" (rate limited). Derived from
     # ADMIN_EMAILS at login, not user-editable.
     role: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
+    # Per-user daily LLM-call limit override (null = use the global default).
+    daily_limit: Mapped[int | None] = mapped_column(Integer)
     # Page-open count and last activity, for the admin dashboard.
     visits: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

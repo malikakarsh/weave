@@ -4,11 +4,19 @@ import { useCallback, useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+export interface Usage {
+  used: number;
+  limit: number | null; // null = unlimited (admin)
+  remaining: number | null;
+}
+
 export interface AuthUser {
   sub: string;
   email: string | null;
   name: string | null;
   picture: string | null;
+  role: "admin" | "user";
+  usage: Usage;
 }
 
 /**

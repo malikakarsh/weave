@@ -3,6 +3,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { get, set, del } from "idb-keyval";
 import { useAuth } from "./useAuth";
+import { listThreads, getThread, createThread, saveCharts, deleteThread, type ThreadSummary } from "./threads";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -297,9 +298,10 @@ interface ChartCardProps {
   onRegenerate: (id: string, prompt: string) => void;
   registerRefineMic?: (id: string, ref: RefObject<MicHandle | null> | null) => void;
   onActive?: (id: string) => void;
+  onUsage?: () => void;  // called after a refine/insight consumes quota
 }
 
-function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, registerRefineMic, onActive }: ChartCardProps) {
+function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, registerRefineMic, onActive, onUsage }: ChartCardProps) {
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [refineStage, setRefineStage] = useState<string | null>(null);
@@ -430,6 +432,7 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
     } finally {
       setRefining(false);
       setRefineStage(null);
+      onUsage?.();  // refine consumed quota — refresh the counter
     }
   }
 
@@ -789,8 +792,13 @@ export default function Home() {
   const [isPlayground, setIsPlayground] = useState(false);
   const [playgroundName, setPlaygroundName] = useState("");
   const [loadingPlayground, setLoadingPlayground] = useState<string | null>(null);
-  const { user, login, logout } = useAuth();
+  const { user, login, logout, refresh: refreshAuth } = useAuth();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const currentThreadIdRef = useRef<string | null>(null);
+  useEffect(() => { currentThreadIdRef.current = currentThreadId; }, [currentThreadId]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
   const promptMicRef = useRef<MicHandle | null>(null);
@@ -882,6 +890,72 @@ export default function Home() {
     setPlaygroundName("");
     setError(null);
     setSessions([]);
+    setCurrentThreadId(null);  // a new upload starts a new thread on first generate
+  }
+
+  // ── thread persistence ──────────────────────────────────────────────────
+  const refreshThreads = useCallback(() => {
+    if (!user) return;
+    listThreads().then(setThreads).catch(() => {});
+  }, [user]);
+
+  useEffect(() => { refreshThreads(); }, [refreshThreads]);
+
+  // Save charts to the current thread whenever they settle (debounced).
+  useEffect(() => {
+    const tid = currentThreadId;
+    if (!tid || generating || adding || sessions.length === 0) return;
+    const t = setTimeout(() => {
+      saveCharts(tid, sessions.map((s, i) => ({
+        sub_prompt: s.subPrompt, mapping: s.mapping, html: s.html,
+        history: s.history, position: i,
+      }))).then(refreshThreads).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [sessions, currentThreadId, generating, adding, refreshThreads]);
+
+  // Restore a saved thread: rebuild the File from stored CSV and load its charts.
+  async function openThread(id: string) {
+    setSidebarOpen(false);
+    try {
+      const t = await getThread(id);
+      setFile(new File([t.csv_content], t.csv_name, { type: "text/csv" }));
+      setIsPlayground(false);
+      setPlaygroundName("");
+      setError(null);
+      setCurrentThreadId(t.id);
+      setSessions(t.charts.map((c, i) => ({
+        id: `session-${i}`,
+        subPrompt: c.sub_prompt,
+        status: (c.html ? "done" : "error") as ChartSession["status"],
+        stage: null,
+        html: c.html,
+        mapping: c.mapping,
+        history: (c.history ?? []) as HistoryMessage[],
+        error: null,
+      })));
+    } catch {
+      setError("Couldn't open that thread.");
+    }
+  }
+
+  function newThread() {
+    setSidebarOpen(false);
+    setSessions([]);
+    setPrompt("");
+    setError(null);
+    setFile(null);
+    setIsPlayground(false);
+    setPlaygroundName("");
+    setCurrentThreadId(null);
+  }
+
+  async function removeThread(id: string) {
+    try {
+      await deleteThread(id);
+      if (id === currentThreadId) newThread();
+      refreshThreads();
+    } catch { /* ignore */ }
   }
 
   function updateSession(id: string, updates: Partial<ChartSession>) {
@@ -941,6 +1015,16 @@ export default function Home() {
     setGenerating(true);
     setError(null);
     setSessions([]);
+
+    // A new CSV workspace = a new thread. Create it lazily on first generation.
+    if (!currentThreadIdRef.current) {
+      try {
+        const content = await f.text();
+        const t = await createThread({ title: f.name, csv_name: f.name, csv_content: content });
+        setCurrentThreadId(t.id);
+        refreshThreads();
+      } catch { /* non-fatal: generation still works, just isn't persisted */ }
+    }
 
     const body = new FormData();
     body.append("file", f);
@@ -1023,6 +1107,7 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Request failed");
     } finally {
       setGenerating(false);
+      refreshAuth();  // usage was consumed — refresh the counter
     }
   }
 
@@ -1043,6 +1128,7 @@ export default function Home() {
       setFile(csvFile);
       setIsPlayground(true);
       setPlaygroundName(name);
+      setCurrentThreadId(null);  // sample dataset starts its own thread
       await generateWith(csvFile, datasetPrompt);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load playground dataset");
@@ -1142,6 +1228,7 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Failed to add chart");
     } finally {
       setAdding(false);
+      refreshAuth();
     }
   }
 
@@ -1214,6 +1301,17 @@ export default function Home() {
             boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
           }}
         >
+          {user && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              title="Your threads"
+              className="mr-1 flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 dark:text-white/50 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+              </svg>
+            </button>
+          )}
           <div className="flex items-center gap-2.5">
             <div className={`w-6 h-6 rounded-md ${dark ? "bg-indigo-500" : "bg-red-600"} flex items-center justify-center shrink-0`}>
               <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -1231,7 +1329,7 @@ export default function Home() {
           {/* Start over — only shown in dashboard state */}
           {hasSessions && (
             <button
-              onClick={() => { setSessions([]); setPrompt(""); setError(null); setFile(null); setIsPlayground(false); setPlaygroundName(""); }}
+              onClick={newThread}
               className="text-xs text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 transition-colors mr-3 cursor-pointer"
             >
               ← New
@@ -1260,7 +1358,23 @@ export default function Home() {
 
           {/* Auth control */}
           {user ? (
-            <div className="relative ml-3">
+            <>
+            {user.role === "admin" ? (
+              <span className={`ml-3 hidden sm:inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${dark ? "border-indigo-400/40 bg-indigo-500/10 text-indigo-300" : "border-red-300 bg-red-500/10 text-red-600"}`}>Admin</span>
+            ) : user.usage.limit != null ? (
+              <span
+                title="Requests remaining today"
+                className={`ml-3 hidden sm:inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums
+                  ${(user.usage.remaining ?? 0) <= 0
+                    ? "border-red-400/40 bg-red-500/10 text-red-500 dark:text-red-300"
+                    : (user.usage.remaining ?? 0) <= 3
+                      ? "border-amber-400/40 bg-amber-500/10 text-amber-600 dark:text-amber-300"
+                      : "border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-white/60"}`}
+              >
+                {user.usage.remaining}/{user.usage.limit}
+              </span>
+            ) : null}
+            <div className="relative ml-2">
               <button
                 onClick={() => setUserMenuOpen((o) => !o)}
                 className="flex items-center gap-2 rounded-full border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors pl-1 pr-2.5 py-1 cursor-pointer"
@@ -1279,6 +1393,12 @@ export default function Home() {
                       <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{user.name}</p>
                       <p className="text-xs text-gray-400 dark:text-white/40 truncate">{user.email}</p>
                     </div>
+                    <div className="px-3 py-2 border-b border-gray-100 dark:border-white/10 text-xs text-gray-500 dark:text-white/50 flex items-center justify-between">
+                      <span>Daily usage</span>
+                      <span className="font-medium tabular-nums text-gray-700 dark:text-white/70">
+                        {user.role === "admin" ? "Unlimited" : `${user.usage.used} / ${user.usage.limit}`}
+                      </span>
+                    </div>
                     <button
                       onClick={() => { setUserMenuOpen(false); logout(); }}
                       className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-white/70 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer"
@@ -1289,6 +1409,7 @@ export default function Home() {
                 </>
               )}
             </div>
+            </>
           ) : (
             <button
               onClick={login}
@@ -1305,6 +1426,60 @@ export default function Home() {
           )}
         </header>
       </div>
+
+      {/* ── Threads sidebar (drawer) ── */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)}>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <aside
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-0 left-0 h-full w-72 flex flex-col border-r shadow-2xl"
+            style={dark
+              ? { background: "#12141d", borderColor: "rgba(255,255,255,0.08)" }
+              : { background: "#ffffff", borderColor: "rgba(0,0,0,0.08)" }}
+          >
+            <div className="flex items-center justify-between px-4 h-[56px] border-b" style={{ borderColor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)" }}>
+              <span className="text-sm font-semibold text-gray-900 dark:text-white">Your threads</span>
+              <button onClick={() => setSidebarOpen(false)} className="text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 text-xl leading-none cursor-pointer">×</button>
+            </div>
+            <button
+              onClick={newThread}
+              className={`m-3 flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-white transition-colors cursor-pointer ${dark ? "bg-indigo-500 hover:bg-indigo-400" : "bg-red-600 hover:bg-red-500"}`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              New thread
+            </button>
+            <div className="flex-1 overflow-y-auto px-2 pb-3">
+              {threads.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-gray-400 dark:text-white/30">No threads yet. Upload a CSV and generate a chart to start one.</p>
+              ) : (
+                threads.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => openThread(t.id)}
+                    className={`group flex items-center gap-2 rounded-lg px-3 py-2 mb-0.5 cursor-pointer transition-colors
+                      ${t.id === currentThreadId
+                        ? (dark ? "bg-white/10" : "bg-gray-100")
+                        : (dark ? "hover:bg-white/5" : "hover:bg-gray-50")}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-800 dark:text-white/80 truncate">{t.title}</p>
+                      <p className="text-[11px] text-gray-400 dark:text-white/30">{t.chart_count} chart{t.chart_count === 1 ? "" : "s"} · {new Date(t.updated_at).toLocaleDateString()}</p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}
+                      title="Delete thread"
+                      className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-white/30 hover:text-red-500 transition-all shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 7.5h12M9.5 7.5V6a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 6v1.5m-6 0v10A1.5 1.5 0 0 0 10 19h4a1.5 1.5 0 0 0 1.5-1.5v-10" /></svg>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
 
       {/* ── Landing state ── */}
       {!hasSessions && !generating && (
@@ -1429,17 +1604,17 @@ export default function Home() {
                     data-prompt-input="1"
                     className="flex-1 bg-transparent border-0 px-1.5 py-1.5 text-sm placeholder-gray-400 dark:placeholder-white/40 text-gray-900 dark:text-white
                       focus:outline-none disabled:cursor-not-allowed"
-                    placeholder={file ? "e.g. show revenue over time for each company" : "Upload a CSV to get started…"}
+                    placeholder={!user ? "Sign in to generate charts…" : file ? "e.g. show revenue over time for each company" : "Upload a CSV to get started…"}
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onKeyDown={(e) => { if (isVoiceShortcut(e)) { e.preventDefault(); promptMicRef.current?.toggle(); return; } if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const t = promptMicRef.current?.getTranscript(); promptMicRef.current?.stop(); generate(t || (e.target as HTMLInputElement).value); } }}
-                    disabled={!file || generating}
+                    disabled={!user || !file || generating}
                     autoFocus
                   />
-                  <MicButton ref={promptMicRef} onTranscript={(t) => setPrompt(t)} onEnter={(t) => generate(t || prompt)} dark={dark} disabled={!file || generating} />
+                  <MicButton ref={promptMicRef} onTranscript={(t) => setPrompt(t)} onEnter={(t) => generate(t || prompt)} dark={dark} disabled={!user || !file || generating} />
                   <button
                     onClick={() => generate()}
-                    disabled={!file || !prompt.trim() || generating}
+                    disabled={!user || !file || !prompt.trim() || generating}
                     style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18)" }}
                     className={`group/send flex items-center justify-center rounded-xl h-9 w-10 shrink-0 transition-all
                       ${dark ? "bg-indigo-500 hover:bg-indigo-400 hover:shadow-[0_0_20px_rgba(129,140,248,0.55)]" : "bg-red-600 hover:bg-red-500 hover:shadow-[0_0_18px_rgba(220,38,38,0.4)]"}
@@ -1575,6 +1750,7 @@ export default function Home() {
                 onRegenerate={regenerateSession}
                 registerRefineMic={registerRefineMic}
                 onActive={setActiveCard}
+                onUsage={refreshAuth}
               />
             ))}
           </div>

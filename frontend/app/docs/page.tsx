@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 import Link from "next/link";
+import { useTheme } from "../useTheme";
 
 // Faint grid texture (matches the main app background).
 const LIGHT_WEAVE_SVG = encodeURIComponent(
@@ -97,7 +98,7 @@ const H = ({ id, children }: { id: string; children: React.ReactNode }) => (
 
 // ── page ──────────────────────────────────────────────────────────────────
 export default function DocsPage() {
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const c = {

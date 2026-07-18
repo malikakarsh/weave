@@ -4,6 +4,8 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { get, set, del } from "idb-keyval";
 import Link from "next/link";
 import { useAuth } from "./useAuth";
+import { useTheme } from "./useTheme";
+// import { Constellation } from "./Constellation"; // background overlay (kept, currently disabled)
 import { listThreads, getThread, createThread, saveCharts, deleteThread, type ThreadSummary } from "./threads";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -142,6 +144,24 @@ const DARK_WEAVE_SVG = encodeURIComponent(
   '<path d="M26 0H0V26" fill="none" stroke="white" stroke-opacity="0.03" stroke-width="0.5"/>' +
   '</svg>'
 );
+
+// Radial mesh + grid background, used on a fixed viewport layer behind everything.
+const DARK_MESH: React.CSSProperties = {
+  backgroundColor: "#0f1117",
+  backgroundImage: [
+    "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.16) 0%, transparent 60%)",
+    "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(139,92,246,0.10) 0%, transparent 55%)",
+    `url("data:image/svg+xml,${DARK_WEAVE_SVG}")`,
+  ].join(", "),
+};
+const LIGHT_MESH: React.CSSProperties = {
+  backgroundColor: "#f0f1f5",
+  backgroundImage: [
+    "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(244,63,94,0.04) 0%, transparent 60%)",
+    "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(220,38,38,0.03) 0%, transparent 55%)",
+    `url("data:image/svg+xml,${LIGHT_WEAVE_SVG}")`,
+  ].join(", "),
+};
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -789,7 +809,7 @@ export default function Home() {
   const [showAddBar, setShowAddBar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useTheme();
   const [isPlayground, setIsPlayground] = useState(false);
   const [playgroundName, setPlaygroundName] = useState("");
   const [loadingPlayground, setLoadingPlayground] = useState<string | null>(null);
@@ -800,7 +820,6 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const currentThreadIdRef = useRef<string | null>(null);
   useEffect(() => { currentThreadIdRef.current = currentThreadId; }, [currentThreadId]);
-  const didAutoOpenRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
   const promptMicRef = useRef<MicHandle | null>(null);
@@ -826,14 +845,15 @@ export default function Home() {
   useEffect(() => {
     async function restore() {
       try {
-        const [storedDark, storedFile, storedSessions, storedPlayground] = await Promise.all([
-          get<boolean>("weave:dark"),
+        const [storedFile, storedSessions, storedPlayground, storedThreadId] = await Promise.all([
           get<{ name: string; type: string; bytes: ArrayBuffer }>("weave:file"),
           get<ChartSession[]>("weave:sessions"),
           get<{ isPlayground: boolean; playgroundName: string }>("weave:playground"),
+          get<string>("weave:threadId"),
         ]);
+        // (theme is owned by useTheme / localStorage, shared across pages)
 
-        if (storedDark !== undefined) setDark(storedDark);
+        if (storedThreadId) setCurrentThreadId(storedThreadId);
 
         if (storedFile) {
           const f = new File([storedFile.bytes], storedFile.name, { type: storedFile.type });
@@ -862,8 +882,9 @@ export default function Home() {
   // ── Persist on change (skip until hydration is complete) ────────────────────
   useEffect(() => {
     if (!hydrated.current) return;
-    set("weave:dark", dark).catch(() => {});
-  }, [dark]);
+    if (!currentThreadId) { del("weave:threadId").catch(() => {}); return; }
+    set("weave:threadId", currentThreadId).catch(() => {});
+  }, [currentThreadId]);
 
   useEffect(() => {
     if (!hydrated.current) return;
@@ -940,18 +961,6 @@ export default function Home() {
     }
   }, []);
 
-  // Auto-open the most recent thread once on sign-in / page load, but never
-  // hijack the page once the user has started working (uploaded / generated).
-  useEffect(() => {
-    if (didAutoOpenRef.current) return;
-    if (!user || threads.length === 0) return;
-    if (sessions.length > 0 || file || currentThreadId) return;
-    didAutoOpenRef.current = true;
-    // openThread only setStates after `await getThread(...)`, so this isn't a
-    // synchronous effect update despite what the static rule assumes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    openThread(threads[0].id);  // threads are ordered most-recent first
-  }, [user, threads, sessions.length, file, currentThreadId, openThread]);
 
   function newThread() {
     setSidebarOpen(false);
@@ -989,7 +998,6 @@ export default function Home() {
   function handleLogout() {
     setUserMenuOpen(false);
     clearWorkspace();
-    didAutoOpenRef.current = false;  // re-open the latest thread on next sign-in
     logout();
   }
 
@@ -1000,7 +1008,6 @@ export default function Home() {
     if (user) { wasAuthedRef.current = true; return; }
     if (!wasAuthedRef.current) return;  // never signed in this session
     wasAuthedRef.current = false;
-    didAutoOpenRef.current = false;
     clearWorkspace();
   }, [user, clearWorkspace]);
 
@@ -1313,26 +1320,10 @@ export default function Home() {
   }, [hasSessions, sessions]);
 
   return (
-    <main
-      className="min-h-screen text-gray-900 dark:text-white flex flex-col overflow-x-hidden"
-      style={dark ? {
-        backgroundColor: "#0f1117",
-        backgroundImage: [
-          // layered radial mesh for depth — warm indigo top, cool violet lower-left
-          "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.16) 0%, transparent 60%)",
-          "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(139,92,246,0.10) 0%, transparent 55%)",
-          `url("data:image/svg+xml,${DARK_WEAVE_SVG}")`,
-        ].join(", "),
-      } : {
-        backgroundColor: "#f0f1f5",
-        backgroundImage: [
-          // same radial geometry as dark mode, in the red brand hue (softened)
-          "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(244,63,94,0.04) 0%, transparent 60%)",
-          "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(220,38,38,0.03) 0%, transparent 55%)",
-          `url("data:image/svg+xml,${LIGHT_WEAVE_SVG}")`,
-        ].join(", "),
-      }}
-    >
+    <main className="min-h-screen text-gray-900 dark:text-white flex flex-col overflow-x-hidden">
+      {/* background mesh, pinned to the viewport behind all content.
+          (Constellation overlay is available in ./Constellation but disabled.) */}
+      <div aria-hidden className="fixed inset-0" style={{ zIndex: -20, ...(dark ? DARK_MESH : LIGHT_MESH) }} />
       <div className="fixed top-0 left-0 right-0 z-10">
         <header
           className="w-full flex items-center gap-4 px-6 h-[56px] border-b"
@@ -1567,13 +1558,17 @@ export default function Home() {
               </defs>
               {/* soft glow underlay */}
               <path
-                d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1204 90,1235 82,1264 78"
+                className="thread-draw"
+                pathLength={100}
+                d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1232 117,1250 90,1264 78"
                 stroke={dark ? "rgba(167,139,250,0.35)" : "rgba(220,38,38,0.3)"}
                 strokeWidth="3" strokeLinecap="round" fill="none" filter="url(#thread-glow)"
               />
               {/* crisp thin thread */}
               <path
-                d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1204 90,1235 82,1264 78"
+                className="thread-draw"
+                pathLength={100}
+                d="M 56 338 C 168 234,280 104,420 130 C 504 143,546 273,448 312 C 378 338,336 260,420 208 C 532 130,630 143,700 169 C 812 208,868 91,980 117 C 1064 137,1120 195,1176 156 C 1232 117,1250 90,1264 78"
                 stroke={dark ? "rgba(196,181,253,0.7)" : "rgba(220,38,38,0.6)"}
                 strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"
               />

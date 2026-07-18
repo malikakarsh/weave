@@ -29,6 +29,20 @@ body {
   text-size-adjust: 100%;
 }
 
+/* ── Needle thread draws itself in on load (pathLength normalized to 100) ───── */
+.thread-draw {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: thread-draw 2.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes thread-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-draw { stroke-dashoffset: 0; animation: none; }
+}
+
 /* ── Sample-card mini-chart glyphs ──────────────────────────────────────────
    Each card is a `.group`. Glyphs sit faded at rest and come to full color +
    replay their entrance animation when the card is hovered. */

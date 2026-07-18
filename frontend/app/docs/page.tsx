@@ -129,8 +129,8 @@ export default function DocsPage() {
             Every chart has a refine bar — talk to it in plain English and only the fields you mention change.
             Common commands (the &ldquo;flags&rdquo;):
           </p>
-          <div className={`rounded-xl border overflow-hidden ${c.card}`}>
-            <table className="w-full text-sm">
+          <div className={`rounded-xl border overflow-x-auto ${c.card}`}>
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="text-left">
                   <th className={`px-4 py-2.5 font-medium border-b ${c.th}`}>What</th>
@@ -155,8 +155,8 @@ export default function DocsPage() {
 
           <H id="chart-types">Chart types</H>
           <p className="mb-4">Weave picks the type from your prompt, but you can ask for a specific one. If a type doesn&rsquo;t fit the columns, it&rsquo;s rejected with a suggestion that <i>does</i> fit.</p>
-          <div className={`rounded-xl border overflow-hidden ${c.card}`}>
-            <table className="w-full text-sm">
+          <div className={`rounded-xl border overflow-x-auto ${c.card}`}>
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="text-left">
                   <th className={`px-4 py-2.5 font-medium border-b ${c.th}`}>Type</th>

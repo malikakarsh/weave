@@ -1382,6 +1382,13 @@ export default function Home() {
             </button>
           )}
 
+          <Link
+            href="/docs"
+            className="mr-3 text-xs font-medium text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 transition-colors"
+          >
+            Docs
+          </Link>
+
           <button
             onClick={() => setDark(!dark)}
             className="flex items-center gap-1 rounded-full border border-gray-200 dark:border-white/10

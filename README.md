@@ -60,6 +60,7 @@ Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_
 - **Admin dashboard** — admins get an `/admin` view (linked from the profile menu) listing every user with their page-open count, today's + total LLM calls, last-seen, and join date, plus headline totals. Backed by `api/admin.py` and a `require_admin` dependency that re-checks the role **against the database** (not the JWT claim), so access can be revoked instantly and a stale/forged-claim token can't get in — non-admins get 403, unauthenticated 401. Page opens are tracked via `POST /auth/visit` on load
 - **Rounded chart container** — the chart iframe has rounded corners and a subtle shadow that adapts to light/dark mode
 - **Upload-gated prompt bar** — the prompt input, mic button, and generate button stay disabled until a CSV is uploaded, with a "Upload a CSV to get started…" hint
+- **In-app docs** — a `/docs` page (linked from the navbar) documenting how Weave works: getting started, the refinement commands ("flags") with examples, the full chart-type catalog, faceting, voice, accounts/threads/limits, and export — with its own light/dark toggle
 - **Playground** — pick a sample dataset from the landing page (Stocks, Revenue, World Cities, Diamonds, NYC Restaurants, Iris) to see auto-generated dashboards and experiment with refinements; resets when you upload your own CSV
 
 ## How it works

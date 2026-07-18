@@ -4,15 +4,18 @@ Guarded by `require_admin` (403 for non-admins). Aggregates the per-day
 `daily_usage` rows into total and today's LLM-call counts per user.
 """
 
+import asyncio
+import json
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
 
-from api import usage
+from api import metrics, usage
 from api.auth import require_admin
 from api.db import get_db
 from api.db_models import DailyUsage, User
@@ -107,3 +110,24 @@ async def stats(
         "calls_today": int(calls_today),
         "default_limit": usage.default_limit(),
     }
+
+
+@router.get("/metrics")
+async def metrics_snapshot(_: dict = Depends(require_admin)):
+    """One-shot model-performance aggregate (initial paint / SSE fallback)."""
+    await metrics.flush()
+    return await metrics.aggregate()
+
+
+@router.get("/metrics/stream")
+async def metrics_stream(request: Request, _: dict = Depends(require_admin)):
+    """Live model-performance metrics over SSE — flush + aggregate every 2s.
+    The httpOnly auth cookie is sent automatically by the browser's EventSource."""
+    async def stream():
+        while not await request.is_disconnected():
+            await metrics.flush()
+            data = await metrics.aggregate()
+            yield {"event": "metrics", "data": json.dumps(data)}
+            await asyncio.sleep(2)
+
+    return EventSourceResponse(stream())

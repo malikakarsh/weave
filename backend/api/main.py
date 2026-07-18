@@ -26,6 +26,7 @@ from api.auth import router as auth_router, current_user_required
 from api.threads import router as threads_router
 from api.admin import router as admin_router
 from api.joins import router as joins_router
+from api.metrics import flush as flush_metrics
 from api import usage
 
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +57,31 @@ app.include_router(auth_router)
 app.include_router(threads_router)
 app.include_router(admin_router)
 app.include_router(joins_router)
+
+# Background flusher: persist buffered LLM-call metrics every few seconds so they
+# survive even when no admin is watching the live panel.
+_metrics_flusher: "asyncio.Task | None" = None
+
+
+@app.on_event("startup")
+async def _start_metrics_flusher() -> None:
+    global _metrics_flusher
+
+    async def loop() -> None:
+        while True:
+            try:
+                await flush_metrics()
+            except Exception:
+                logger.exception("metrics flush failed")
+            await asyncio.sleep(2)
+
+    _metrics_flusher = asyncio.create_task(loop())
+
+
+@app.on_event("shutdown")
+async def _stop_metrics_flusher() -> None:
+    if _metrics_flusher:
+        _metrics_flusher.cancel()
 
 
 _SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "samples")

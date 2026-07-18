@@ -3,6 +3,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 class LLMProvider(ABC):
+    # Token usage (input, output) of the most recent complete() call, or None
+    # when the provider/model doesn't report it. Set inside complete(); read by
+    # the metrics wrapper right after the call. Keeps complete() -> str intact.
+    last_usage: tuple[int, int] | None = None
+
     @abstractmethod
     def complete(self, system: str, user: str) -> str:
         """Send a system + user message and return the text response."""

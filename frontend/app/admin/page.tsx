@@ -29,6 +29,39 @@ interface Stats {
   default_limit: number;
 }
 
+interface ModelMetric {
+  provider: string;
+  model: string;
+  calls: number;
+  errors: number;
+  error_rate: number;
+  avg_latency_ms: number | null;
+  p95_latency_ms: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+  last_used: string | null;
+  calls_per_min: number;
+}
+
+interface Metrics {
+  models: ModelMetric[];
+  totals: {
+    calls: number; errors: number; error_rate: number;
+    input_tokens: number; output_tokens: number; cost_usd: number | null; calls_per_min: number;
+  };
+  ts: string;
+}
+
+function fmtInt(n: number): string {
+  return n >= 1000 ? n.toLocaleString() : String(n);
+}
+function fmtCost(c: number | null): string {
+  if (c === null) return "—";
+  if (c === 0) return "$0";
+  return c < 0.01 ? `$${c.toFixed(4)}` : `$${c.toFixed(2)}`;
+}
+
 function when(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString(undefined, {
@@ -45,8 +78,21 @@ export default function AdminPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [liveOn, setLiveOn] = useState(false);
 
   const isAdmin = user?.role === "admin";
+
+  // Live model-performance metrics over SSE (cookie auth is sent automatically).
+  useEffect(() => {
+    if (!isAdmin) return;
+    const es = new EventSource(`${API}/admin/metrics/stream`, { withCredentials: true });
+    es.addEventListener("metrics", (e) => {
+      try { setMetrics(JSON.parse((e as MessageEvent).data)); setLiveOn(true); } catch { /* ignore */ }
+    });
+    es.onerror = () => setLiveOn(false);   // browser auto-reconnects
+    return () => es.close();
+  }, [isAdmin]);
 
   // The admin route can load without the main page ever mounting, so apply the
   // `.dark` class here too (theme itself is shared via useTheme/localStorage).
@@ -155,6 +201,65 @@ export default function AdminPage() {
         </div>
 
         {error && <p className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        {/* Model performance (live) */}
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-sm font-semibold">Model performance</h2>
+            <span className={`inline-flex items-center gap-1.5 text-xs ${liveOn ? "text-emerald-600 dark:text-emerald-400" : "text-gray-400 dark:text-white/40"}`}>
+              <span className={`w-2 h-2 rounded-full ${liveOn ? "bg-emerald-500 animate-pulse" : "bg-gray-300 dark:bg-white/20"}`} />
+              {liveOn ? "live" : "connecting…"}
+            </span>
+            {metrics && (
+              <span className="ml-auto text-xs text-gray-400 dark:text-white/40 tabular-nums">
+                {fmtInt(metrics.totals.calls)} calls · {metrics.totals.calls_per_min}/min · {fmtCost(metrics.totals.cost_usd)}
+              </span>
+            )}
+          </div>
+          <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-white/5 text-gray-500 dark:text-white/50">
+                <tr className="text-left">
+                  <th className="px-4 py-3 font-medium">Model</th>
+                  <th className="px-4 py-3 font-medium text-right">Calls</th>
+                  <th className="px-4 py-3 font-medium text-right">/min</th>
+                  <th className="px-4 py-3 font-medium text-right">Avg ms</th>
+                  <th className="px-4 py-3 font-medium text-right">p95 ms</th>
+                  <th className="px-4 py-3 font-medium text-right">Errors</th>
+                  <th className="px-4 py-3 font-medium text-right">Tokens (in / out)</th>
+                  <th className="px-4 py-3 font-medium text-right">Est. cost</th>
+                  <th className="px-4 py-3 font-medium">Last call</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-white/5">
+                {!metrics ? (
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400 dark:text-white/40">Waiting for the first metrics…</td></tr>
+                ) : metrics.models.length === 0 ? (
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400 dark:text-white/40">No LLM calls yet — generate a chart to see live stats.</td></tr>
+                ) : (
+                  metrics.models.map((m) => (
+                    <tr key={`${m.provider}/${m.model}`} className="hover:bg-gray-50 dark:hover:bg-white/5">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900 dark:text-white/90">{m.model}</div>
+                        <div className="text-xs text-gray-400 dark:text-white/40">{m.provider}</div>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums">{fmtInt(m.calls)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{m.calls_per_min}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{m.avg_latency_ms ?? "—"}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{m.p95_latency_ms ?? "—"}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${m.errors ? "text-red-600 dark:text-red-400" : "text-gray-400 dark:text-white/40"}`}>
+                        {m.errors ? `${m.errors} (${(m.error_rate * 100).toFixed(0)}%)` : "0"}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-500 dark:text-white/50">{fmtInt(m.input_tokens)} / {fmtInt(m.output_tokens)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{fmtCost(m.cost_usd)}</td>
+                      <td className="px-4 py-3 text-gray-500 dark:text-white/50 whitespace-nowrap">{when(m.last_used)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         {/* Users table */}
         <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 overflow-hidden">

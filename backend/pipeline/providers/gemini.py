@@ -25,7 +25,14 @@ class GeminiProvider(LLMProvider):
                 "pip install google-generativeai"
             )
 
+        self.last_usage = None
         genai.configure(api_key=self._api_key)
         model = genai.GenerativeModel(self._model, system_instruction=system)
         response = model.generate_content(user)
+        meta = getattr(response, "usage_metadata", None)
+        if meta is not None:
+            self.last_usage = (
+                int(getattr(meta, "prompt_token_count", 0) or 0),
+                int(getattr(meta, "candidates_token_count", 0) or 0),
+            )
         return response.text.strip()

@@ -17,12 +17,16 @@ class AnthropicProvider(LLMProvider):
         return self._model
 
     def complete(self, system: str, user: str) -> str:
+        self.last_usage = None
         msg = self._client.messages.create(
             model=self._model,
             max_tokens=256,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        usage = getattr(msg, "usage", None)
+        if usage is not None:
+            self.last_usage = (int(usage.input_tokens), int(usage.output_tokens))
         return msg.content[0].text.strip()
 
     def complete_batch(self, requests: list[tuple[str, str]]) -> list[str]:

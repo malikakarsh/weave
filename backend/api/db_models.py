@@ -10,7 +10,7 @@ per user per day for rate limiting.
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -108,3 +108,26 @@ class DailyUsage(Base):
     )
     day: Mapped[date] = mapped_column(Date, primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+class LlmCall(Base):
+    """One row per LLM call, for the admin live model-performance panel. Cost is
+    NOT stored — it's derived from tokens + a pricing map at query time so pricing
+    can change without a backfill."""
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[uuid.UUID] = _uuid_col()
+    provider: Mapped[str] = mapped_column(String(32))          # anthropic | gemini | ollama
+    model: Mapped[str] = mapped_column(String(128))
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    kind: Mapped[str | None] = mapped_column(String(32))       # map | refine | decompose | insight
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )

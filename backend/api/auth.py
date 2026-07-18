@@ -148,7 +148,9 @@ async def login_google(request: Request):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Google OAuth is not configured")
     redirect_uri = str(request.url_for("auth_google_callback"))
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    # prompt=select_account forces Google's account chooser so the user can pick
+    # a different email instead of being silently signed in with the active one.
+    return await oauth.google.authorize_redirect(request, redirect_uri, prompt="select_account")
 
 
 @router.get("/google/callback", name="auth_google_callback")

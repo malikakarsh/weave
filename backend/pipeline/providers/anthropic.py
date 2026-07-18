@@ -16,17 +16,37 @@ class AnthropicProvider(LLMProvider):
     def model(self) -> str:
         return self._model
 
+    @staticmethod
+    def _cacheable_system(system: str) -> list[dict]:
+        """The system prompt as a single cacheable content block. `cache_control`
+        marks it for Anthropic's prompt cache (~5-min TTL): the large, identical
+        instruction block is stored server-side after the first call and read back
+        at a fraction of the input cost on subsequent calls. If the prompt is below
+        the model's minimum cacheable size, Anthropic silently ignores the flag —
+        no error, same behaviour as before."""
+        return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+    @staticmethod
+    def _total_input(usage) -> int:
+        """Total input tokens processed, counting cache reads/writes so the metered
+        'tokens in' stays comparable to the pre-caching numbers."""
+        return (
+            int(getattr(usage, "input_tokens", 0) or 0)
+            + int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+            + int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+        )
+
     def complete(self, system: str, user: str) -> str:
         self.last_usage = None
         msg = self._client.messages.create(
             model=self._model,
             max_tokens=256,
-            system=system,
+            system=self._cacheable_system(system),
             messages=[{"role": "user", "content": user}],
         )
         usage = getattr(msg, "usage", None)
         if usage is not None:
-            self.last_usage = (int(usage.input_tokens), int(usage.output_tokens))
+            self.last_usage = (self._total_input(usage), int(usage.output_tokens))
         return msg.content[0].text.strip()
 
     def complete_batch(self, requests: list[tuple[str, str]]) -> list[str]:
@@ -42,7 +62,7 @@ class AnthropicProvider(LLMProvider):
                     "params": {
                         "model": self._model,
                         "max_tokens": 256,
-                        "system": system,
+                        "system": self._cacheable_system(system),
                         "messages": [{"role": "user", "content": user}],
                     },
                 }

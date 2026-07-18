@@ -7,6 +7,8 @@ import { useAuth } from "./useAuth";
 import { useTheme } from "./useTheme";
 // import { Constellation } from "./Constellation"; // background overlay (kept, currently disabled)
 import { listThreads, getThread, createThread, saveCharts, deleteThread, type ThreadSummary } from "./threads";
+import { detectJoins, executeJoin, buildDefaultPlan, joinPairs, type DetectResult, type JoinPlan } from "./joins";
+import { fetchSchema, isSchemaRequest, type SchemaInfo } from "./schema";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -320,9 +322,10 @@ interface ChartCardProps {
   registerRefineMic?: (id: string, ref: RefObject<MicHandle | null> | null) => void;
   onActive?: (id: string) => void;
   onUsage?: () => void;  // called after a refine/insight consumes quota
+  onSchema?: () => void;  // "show columns" typed in the refine bar
 }
 
-function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, registerRefineMic, onActive, onUsage }: ChartCardProps) {
+function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, registerRefineMic, onActive, onUsage, onSchema }: ChartCardProps) {
   const [refinePrompt, setRefinePrompt] = useState("");
   const [refining, setRefining] = useState(false);
   const [refineStage, setRefineStage] = useState<string | null>(null);
@@ -377,6 +380,12 @@ function ChartCard({ session, file, dark, onUpdate, onDelete, onRegenerate, regi
   async function refine(forcedValue?: string) {
     const instruction = (forcedValue ?? refinePrompt).trim();
     if (!instruction || !session.mapping) return;
+
+    if (isSchemaRequest(instruction)) {
+      setRefinePrompt("");
+      onSchema?.();
+      return;
+    }
 
     if (/^regenerate$/i.test(instruction)) {
       setRefinePrompt("");
@@ -817,6 +826,13 @@ export default function Home() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
+  const [joinFiles, setJoinFiles] = useState<File[]>([]);
+  const [joinDetect, setJoinDetect] = useState<DetectResult | null>(null);
+  const [joinPlan, setJoinPlan] = useState<JoinPlan | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinSummary, setJoinSummary] = useState<string | null>(null);
+  const [schemaView, setSchemaView] = useState<SchemaInfo | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const currentThreadIdRef = useRef<string | null>(null);
   useEffect(() => { currentThreadIdRef.current = currentThreadId; }, [currentThreadId]);
@@ -914,6 +930,71 @@ export default function Home() {
     setError(null);
     setSessions([]);
     setCurrentThreadId(null);  // a new upload starts a new thread on first generate
+  }
+
+  // ── multi-CSV join ──────────────────────────────────────────────────────
+  function clearJoin() {
+    setJoinFiles([]);
+    setJoinDetect(null);
+    setJoinPlan(null);
+    setJoinError(null);
+  }
+
+  async function handleFiles(list: FileList | null) {
+    const csvs = Array.from(list ?? []).filter((f) => f.name.endsWith(".csv"));
+    if (csvs.length === 0) { setError("Please upload .csv file(s)."); return; }
+    if (csvs.length === 1) { clearJoin(); handleFile(csvs[0]); return; }
+    // 2+ files → join flow
+    setError(null);
+    setFile(null);
+    setSessions([]);
+    setJoinFiles(csvs);
+    setJoinDetect(null);
+    setJoinPlan(null);
+    setJoinError(null);
+    setJoinSummary(null);
+    setJoinBusy(true);
+    try {
+      const result = await detectJoins(csvs);
+      setJoinDetect(result);
+      // backend auto-builds a spanning plan connecting all joinable tables
+      setJoinPlan(result.plan ?? buildDefaultPlan(result.tables, result.candidates));
+    } catch (e) {
+      setJoinError(e instanceof Error ? e.message : "Couldn't analyse the files.");
+    } finally {
+      setJoinBusy(false);
+    }
+  }
+
+  async function combineJoin() {
+    if (!joinPlan || joinFiles.length < 2) return;
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      const tableCount = joinFiles.length - (joinDetect?.unjoined.length ?? 0);
+      const res = await executeJoin(joinFiles, joinPlan);
+      const joined = new File([res.csv], res.name, { type: "text/csv" });
+      clearJoin();
+      handleFile(joined);  // the flat table becomes the active CSV
+      setJoinSummary(`Combined ${tableCount} tables → ${res.row_count.toLocaleString()} rows × ${res.columns.length} columns`);
+    } catch (e) {
+      setJoinError(e instanceof Error ? e.message : "Join failed.");
+    } finally {
+      setJoinBusy(false);
+    }
+  }
+
+  function toggleCandidate(c: DetectResult["candidates"][number]) {
+    setJoinPlan((p) => {
+      if (!p) return p;
+      const same = (s: JoinPlan["steps"][number]) =>
+        s.left_table === c.left_table && s.left_col === c.left_col &&
+        s.right_table === c.right_table && s.right_col === c.right_col;
+      const steps = p.steps.some(same)
+        ? p.steps.filter((s) => !same(s))
+        : [...p.steps, { left_table: c.left_table, left_col: c.left_col, right_table: c.right_table, right_col: c.right_col, how: "left", extra_pairs: c.extra_pairs }];
+      return { ...p, steps };
+    });
   }
 
   // ── thread persistence ──────────────────────────────────────────────────
@@ -1167,8 +1248,19 @@ export default function Home() {
   async function generate(forcedValue?: string) {
     const p = (forcedValue ?? prompt).trim();
     if (!file || !p) return;
+    if (isSchemaRequest(p)) { setPrompt(""); showSchema(); return; }
     setPrompt("");
     await generateWith(file, p);
+  }
+
+  async function showSchema() {
+    if (!file) return;
+    setError(null);
+    try {
+      setSchemaView(await fetchSchema(file));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't read the columns.");
+    }
   }
 
   async function loadPlayground(datasetId: string, datasetPrompt: string, name: string) {
@@ -1193,6 +1285,7 @@ export default function Home() {
   async function addChart(forcedValue?: string) {
     const p = (forcedValue ?? addPrompt).trim();
     if (!file || !p) return;
+    if (isSchemaRequest(p)) { setAddPrompt(""); setShowAddBar(false); showSchema(); return; }
     setAdding(true);
     setAddPrompt("");
     setShowAddBar(false);
@@ -1534,6 +1627,56 @@ export default function Home() {
         </div>
       )}
 
+      {/* ── Schema modal ── */}
+      {schemaView && (
+        <div className="fixed inset-0 z-40 flex items-start justify-center p-4 sm:p-8 overflow-y-auto" onClick={() => setSchemaView(null)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`relative z-10 w-full max-w-2xl rounded-2xl border shadow-2xl mt-8 ${dark ? "bg-[#12141d] border-white/10" : "bg-white border-gray-200"}`}
+          >
+            <div className={`flex items-center justify-between px-5 h-14 border-b ${dark ? "border-white/10" : "border-gray-200"}`}>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{file?.name ?? "Columns"}</p>
+                <p className="text-xs text-gray-400 dark:text-white/40">{schemaView.columns.length} columns · {schemaView.row_count.toLocaleString()} rows</p>
+              </div>
+              <button onClick={() => setSchemaView(null)} className="text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70 text-xl leading-none cursor-pointer">×</button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-2">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-400 dark:text-white/30">
+                    <th className="px-3 py-2 font-medium">Column</th>
+                    <th className="px-3 py-2 font-medium">Type</th>
+                    <th className="px-3 py-2 font-medium">Min</th>
+                    <th className="px-3 py-2 font-medium">Max</th>
+                    <th className="px-3 py-2 font-medium">Sample</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schemaView.columns.map((c) => (
+                    <tr key={c.name} className="border-t border-gray-100 dark:border-white/5">
+                      <td className="px-3 py-2 font-medium text-gray-800 dark:text-white/80 break-all">{c.name}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                          c.type === "Float" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                          : c.type === "Date" ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"
+                          : "bg-gray-100 dark:bg-white/5 text-gray-500 dark:text-white/50"}`}>
+                          {c.type === "Float" ? "number" : c.type === "Date" ? "date" : "text"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 dark:text-white/50 tabular-nums truncate max-w-[10rem]">{c.min ?? "—"}</td>
+                      <td className="px-3 py-2 text-gray-500 dark:text-white/50 tabular-nums truncate max-w-[10rem]">{c.max ?? "—"}</td>
+                      <td className="px-3 py-2 text-gray-400 dark:text-white/40 truncate max-w-[16rem]">{c.sample.join(", ") || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Landing state ── */}
       {!hasSessions && !generating && (
         <div className="flex flex-col items-center justify-center px-6 py-6 text-center" style={{ minHeight: "calc(100vh - 56px)", marginTop: "56px" }}>
@@ -1636,18 +1779,20 @@ export default function Home() {
                   onClick={() => fileInputRef.current?.click()}
                   onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                   onDragLeave={() => setDragging(false)}
-                  onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}
+                  onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
                 >
-                  <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
-                    onChange={(e) => handleFile(e.target.files?.[0] ?? null)} />
-                  <svg className={`w-4 h-4 shrink-0 ${file ? (dark ? "text-indigo-400" : "text-red-500") : "text-gray-400 dark:text-white/30"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                  <input ref={fileInputRef} type="file" accept=".csv" multiple className="hidden"
+                    onChange={(e) => handleFiles(e.target.files)} />
+                  <svg className={`w-4 h-4 shrink-0 ${file || joinFiles.length ? (dark ? "text-indigo-400" : "text-red-500") : "text-gray-400 dark:text-white/30"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
                   {file
                     ? <span className={`text-sm font-medium ${dark ? "text-indigo-300" : "text-red-600"}`}>{file.name}</span>
-                    : <span className="text-sm text-gray-400 dark:text-white/40">Drop a CSV here · or click to browse</span>}
-                  {file && (
-                    <button onClick={(e) => { e.stopPropagation(); setFile(null); setError(null); }}
+                    : joinFiles.length
+                      ? <span className={`text-sm font-medium ${dark ? "text-indigo-300" : "text-red-600"}`}>{joinFiles.length} CSVs to join</span>
+                      : <span className="text-sm text-gray-400 dark:text-white/40">Drop CSV(s) here · or click to browse · multiple = join</span>}
+                  {(file || joinFiles.length > 0) && (
+                    <button onClick={(e) => { e.stopPropagation(); setFile(null); clearJoin(); setJoinSummary(null); setError(null); }}
                       className="ml-auto text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 transition-colors text-lg leading-none">×</button>
                   )}
                 </div>
@@ -1683,6 +1828,100 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+
+              {/* Join success summary */}
+              {joinSummary && file && (
+                <div className="flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-600 dark:text-emerald-300">
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                  {joinSummary} — now describe a chart above.
+                </div>
+              )}
+
+              {/* Multi-CSV join panel */}
+              {joinFiles.length >= 2 && (() => {
+                const src = (name: string) => joinDetect?.tables.find((t) => t.name === name)?.source ?? name;
+                return (
+                  <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white/70 dark:bg-white/[0.04] p-4 text-left">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">Combine {joinFiles.length} CSVs</p>
+                      <button onClick={clearJoin} className="text-xs text-gray-400 dark:text-white/40 hover:text-gray-700 dark:hover:text-white/70">Cancel ✕</button>
+                    </div>
+
+                    {joinBusy && !joinDetect ? (
+                      <p className="text-sm text-gray-500 dark:text-white/50">Analysing files…</p>
+                    ) : joinError && !joinDetect ? (
+                      <p className="text-sm text-red-500 dark:text-red-300">{joinError}</p>
+                    ) : joinDetect && joinPlan ? (
+                      <>
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {joinDetect.tables.map((t) => {
+                            const unjoined = joinDetect.unjoined.includes(t.name);
+                            return (
+                              <span key={t.name} title={unjoined ? "Couldn't be linked without duplicating rows — no unique (single or composite) key shared with the rest" : undefined}
+                                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${unjoined ? "border-amber-400/40 bg-amber-500/10 text-amber-600 dark:text-amber-300" : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/5 text-gray-600 dark:text-white/60"}`}>
+                                {t.source} <span className="opacity-60">· {t.row_count} rows{unjoined ? " · not linked" : ""}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                        {joinDetect.unjoined.length > 0 && (
+                          <p className="text-xs text-amber-600 dark:text-amber-300/80 mb-3">
+                            {joinDetect.unjoined.length} table(s) couldn’t be linked without duplicating rows (no unique key they share with the rest) and will be left out.
+                          </p>
+                        )}
+
+                        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-white/50 mb-3">
+                          Base table
+                          <select
+                            value={joinPlan.base_table}
+                            onChange={(e) => setJoinPlan({ ...joinPlan, base_table: e.target.value })}
+                            className="rounded-md border border-gray-200 dark:border-white/15 bg-white dark:bg-white/5 px-2 py-1 text-gray-800 dark:text-white/80"
+                          >
+                            {joinDetect.tables.map((t) => <option key={t.name} value={t.name}>{t.source}</option>)}
+                          </select>
+                        </label>
+
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-white/30 mb-1.5">Joins</p>
+                        {joinDetect.candidates.length === 0 ? (
+                          <p className="text-sm text-gray-500 dark:text-white/50 mb-3">No matching key columns were detected — the files may not share a common column.</p>
+                        ) : (
+                          <div className="flex flex-col gap-1 mb-3">
+                            {joinDetect.candidates.map((c, i) => {
+                              const active = joinPlan.steps.some((s) => s.left_table === c.left_table && s.left_col === c.left_col && s.right_table === c.right_table && s.right_col === c.right_col);
+                              const pairs = joinPairs(c);
+                              const composite = pairs.length > 1;
+                              const leftKeys = pairs.map((p) => p[0]).join(" + ");
+                              const rightKeys = pairs.map((p) => p[1]).join(" + ");
+                              return (
+                                <label key={i} className="flex items-center gap-2 text-sm cursor-pointer py-0.5">
+                                  <input type="checkbox" checked={active} onChange={() => toggleCandidate(c)} className="accent-indigo-500" />
+                                  <span className="text-gray-700 dark:text-white/70">
+                                    <span className="font-medium">{src(c.left_table)}</span>.{leftKeys}
+                                    <span className="mx-1 text-gray-400">→</span>
+                                    <span className="font-medium">{src(c.right_table)}</span>.{rightKeys}
+                                    {composite && <span className="ml-1.5 inline-flex items-center rounded px-1 py-px text-[10px] font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-300" title="Composite key — joins on multiple columns so it matches 1:1 without duplicating rows">composite</span>}
+                                  </span>
+                                  <span className="ml-auto text-xs tabular-nums text-gray-400 dark:text-white/30">{Math.round(c.confidence * 100)}% match</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {joinError && <p className="text-sm text-red-500 dark:text-red-300 mb-2">{joinError}</p>}
+
+                        <button
+                          onClick={combineJoin}
+                          disabled={joinBusy || !user}
+                          className={`w-full rounded-lg py-2 text-sm font-medium text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${dark ? "bg-indigo-500 hover:bg-indigo-400" : "bg-red-600 hover:bg-red-500"}`}
+                        >
+                          {joinBusy ? "Combining…" : "Combine into one table"}
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })()}
 
               {error && (
                 <div className="rounded-xl bg-red-500/10 border border-red-500/30 px-4 py-3 text-sm text-red-500 dark:text-red-300">
@@ -1808,6 +2047,7 @@ export default function Home() {
                 registerRefineMic={registerRefineMic}
                 onActive={setActiveCard}
                 onUsage={refreshAuth}
+                onSchema={showSchema}
               />
             ))}
           </div>

@@ -55,7 +55,7 @@ Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_
 - **Mark-size refinement** — resize a chart's marks by plain English ("make the bars wider", "thinner bars", "thicker lines", "bigger points", "smaller bubbles"); a single `mark_scale` multiplier drives bar width, line/area stroke thickness, and scatter/bubble/facet point radius, and relative asks ("a bit bigger", "much smaller") scale the current size (clamped to 0.2–4×)
 - **Voice input** — a mic button on every prompt, add-chart, and refine bar uses the browser-native `SpeechRecognition` API; toggle recording with the **⌥/Alt+Shift+V** shortcut (targets the field you're working in — prompt on the landing page, the current chart's refine bar on the dashboard) and press **Enter** to submit the transcript
 - **Google sign-in** — login via Google OAuth (with `prompt=select_account`, so the account chooser always appears). The FastAPI backend owns identity: Google only authenticates, then the backend mints its **own JWT** in an httpOnly cookie (`api/auth.py`) and upserts the user in Postgres — it's the single source of truth for who the user is. Chart generation requires sign-in; the navbar shows "Sign in with Google" or the user's avatar + a logout menu
-- **Consistent theme** — the light/dark choice is persisted (`useTheme`, localStorage) and shared across the landing and docs pages
+- **Consistent theme** — the light/dark choice is persisted (`useTheme`, localStorage) and shared across the landing, docs, and admin pages
 - **Roles + daily limits** — an admin role (`ADMIN_EMAILS`) with unlimited access; everyone else gets a per-user daily quota **metered per LLM call** (`DAILY_REQUEST_LIMIT`, default 20). A navbar pill shows requests remaining (amber when low, red at 0); a multi-chart prompt is capped to the remaining quota, and hitting the limit returns a clear message
 - **Saved threads** — each CSV upload starts a **thread** (Claude-style): its charts + refine histories auto-save to Postgres, scoped to your account. A sidebar lists past threads; click one to restore the CSV and all its charts. They persist across logout, browser close, and other devices
 - **Admin dashboard** — admins get an `/admin` view (linked from the profile menu) listing every user with their page-open count, today's + total LLM calls, last-seen, and join date, plus headline totals. Backed by `api/admin.py` and a `require_admin` dependency that re-checks the role **against the database** (not the JWT claim), so access can be revoked instantly and a stale/forged-claim token can't get in — non-admins get 403, unauthenticated 401. Page opens are tracked via `POST /auth/visit` on load. Admins can **edit any user's daily limit inline** (`PATCH /admin/users/{id}`) — a per-user `daily_limit` override that the quota checks read from the DB, so it takes effect instantly; leaving it blank resets to the global `DAILY_REQUEST_LIMIT`
@@ -63,6 +63,9 @@ Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_
 - **Upload-gated prompt bar** — the prompt input, mic button, and generate button stay disabled until a CSV is uploaded, with a "Upload a CSV to get started…" hint
 - **In-app docs** — a `/docs` page (linked from the navbar) documenting how Weave works: getting started, the refinement commands ("flags") with examples, the full chart-type catalog, faceting, voice, accounts/threads/limits, and export. Centered article with a fixed left-rail table of contents on desktop and a slide-in section drawer on mobile; matches the app's sun/moon theme toggle, red/indigo accent, and viewport-pinned radial-mesh background
 - **Playground** — pick a sample dataset from the landing page (Stocks, Revenue, World Cities, Diamonds, NYC Restaurants, Iris) to see auto-generated dashboards and experiment with refinements; resets when you upload your own CSV
+- **Multi-CSV joins** — drop several related CSVs at once and Weave combines them into one wide table before charting. A deterministic join engine (`pipeline/multi_csv.py`, in-memory SQLite) detects foreign keys by **value overlap** gated on **key-name compatibility** — stem matching so `raceId`→`raceId` and `orders.user_id`→`users.id` join, while cross-entity collisions (`statusId`↔`raceId`), two bare `id` primary keys, and same-named measures (`points`↔`points`) never do. It builds a maximum-confidence spanning tree over the tables and supports **composite-key joins** (e.g. `results ⋈ driver_standings ON raceId AND driverId`) so many-to-one detail tables attach 1:1. A **fan-out guard** leaves any table that would multiply rows unjoined rather than silently corrupting counts. The Combine dialog shows every detected join (composite ones badged), lets you choose the base table and toggle joins, and reports which tables couldn't be linked. No LLM call — it's schema-driven and deterministic
+- **Show columns** — type "show columns" / "show schema" (deterministically detected, so it never builds a chart) to open a modal listing every column with its inferred type, **min/max range** (numeric range, date span, or A→Z for text), and sample values — handy for verifying what actually landed in a joined table
+- **Numeric range filters** — filter any numeric column by threshold in plain English ("wins ≥ 3", "between 18 and 65", "at most 100"), not just exact values. Multiple filters on the same column combine as OR and across columns as AND, and re-filtering a dimension replaces rather than stacks, so "for 2016" after "for 2013" can't collapse to an empty result
 
 ## How it works
 
@@ -81,7 +84,7 @@ DataLoader → LLMMapper → Transformer → Templater
    - **grouped** — aggregates by (group, x) into `{group, values}` objects (multi-series)
    - **labeled** — one point per row with no aggregation; `{x, y, z, label}` (bubble with named items)
    - **heatmap** — categorical axes → one `{x, y, z}` cell per value pair (matrix); numeric axes → binned `{x0, x1, y0, y1, z}` density grid (2D histogram)
-   - **network** — aggregates edges by (source, target) into `{nodes, links}` with per-node weight sums
+   - **network** — aggregates edges by (source, target) into `{nodes, links}`; an optional numeric measure sizes nodes and weights edges with **deterministic grain-aware aggregation** — a value repeated or accumulated across rows (a season total, a cumulative running total) is collapsed to one representative instead of being summed per row, and a measure that's an attribute of a node itself is counted once rather than summed across its neighbours, so neither is double-counted. Nodes are colored by which side (source vs target) they belong to, with a legend
    - **box** — computes a five-number summary + outliers per category (no aggregation to a single value)
    - **violin** — computes a kernel-density curve (KDE) + summary per category for distribution-shape plots
    - **histogram** — bins one numeric column (Freedman-Diaconis) and counts rows per bin
@@ -372,6 +375,7 @@ backend/
 │   ├── usage.py                   # Per-user daily rate limiting (metered per LLM call; admins exempt)
 │   ├── threads.py                 # User-scoped thread CRUD + chart persistence
 │   ├── admin.py                   # Admin-only user/usage dashboard endpoints
+│   ├── joins.py                   # Multi-CSV join detect/execute endpoints (deterministic, no LLM)
 │   ├── db.py                      # Async SQLAlchemy engine, session factory, get_db dependency
 │   └── db_models.py               # ORM models: User, Thread, Chart, DailyUsage
 ├── alembic/                       # DB migrations (async env; versions/ holds each revision)
@@ -383,12 +387,13 @@ backend/
 │   ├── data_loader.py             # CSV ingestion, header/preamble detection, type detection
 │   ├── numeric.py                 # Tolerant numeric parsing ($, commas, %, accounting negatives)
 │   ├── csv_validator.py           # Upload safety checks (size, encoding, formula-injection guard)
+│   ├── multi_csv.py               # Multi-CSV join engine (SQLite; value-overlap + key-name FK detection, composite keys, fan-out guard)
 │   ├── llm_mapper.py              # Claude axis and chart type selection
 │   ├── prompts.py                 # System prompts for LLM
 │   ├── palettes.py                # Named color palettes (HCL ramps + categorical schemes)
 │   ├── chart_requirements.py      # Per-chart-type dimension checks (validate + suggest alternative)
 │   ├── category_resolver.py       # Deterministic category-value resolution + ambiguity clarification
-│   ├── transformer.py             # Five transform modes (flat/grouped/labeled/heatmap/network)
+│   ├── transformer.py             # Transform modes (flat/grouped/labeled/heatmap/network/box/violin/histogram/radar) + numeric filters + grain-aware measure collapse
 │   ├── templater.py               # HTML rendering
 │   └── templates/
 │       ├── line_chart.html        # D3.js line chart (single + multi-series)
@@ -503,7 +508,7 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - ~~Multi-chart dashboard — `POST /dashboard` SSE endpoint; LLM decomposes one prompt into N focused sub-prompts, runs N pipelines in parallel via `asyncio.as_completed`, streams each chart to the browser as it finishes~~
 - ~~Per-chart session state — each chart has its own isolated conversation history, mapping, and refine bar; refinements in one chart never affect another~~
 - ~~"Add chart" button — append new charts to the dashboard at any time without clearing existing ones~~
-- ~~CSV validation — size limit (10 MB), encoding check, null-byte detection, parse verification, formula injection guard (formatted numbers and `-`/`+`/`.` placeholders are not mistaken for formulas)~~
+- ~~CSV validation — size limit (50 MB, generous enough for combined multi-CSV joins), encoding check, null-byte detection, parse verification, formula injection guard (formatted numbers, `-`/`+`/`.` placeholders, and signed-with-units values like `+1 Lap` / `-5.478` are not mistaken for formulas)~~
 - ~~Color refinement — `color` and `category_colors` fields in `AxisMapping`; overall color and per-category overrides via natural language~~
 - ~~Playground — sample dataset picker on landing page; backend serves CSVs via `GET /playground/csv/{id}`; reuses dashboard SSE pipeline; resets on own CSV upload~~
 - ~~Navbar cursor fix — pointer cursor on theme toggle and "← New" button~~
@@ -516,15 +521,19 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 **Streaming** ✓
 - ~~SSE progress stream — `POST /chart/stream` and `POST /refine/stream` emit `loading → mapping → transforming → rendering → done` stage events; dashboard SSE emits per-chart `progress` events; frontend shows a 4-step progress bar and stage label in each pending card~~
 
-**Multi-CSV joins**
-The single biggest feature gap. Uploading multiple CSVs (e.g. an F1 dataset split across races, results, drivers, constructors) and visualising across them requires a join stage before the existing pipeline.
+**Multi-CSV joins** ✓
+Uploading multiple CSVs (e.g. an F1 dataset split across races, results, drivers, constructors, standings) and visualising across them, via a join stage before the existing pipeline.
 
-Architecture:
-- Load all CSVs into an in-memory SQLite database
-- Auto-detect join candidates using **value-overlap sampling** — compare column value sets across tables (e.g. `results.driverId` vs `drivers.driverId` → 90%+ overlap → high-confidence FK). Pure name-matching is unreliable in practice; value overlap is the only signal that survives `id` / `user_id` / `order_id` ambiguity
-- Present high-confidence join candidates to the user for confirmation (Metabase/Looker do the same — no production BI tool fully auto-detects schema relationships)
-- LLM fills a **structured join spec** (JSON: which tables, which key pairs, optional row filters) rather than writing raw SQL — the code executes SQL from the spec so the LLM can only reference columns that exist (validation rejects and retries with a clear error on hallucinated columns)
-- Executed result is a flat table that drops into the existing LLMMapper → Transformer → Templater pipeline unchanged
+Architecture (shipped, fully deterministic — no LLM in the join path):
+- ~~Load all CSVs into an in-memory SQLite database~~
+- ~~Auto-detect join candidates using **value-overlap sampling** gated by **key-name compatibility** (stem matching) — so `results.driverId`→`drivers.driverId` joins, but cross-entity collisions (`statusId`↔`raceId`), two bare `id` PKs, and same-named measures (`points`↔`points`) are rejected even when their integer ranges overlap~~
+- ~~**Composite-key detection** — tables sharing 2+ key columns whose combination is unique on one side join on all of them (`results ⋈ driver_standings ON raceId AND driverId`), a 1:1 lookup~~
+- ~~**Fan-out guard** — a table is only auto-joined when its own join key is unique on its side; a many-to-one detail table (season standings keyed on `raceId` alone) is left unjoined rather than exploding the fact grain~~
+- ~~Maximum-confidence spanning tree (Prim's) picks the base/fact table and connects the rest; the Combine dialog lets the user confirm the base table, toggle joins (composite ones badged), and see which tables couldn't be linked~~
+- ~~Executed result is a flat table that drops into the existing LLMMapper → Transformer → Templater pipeline unchanged~~
+
+**Deterministic grain-aware aggregation** ✓
+- ~~When a chart aggregates a measure, a coarse-grained column repeated across fine-grained rows (the BI "fan trap") is collapsed to one representative per group before aggregating — constant → the value, cumulative/monotonic → the terminal value, otherwise the requested aggregation. Applied to the network's node/edge sizing so a repeated season total or a cumulative running total (e.g. `wins`) is never multiplied by the number of underlying rows. Domain-agnostic, works on directly-uploaded denormalised CSVs too~~
 
 **Canvas / dashboard view**
 - Multiple charts on one page, each independently generated from its own CSV + prompt

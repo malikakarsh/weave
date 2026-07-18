@@ -25,6 +25,7 @@ from pipeline.category_resolver import ClarificationNeeded
 from api.auth import router as auth_router, current_user_required
 from api.threads import router as threads_router
 from api.admin import router as admin_router
+from api.joins import router as joins_router
 from api import usage
 
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +55,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(threads_router)
 app.include_router(admin_router)
+app.include_router(joins_router)
 
 
 _SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "samples")
@@ -268,6 +270,65 @@ def _inject(html: str) -> str:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+def _fmt_num(n: float) -> str:
+    return str(int(n)) if float(n).is_integer() else f"{n:g}"
+
+
+def _col_min_max(rows: list[dict], name: str, ctype) -> tuple[str | None, str | None]:
+    """Min and max value of a column, typed: numeric range for Float, date range
+    for Date, alphabetical range for String. Helps verify what actually landed in
+    a joined table (e.g. year 2009–2024)."""
+    from models.schema import ColumnType
+    from pipeline.numeric import parse_number
+    from pipeline.transformer import _parse_dt
+
+    vals = [v for v in (r.get(name, "").strip() for r in rows) if v]
+    if not vals:
+        return None, None
+    if ctype == ColumnType.FLOAT:
+        nums = [n for n in (parse_number(v) for v in vals) if n is not None]
+        return (_fmt_num(min(nums)), _fmt_num(max(nums))) if nums else (None, None)
+    if ctype == ColumnType.DATE:
+        dated = [(d, v) for d, v in ((_parse_dt(v), v) for v in vals) if d is not None]
+        if not dated:
+            return None, None
+        return min(dated, key=lambda x: x[0])[1], max(dated, key=lambda x: x[0])[1]
+    return min(vals, key=str.casefold), max(vals, key=str.casefold)
+
+
+@app.post("/schema")
+async def get_schema(
+    file: UploadFile = File(...),
+    user: dict = Depends(current_user_required),
+):
+    """Return the CSV's columns with inferred types + sample values (no LLM)."""
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv")
+    csv_bytes = await file.read()
+    try:
+        validate_csv(csv_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(csv_bytes)
+        tmp_path = tmp.name
+    try:
+        schema, rows = DataLoader().describe(tmp_path)
+        columns = []
+        for c in schema.columns:
+            lo, hi = _col_min_max(rows, c.name, c.type)
+            columns.append({
+                "name": c.name, "type": c.type.value, "sample": c.sample,
+                "min": lo, "max": hi,
+            })
+        return {"row_count": schema.row_count, "columns": columns}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        os.unlink(tmp_path)
 
 
 @app.post("/chart", response_model=ChartResponse)

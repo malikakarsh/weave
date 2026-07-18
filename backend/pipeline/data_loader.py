@@ -23,7 +23,11 @@ class DataLoader:
         "%H:%M:%S", "%H:%M",
     ]
 
-    def load(self, file_path: str) -> tuple[Schema, list[dict]]:
+    def read_rows(self, file_path: str) -> tuple[list[str], list[dict]]:
+        """Header + cleaned data rows (title/preamble skipped, empty columns
+        dropped), without type detection or the numeric-column requirement.
+        Used by the multi-CSV joiner, which loads dimension tables that may have
+        no numeric column."""
         with open(file_path, newline="", encoding="utf-8-sig") as f:
             sample = f.read(2048)
             try:
@@ -35,20 +39,25 @@ class DataLoader:
 
         header_idx = self._detect_header(raw)
         header, rows = self._build_rows(raw, header_idx)
-
         if not rows:
             raise ValueError("CSV must have at least a header row and one data row.")
+        return header, rows
 
+    def describe(self, file_path: str) -> tuple[Schema, list[dict]]:
+        """Schema (columns + inferred types + samples) and rows, without the
+        numeric-column requirement — for schema display and the joiner."""
+        header, rows = self.read_rows(file_path)
         columns = []
         for col in header:
             values = [row[col] for row in rows]
             col_type = self._detect_type(values)
             sample = [v for v in values if v.strip()][:self.SAMPLE_SIZE]
             columns.append(ColumnInfo(name=col, type=col_type, sample=sample))
+        return Schema(columns=columns, row_count=len(rows)), rows
 
-        schema = Schema(columns=columns, row_count=len(rows))
+    def load(self, file_path: str) -> tuple[Schema, list[dict]]:
+        schema, rows = self.describe(file_path)
         self._validate(schema)
-
         return schema, rows
 
     # ── header / preamble detection ──────────────────────────────────────

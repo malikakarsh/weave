@@ -362,6 +362,29 @@ ANTHROPIC_API_KEY=your_key_here
 CLAUDE_MODEL=claude-haiku-4-5   # optional, this is the default
 ```
 
+## Deployment (Docker + Cloudflare Tunnel)
+
+The whole stack — Next.js frontend, FastAPI backend, Postgres — runs from one `docker-compose.yml`, and a `cloudflared` container exposes it publicly over HTTPS with **no port-forwarding**. This is how you host it on a spare machine and share a link.
+
+**Architecture:** two subdomains of one domain — `https://<APP_HOST>` → frontend, `https://<API_HOST>` → backend. Because they're the same registrable domain (same-site), the existing `SameSite=Lax` auth cookie flows and Google OAuth works with **no code changes** — the backend just runs uvicorn with `--proxy-headers` so it sees the real public host. Cloudflare's tunnel ingress routes both hostnames to the containers, so no reverse proxy is needed.
+
+**One-time setup**
+1. **Cloudflare Zero Trust → Networks → Tunnels**: create a tunnel, copy its token. Add two public hostnames — `<APP_HOST> → http://frontend:3000` and `<API_HOST> → http://backend:8000`.
+2. **Google Cloud Console → OAuth client**: add redirect URI `https://<API_HOST>/auth/google/callback` and JS origin `https://<APP_HOST>`. If the consent screen is in "Testing", add each tester's email as a test user.
+
+**Deploy**
+```bash
+cp .env.production.example .env    # fill in hosts, secrets, tunnel token, LLM + Google keys
+docker compose up -d --build       # db → migrate → backend → frontend → cloudflared
+docker compose logs -f backend     # watch "Running database migrations" then "Starting API"
+```
+Share `https://<APP_HOST>`. `alembic upgrade head` runs automatically on backend start; Postgres data persists in the gitignored `./.pgdata` bind mount.
+
+**Notes**
+- `NEXT_PUBLIC_API_URL` is inlined into the frontend bundle at **build time**, so changing `<API_HOST>` means `docker compose build frontend` again.
+- Set `COOKIE_SECURE=1` (the template does) — required for cookies over HTTPS.
+- If you ever split frontend/backend onto *different* domains (not subdomains), switch `samesite` to `"none"` in `_set_session_cookie` (`backend/api/auth.py`), since `Secure` is already set.
+
 ## Project structure
 
 ```

@@ -2,10 +2,12 @@ services:
   db:
     image: postgres:16
     container_name: weave-postgres
+    # Credentials come from .env (defaults keep `docker compose up -d db` working
+    # for local dev without an .env file).
     environment:
-      POSTGRES_USER: weave
-      POSTGRES_PASSWORD: weave
-      POSTGRES_DB: weave
+      POSTGRES_USER: ${POSTGRES_USER:-weave}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-weave}
+      POSTGRES_DB: ${POSTGRES_DB:-weave}
     ports:
       - "5432:5432"
     volumes:
@@ -14,7 +16,57 @@ services:
       # even a volume prune. Delete the folder to reset the database.
       - ./.pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U weave -d weave"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-weave} -d ${POSTGRES_DB:-weave}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: weave-backend
+    # All secrets/config come from the root .env (see .env.production.example).
+    env_file: .env
+    # DATABASE_URL is built from the same POSTGRES_* vars as the db service, so
+    # there's one source of truth for the credentials. This overrides any
+    # DATABASE_URL in .env; set that only to point at an external database.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-weave}:${POSTGRES_PASSWORD:-weave}@db:5432/${POSTGRES_DB:-weave}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Bound to localhost only — public traffic arrives via cloudflared, not this port.
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle at build time → must be the public API host.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    container_name: weave-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: weave-cloudflared
+    # Public hostnames (APP_HOST -> frontend:3000, API_HOST -> backend:8000) are
+    # configured in the Cloudflare Zero Trust dashboard for this tunnel token.
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped

@@ -1,13 +1,20 @@
 import csv
 import io
 import logging
+import re
 
 from pipeline.numeric import PLACEHOLDERS, is_number
 
 logger = logging.getLogger(__name__)
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+# Generous ceiling: joining up to 8 files (10 MB each) widens the table, so a
+# combined CSV legitimately runs to tens of MB. Only the schema goes to the LLM;
+# rows are processed in memory, so this stays safe.
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+# The characters that make a `+`/`-`-prefixed cell an actual formula/DDE payload
+# (function call, DDE pipe/bang, concatenation) rather than plain signed data.
+_FORMULA_PAYLOAD = re.compile(r"[()|!&]")
 
 
 def validate_csv(content: bytes) -> None:
@@ -26,7 +33,8 @@ def validate_csv(content: bytes) -> None:
 def _check_size(content: bytes) -> None:
     if len(content) > MAX_FILE_SIZE:
         mb = len(content) / (1024 * 1024)
-        raise ValueError(f"File too large ({mb:.1f} MB). Maximum allowed size is 10 MB.")
+        limit_mb = MAX_FILE_SIZE // (1024 * 1024)
+        raise ValueError(f"File too large ({mb:.1f} MB). Maximum allowed size is {limit_mb} MB.")
 
 
 def _check_encoding(content: bytes) -> str:
@@ -87,13 +95,18 @@ def _check_formula_injection(rows: list[list[str]]) -> None:
 
 
 def _looks_like_formula(cell: str) -> bool:
-    """A cell is a formula-injection risk only if it starts with a dangerous
-    prefix AND isn't a legitimate data value. Formatted numbers ($6.52,
-    -1,200.00, (350.00), 85%) and lone punctuation placeholders (-, +, .) are
-    common in real spreadsheets and are not formulas."""
+    """Flag genuine spreadsheet-formula / CSV-injection cells while allowing the
+    signed data that's common in real datasets. A cell is risky if it starts
+    with `=` or `@` (a formula or DDE trigger), or starts with `+`/`-` AND carries
+    a formula/DDE payload (a function call, DDE `|`/`!`, or concatenation). Plain
+    signed values (+1 Lap, -5.478, +1,200 pts), formatted numbers, and lone
+    punctuation placeholders are not formulas."""
     stripped = cell.strip()
     if not stripped or stripped[0] not in _FORMULA_PREFIXES:
         return False
     if stripped in PLACEHOLDERS or is_number(stripped):
         return False
-    return True
+    if stripped[0] in ("=", "@"):
+        return True
+    # +, - (tab/CR are stripped above, revealing the real first char)
+    return bool(_FORMULA_PAYLOAD.search(stripped))

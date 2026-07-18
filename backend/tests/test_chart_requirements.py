@@ -127,3 +127,28 @@ class TestValidatorClass:
         err = ChartValidator().validate(mapping(chart_type="symbol_map", x_column="cut", y_column="price"), s)
         assert "scatter" not in err.suggestion
         assert "bar" in err.suggestion   # bar is a genuine option
+
+    def test_radar_not_suggested_for_categorical_axes(self):
+        # two categorical entity columns + several numeric measures (F1-shaped).
+        # A scatter/bubble is rejected; radar must NOT be offered (it can't render
+        # from categorical x/y without metric_columns) but heatmap must be.
+        f1 = schema(
+            ("surname", ColumnType.STRING),
+            ("constructors_name", ColumnType.STRING),
+            ("wins", ColumnType.FLOAT),
+            ("points", ColumnType.FLOAT),
+            ("position", ColumnType.FLOAT),
+        )
+        err = ChartValidator().validate(
+            mapping(chart_type="bubble", x_column="surname", y_column="constructors_name", z_column="wins"),
+            f1,
+        )
+        assert err is not None
+        assert "radar" not in err.suggestion
+        assert "heatmap" in err.suggestion
+
+    def test_radar_still_valid_with_metric_columns(self):
+        assert ChartValidator().validate(mapping(
+            chart_type="radar",
+            metric_columns=["SepalLengthCm", "SepalWidthCm", "PetalLengthCm"],
+        ), IRIS) is None

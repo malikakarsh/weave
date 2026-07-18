@@ -119,11 +119,19 @@ def r_stacking_group(m: AxisMapping, v: SchemaView) -> str | None:
 
 
 def r_radar_metrics(m: AxisMapping, v: SchemaView) -> str | None:
+    # Radar needs its axes named in the MAPPING: either 3+ numeric metric_columns
+    # (wide form) or a group_column plus a numeric y (long form). The dataset
+    # merely *having* numeric columns isn't enough — without metric_columns the
+    # transform degenerates to a flat chart, so radar must not validate (or be
+    # suggested) on categorical x/y just because other numeric columns exist.
     metrics = [mc for mc in (m.metric_columns or []) if v.is_numeric(mc)]
     long_form = bool(m.group_column) and v.is_numeric(m.y_column)
-    if len(metrics) < 3 and not long_form and v.numeric_count() < 3:
-        return (f"A radar chart needs at least 3 numeric metrics to form the axes, "
-                f"but this data has {v.numeric_count()}")
+    if len(metrics) < 3 and not long_form:
+        if v.numeric_count() < 3:
+            return (f"A radar chart needs at least 3 numeric metrics to form the axes, "
+                    f"but this data has {v.numeric_count()}")
+        return ("A radar chart needs 3+ numeric metric columns (or a group column with a "
+                "numeric value); this chart's columns don't provide them")
     return None
 
 

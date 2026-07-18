@@ -971,15 +971,37 @@ export default function Home() {
     } catch { /* ignore */ }
   }
 
-  // Clear the workspace + thread list on logout so a signed-out user can't see
-  // the previous user's charts (they live only in server-side, per-user storage).
+  // Wipe all client-side workspace state (charts live only in per-user
+  // server storage; nothing signed-out should remain on screen).
+  const clearWorkspace = useCallback(() => {
+    setSidebarOpen(false);
+    setSessions([]);
+    setPrompt("");
+    setError(null);
+    setFile(null);
+    setIsPlayground(false);
+    setPlaygroundName("");
+    setCurrentThreadId(null);
+    setThreads([]);
+  }, []);
+
   function handleLogout() {
     setUserMenuOpen(false);
-    newThread();
-    setThreads([]);
+    clearWorkspace();
     didAutoOpenRef.current = false;  // re-open the latest thread on next sign-in
     logout();
   }
+
+  // Catch-all: clear the workspace whenever the user becomes signed-out (the
+  // logout button, a cookie/JWT expiry, or a 401) — not just the button path.
+  const wasAuthedRef = useRef(false);
+  useEffect(() => {
+    if (user) { wasAuthedRef.current = true; return; }
+    if (!wasAuthedRef.current) return;  // never signed in this session
+    wasAuthedRef.current = false;
+    didAutoOpenRef.current = false;
+    clearWorkspace();
+  }, [user, clearWorkspace]);
 
   function updateSession(id: string, updates: Partial<ChartSession>) {
     setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));

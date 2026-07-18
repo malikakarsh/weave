@@ -170,6 +170,7 @@
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
     let svgBg     = config.svg_bg || "#1a1d27";
@@ -420,7 +421,7 @@
           .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(name);
+          .text(groupLabel(name));
       });
     }
 
@@ -468,7 +469,7 @@
           const val = d[name] || 0;
           html += `<div class="tip-row">
             <span class="tip-swatch" style="background:${seriesColor[name]}"></span>
-            <span class="tip-label">${name}</span>
+            <span class="tip-label">${groupLabel(name)}</span>
             <span class="tip-val">${formatY(val)}</span>
           </div>`;
         });

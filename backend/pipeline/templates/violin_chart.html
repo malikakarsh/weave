@@ -172,6 +172,7 @@
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
     const markScale = config.mark_scale || 1;   // multiplier for violin width
@@ -418,7 +419,7 @@
           .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(grp);
+          .text(groupLabel(grp));
       });
     }
 

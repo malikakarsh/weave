@@ -250,6 +250,9 @@
       : () => config.color;
     colorScale = key => resolveColor(key, _baseCS(key));
 
+    // Legend display label: user-renamed via group_labels, else the raw group value.
+    const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
+
     if (isGrouped) {
       categories = raw[0].values.map(d => d.x);
       groups     = raw.map(g => g.group);
@@ -398,7 +401,7 @@
           .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
           .attr("fill",   color)
           .attr("rx", 2)
-          .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: grp.group, value: d.y, color }]))
+          .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: groupLabel(grp.group), value: d.y, color }]))
           .on("mouseleave", hideTooltip)
           .on("click", function(event) {
             if (!editMode) return;
@@ -441,7 +444,7 @@
           .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(grp);
+          .text(groupLabel(grp));
       });
     }
 

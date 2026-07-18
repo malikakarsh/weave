@@ -72,6 +72,7 @@ class AxisMapping(BaseModel):
     y_label: str = ""
     color: str | None = None             # CSS color for single-series charts; null means use default palette
     category_colors: dict[str, str] | None = None  # per-category color overrides: {"CategoryName": "#hex"}
+    group_labels: dict[str, str] | None = None  # legend display-label overrides: {"0": "death", "1": "survived"}
     palette: str | None = None            # named palette for grouped charts (e.g. 'dark', 'light', 'tableau10')
     background: str | None = None         # chart background color (CSS hex); null means use theme default
     mark_scale: float | None = None       # size multiplier for marks (bar width, line stroke, point radius); 1.0 = default
@@ -104,6 +105,7 @@ class ChartConfig(BaseModel):
     y_column: str = ""
     palette: list[str] | None = None  # custom colors per group; falls back to D3 categorical scale
     category_colors: dict[str, str] | None = None  # per-category color overrides; merged on top of palette
+    group_labels: dict[str, str] | None = None  # legend display-label overrides: {rawGroupValue: displayLabel}
     svg_bg: str = "#1a1d27"           # background rect injected into exported SVG
     background: str | None = None     # user-requested chart background (CSS hex); overrides theme when set
     facet_direction: str | None = None  # "rows" | "columns" — passed through from AxisMapping

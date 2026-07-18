@@ -70,6 +70,8 @@ def _apply_mapping(config: ChartConfig, mapping: AxisMapping) -> ChartConfig:
         update["svg_bg"] = mapping.background
     if mapping.category_colors:
         update["category_colors"] = mapping.category_colors
+    if mapping.group_labels:
+        update["group_labels"] = mapping.group_labels
     if mapping.mark_scale is not None:
         update["mark_scale"] = max(0.2, min(mapping.mark_scale, 4.0))
     if palette:

@@ -45,6 +45,11 @@ REFINE_SYSTEM = (
     "  {\"Not Applicable\": \"#eab308\", \"Critical\": \"#ef4444\"}.\n"
     "  Merge with any existing category_colors — keep colors for categories the user did NOT mention.\n"
     "  Use standard CSS named colors or 6-digit hex values. Set to null to revert all to default.\n"
+    "- For legend / series RENAMING (e.g. 'label 0 as death and 1 as survived', 'rename the legend to Yes/No',\n"
+    "  'call series A \"Team A\"'): set the 'group_labels' field to a dict mapping each RAW group value (as it\n"
+    "  appears in the data, as a string) to its display label, e.g. {\"0\": \"death\", \"1\": \"survived\"}.\n"
+    "  This only changes the legend text; it does NOT filter, recolor, or re-aggregate. Merge with any existing\n"
+    "  group_labels — keep labels the user did NOT mention. Set to null to revert to the raw values.\n"
     "- For color palette / color scheme changes on multi-series or grouped charts\n"
     "  (e.g. 'use a dark palette', 'change the color palette to light shades', 'use tableau colors', 'pastel palette'):\n"
     "  set the 'palette' field to exactly one of: 'vibrant', 'dark', 'light', 'muted', 'tableau10', 'category10', 'set2', 'dark2', 'pastel'.\n"
@@ -229,5 +234,5 @@ AXIS_MAPPING_SYSTEM = (
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
     '"z_column": "<column name or null>", "label_column": "<column name or null>", '
     '"facet_direction": "columns|rows|null", "facet_free_y": false, "mark_scale": null, '
-    '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>", "color": null, "category_colors": null}'
+    '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>", "color": null, "category_colors": null, "group_labels": null}'
 )

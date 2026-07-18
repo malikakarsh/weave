@@ -165,6 +165,7 @@
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
     let svgBg    = config.svg_bg || "#1a1d27";
@@ -412,7 +413,7 @@
           .attr("class", "legend-label")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(grp.length > 16 ? grp.slice(0, 14) + "…" : grp);
+          .text((() => { const gl = String(groupLabel(grp)); return gl.length > 16 ? gl.slice(0, 14) + "…" : gl; })());
       });
     }
 

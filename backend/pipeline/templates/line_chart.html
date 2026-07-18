@@ -171,6 +171,7 @@
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
     const markScale = config.mark_scale || 1;   // multiplier for line stroke thickness
 
@@ -479,7 +480,7 @@
           .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(grp.group);
+          .text(groupLabel(grp.group));
       });
     }
 
@@ -552,7 +553,7 @@
           const pt  = groupPts[i];
           const val = pt && pt.y !== null ? formatY(pt.y) : "—";
           const col = colorScale(grp.group);
-          const lbl = isGrouped ? grp.group : "Value";
+          const lbl = isGrouped ? groupLabel(grp.group) : "Value";
           html += `<div class="tip-row">
             <span class="tip-swatch" style="background:${col}"></span>
             <span class="tip-label">${lbl}</span>

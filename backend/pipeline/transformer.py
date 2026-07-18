@@ -112,12 +112,24 @@ class Transformer:
         """
         cols = set(rows[0].keys()) if rows else set()
 
-        # Row filters: keep rows whose column value is one of the allowed values.
+        # Row filters. Multiple filters on the SAME column combine as OR (a value
+        # is kept if it matches any of them); different columns combine as AND.
+        # This means re-filtering the same dimension (e.g. year 2016 after 2013)
+        # can never collapse to an empty intersection.
+        by_col: dict[str, list[FilterSpec]] = {}
         for f in (mapping.filters or []):
-            if f.column not in cols:
-                continue
-            allowed = {v.strip() for v in f.values}
-            rows = [r for r in rows if r.get(f.column, "").strip() in allowed]
+            if f.column in cols:
+                by_col.setdefault(f.column, []).append(f)
+
+        for col, specs in by_col.items():
+            def matches(val: str, specs=specs) -> bool:
+                for f in specs:
+                    if f.values and val in {v.strip() for v in f.values}:
+                        return True
+                    if (f.min is not None or f.max is not None) and val and _in_range(val, f.min, f.max):
+                        return True
+                return False
+            rows = [r for r in rows if matches(r.get(col, "").strip())]
 
         # Top-N limit on a chosen column, ranked by the same aggregation as the chart.
         lim = mapping.limit
@@ -158,6 +170,28 @@ class Transformer:
         if func == "max":
             return max(non_null)
         return sum(non_null)  # "sum" and anything else
+
+    @staticmethod
+    def _collapse_measure(values_in_order: list[float | None], func: str) -> float | None:
+        """Reduce a measure to ONE representative for its group, correcting a grain
+        mismatch — a coarse-grained column repeated across fine-grained rows (the BI
+        'fan trap'). Deterministic and domain-agnostic (no column-name knowledge):
+
+          • constant across the group   → an attribute; use that single value
+          • non-decreasing in row order → a cumulative running total; use the
+                                          terminal (max) value, e.g. season 'wins'
+          • otherwise                   → a genuine per-row measure; apply `func`
+
+        This is what stops 'sum'/'count' from multiplying a repeated season total by
+        the number of underlying rows."""
+        vals = [v for v in values_in_order if v is not None]
+        if not vals:
+            return None
+        if len(set(vals)) == 1:
+            return vals[0]
+        if all(a <= b for a, b in zip(vals, vals[1:])):
+            return max(vals)
+        return Transformer._agg(vals, func)
 
     @staticmethod
     def _x_key(raw_x: str, time_unit: str | None) -> str | None:
@@ -451,6 +485,12 @@ class Transformer:
         """Aggregate edges by (source, target) and return {nodes, links}."""
         buckets: dict[tuple[str, str], list[float | None]] = {}
         node_seen: list[str] = []
+        # Which side of the graph each node came from, so the template can color
+        # the two categorical entities distinctly (source vs target). A node seen
+        # on both sides is tagged "both".
+        node_side: dict[str, str] = {}
+        src_label = mapping.x_label or mapping.x_column
+        tgt_label = mapping.y_label or mapping.y_column
 
         for row in rows:
             src = row.get(mapping.x_column, "").strip()
@@ -460,6 +500,8 @@ class Transformer:
             for n in (src, tgt):
                 if n not in node_seen:
                     node_seen.append(n)
+            node_side[src] = src_label if node_side.get(src, src_label) == src_label else "both"
+            node_side[tgt] = tgt_label if node_side.get(tgt, tgt_label) == tgt_label else "both"
             key = (src, tgt)
             if key not in buckets:
                 buckets[key] = []
@@ -469,22 +511,57 @@ class Transformer:
             else:
                 buckets[key].append(1.0)
 
-        agg = mapping.aggregation if mapping.z_column else "sum"
+        # Edge weight. For a WEIGHTED graph (z_column set) the buckets preserve row
+        # order, so collapse each edge's measure to one grain-correct representative
+        # — this prevents a repeated/cumulative column (e.g. season 'wins') from
+        # being multiplied by the number of underlying rows. For an UNWEIGHTED graph
+        # the weight is just the number of connecting rows.
+        def _edge_weight(vals: list[float | None]) -> float | None:
+            if mapping.z_column:
+                return self._collapse_measure(vals, mapping.aggregation)
+            return self._agg(vals, "sum")
+
+        edge_weight = {(src, tgt): _edge_weight(vals) for (src, tgt), vals in buckets.items()}
         links = [
-            {"source": src, "target": tgt, "weight": self._agg(vals, agg)}
-            for (src, tgt), vals in buckets.items()
+            {"source": src, "target": tgt, "weight": w}
+            for (src, tgt), w in edge_weight.items()
         ]
 
-        # Aggregate edge weights per node so the template can size by total weight
+        # Node size from its collapsed edge weights. If every neighbour carries the
+        # SAME value it's an attribute of THIS node (e.g. a constructor's own season
+        # wins repeated across its drivers) → take it once, don't sum. Otherwise sum
+        # each neighbour's distinct contribution (e.g. each driver's own wins).
         if mapping.z_column:
-            node_weight: dict[str, float] = {}
-            for (src, tgt), vals in buckets.items():
-                w = self._agg(vals, agg) or 0
-                node_weight[src] = node_weight.get(src, 0) + w
-                node_weight[tgt] = node_weight.get(tgt, 0) + w
-            node_list = [{"id": n, "size": node_weight.get(n, 0)} for n in node_seen]
+            incident: dict[str, list[float]] = {}
+            for (src, tgt), w in edge_weight.items():
+                if w is None:
+                    continue
+                incident.setdefault(src, []).append(w)
+                incident.setdefault(tgt, []).append(w)
+
+            def _node_size(reps: list[float]) -> float:
+                if not reps:
+                    return 0.0
+                return reps[0] if len(set(reps)) == 1 else sum(reps)
+
+            node_list = [
+                {"id": n, "group": node_side.get(n, ""), "size": _node_size(incident.get(n, []))}
+                for n in node_seen
+            ]
         else:
-            node_list = [{"id": n} for n in node_seen]
+            node_list = [{"id": n, "group": node_side.get(n, "")} for n in node_seen]
+
+        # Cap huge graphs to their most-connected core so they render legibly
+        # (an unbounded force layout of thousands of nodes reads as a black blob).
+        MAX_NODES = 120
+        if len(node_list) > MAX_NODES:
+            degree: dict[str, int] = {}
+            for src, tgt in buckets:
+                degree[src] = degree.get(src, 0) + 1
+                degree[tgt] = degree.get(tgt, 0) + 1
+            keep = set(sorted(degree, key=lambda n: degree[n], reverse=True)[:MAX_NODES])
+            node_list = [n for n in node_list if n["id"] in keep]
+            links = [l for l in links if l["source"] in keep and l["target"] in keep]
 
         return {"nodes": node_list, "links": links}
 

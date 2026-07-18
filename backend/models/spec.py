@@ -1,4 +1,14 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+
+def _as_str_list(v):
+    """Coerce a scalar or list of scalars to a list of strings — the LLM often
+    emits filter values as numbers (e.g. a year 2009) which must be strings."""
+    if v is None:
+        return v
+    if isinstance(v, list):
+        return [str(x) for x in v]
+    return [str(v)]
 
 
 class LimitSpec(BaseModel):
@@ -13,12 +23,29 @@ class LimitSpec(BaseModel):
 
 
 class FilterSpec(BaseModel):
-    """Keep only rows whose named column matches one of the given values.
+    """Keep only rows whose named column matches one of the given values, or
+    (for numeric columns) falls within a [min, max] threshold.
 
-    e.g. {"column": "cut", "values": ["Premium", "Fair"]} keeps those two cuts.
+    Value filter:     {"column": "cut", "values": ["Premium", "Fair"]}
+    Threshold filter: {"column": "wins", "min": "2"}  (wins >= 2)
+                      {"column": "age", "min": "18", "max": "65"}  (18 <= age <= 65)
+
+    `values` and `min`/`max` are independent — set whichever the instruction implies.
     """
     column: str
-    values: list[str]
+    values: list[str] | None = None
+    min: str | None = None
+    max: str | None = None
+
+    @field_validator("values", mode="before")
+    @classmethod
+    def _coerce_values(cls, v):
+        return _as_str_list(v)
+
+    @field_validator("min", "max", mode="before")
+    @classmethod
+    def _coerce_bound(cls, v):
+        return None if v is None else str(v)
 
 
 class AxisMapping(BaseModel):
@@ -48,6 +75,16 @@ class AxisMapping(BaseModel):
     palette: str | None = None            # named palette for grouped charts (e.g. 'dark', 'light', 'tableau10')
     background: str | None = None         # chart background color (CSS hex); null means use theme default
     mark_scale: float | None = None       # size multiplier for marks (bar width, line stroke, point radius); 1.0 = default
+
+    @field_validator("group_filter", "metric_columns", mode="before")
+    @classmethod
+    def _coerce_str_lists(cls, v):
+        return _as_str_list(v)
+
+    @field_validator("x_min", "x_max", mode="before")
+    @classmethod
+    def _coerce_str_scalar(cls, v):
+        return None if v is None else str(v)
 
 
 class ChartConfig(BaseModel):

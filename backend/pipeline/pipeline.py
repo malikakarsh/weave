@@ -13,6 +13,19 @@ from pipeline.category_resolver import (
 )
 
 
+def _ensure_non_empty(data) -> None:
+    """Raise a clear error instead of rendering a blank chart when the transform
+    produced no data — usually a filter that matched nothing or columns that came
+    out empty."""
+    empty = (not data.get("nodes")) if isinstance(data, dict) else (not data)
+    if empty:
+        raise ValueError(
+            "No data to plot — the filters or selected columns produced an empty "
+            "result. Try removing a filter (e.g. a year), or run “show columns” "
+            "to check the exact column names."
+        )
+
+
 def _pretty(col: str) -> str:
     """Turn a snake_case or camelCase column name into a readable label."""
     if not col:
@@ -121,6 +134,7 @@ class Pipeline:
 
         _emit("transforming")
         data = self._transformer.transform(rows, mapping)
+        _ensure_non_empty(data)
 
         _emit("rendering")
         html = self._templater.render(data, config)
@@ -168,6 +182,7 @@ class Pipeline:
 
         _emit("transforming")
         data = self._transformer.transform(rows, mapping)
+        _ensure_non_empty(data)
 
         _emit("rendering")
         html = self._templater.render(data, config)

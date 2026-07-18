@@ -137,6 +137,10 @@ def resolve_references(mapping: AxisMapping, rows: list[dict]) -> ResolveResult:
     if mapping.filters:
         new_filters = []
         for f in mapping.filters:
+            # Threshold filters (min/max, no values) need no category resolution.
+            if not f.values:
+                new_filters.append(f)
+                continue
             kept = []
             for term in f.values:
                 kind, res = resolve_term(term, vals(f.column))

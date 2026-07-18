@@ -206,6 +206,54 @@ class TestTransformFlat:
         assert "2024-01-01" in xs
         assert "2024-06-01" in xs
 
+    def test_threshold_filter_min(self, t):
+        # a numeric threshold filter (wins >= 2) on a non-axis column
+        rows = [
+            {"x": "A", "y": "1", "wins": "0"},
+            {"x": "B", "y": "1", "wins": "2"},
+            {"x": "C", "y": "1", "wins": "5"},
+        ]
+        m = mapping(x_column="x", y_column="y",
+                    filters=[{"column": "wins", "min": "2"}])
+        result = t._prefilter(rows, m)
+        assert {r["x"] for r in result} == {"B", "C"}
+
+    def test_threshold_filter_excludes_nonnumeric(self, t):
+        rows = [
+            {"x": "A", "wins": ""},
+            {"x": "B", "wins": "3"},
+        ]
+        m = mapping(x_column="x", y_column="y",
+                    filters=[{"column": "wins", "min": "2"}])
+        result = t._prefilter(rows, m)
+        assert {r["x"] for r in result} == {"B"}  # empty wins dropped
+
+    def test_same_column_filters_union_not_intersect(self, t):
+        # re-filtering the same dimension (year 2013 then 2016) is OR, never empty
+        rows = [
+            {"x": "a", "year": "2013"},
+            {"x": "b", "year": "2016"},
+            {"x": "c", "year": "2020"},
+        ]
+        m = mapping(x_column="x", y_column="y", filters=[
+            {"column": "year", "values": ["2013"]},
+            {"column": "year", "values": ["2016"]},
+        ])
+        result = t._prefilter(rows, m)
+        assert {r["x"] for r in result} == {"a", "b"}  # both years kept, not empty
+
+    def test_different_column_filters_intersect(self, t):
+        rows = [
+            {"x": "a", "year": "2016", "team": "Red"},
+            {"x": "b", "year": "2016", "team": "Blue"},
+        ]
+        m = mapping(x_column="x", y_column="y", filters=[
+            {"column": "year", "values": ["2016"]},
+            {"column": "team", "values": ["Red"]},
+        ])
+        result = t._prefilter(rows, m)
+        assert {r["x"] for r in result} == {"a"}  # AND across columns
+
     def test_time_unit_year_bucketing(self, t):
         rows = [
             {"x": "2024-01-15", "y": "10"},
@@ -396,6 +444,77 @@ class TestTransformNetwork:
         result = t._transform_network(self.ROWS, m)
         ab = next(l for l in result["links"] if l["source"] == "A" and l["target"] == "B")
         assert ab["weight"] == 2.0  # 2 occurrences
+
+    def test_node_size_by_measure(self, t):
+        # z_column sizes nodes by total measure flowing through each node (the
+        # network's third dimension). A = 12(A-B) + 5(A-C) = 17; B = 12 + 3 = 15.
+        m = AxisMapping(chart_type="network", x_column="src", y_column="tgt", z_column="w", aggregation="sum")
+        result = t._transform_network(self.ROWS, m)
+        sizes = {n["id"]: n["size"] for n in result["nodes"]}
+        assert sizes == {"A": 17.0, "B": 15.0, "C": 8.0}
+
+    def test_no_size_key_when_unweighted(self, t):
+        m = AxisMapping(chart_type="network", x_column="src", y_column="tgt", aggregation="sum")
+        result = t._transform_network(self.ROWS, m)
+        assert all("size" not in n for n in result["nodes"])  # sized by degree in template
+
+    def test_nodes_tagged_by_side(self, t):
+        # A only ever a source, C only a target, B appears on both sides → "both".
+        # Lets the template color the two categorical entities distinctly.
+        m = AxisMapping(chart_type="network", x_column="src", y_column="tgt", aggregation="sum")
+        result = t._transform_network(self.ROWS, m)
+        groups = {n["id"]: n["group"] for n in result["nodes"]}
+        assert groups == {"A": "src", "B": "both", "C": "tgt"}
+
+    def test_cumulative_measure_not_double_counted(self, t):
+        # 'wins' is a cumulative running total repeated across race rows. Even with
+        # aggregation="count" (what "number of wins" tends to produce), the node
+        # size must be the season total, not the row count.
+        rows = ([{"src": "Hamilton", "tgt": "Mercedes", "w": str(x)} for x in (0, 1, 1, 2, 5, 10)]
+                + [{"src": "Rosberg", "tgt": "Mercedes", "w": str(x)} for x in (0, 0, 1, 3, 9)])
+        m = AxisMapping(chart_type="network", x_column="src", y_column="tgt", z_column="w", aggregation="count")
+        sizes = {n["id"]: n["size"] for n in t._transform_network(rows, m)["nodes"]}
+        assert sizes == {"Hamilton": 10.0, "Rosberg": 9.0, "Mercedes": 19.0}
+
+    def test_repeated_constant_attribute_deduped(self, t):
+        # a per-entity attribute repeated across rows must not be summed per row
+        rows = [{"src": "A", "tgt": "X", "w": "100"} for _ in range(5)]
+        m = AxisMapping(chart_type="network", x_column="src", y_column="tgt", z_column="w", aggregation="sum")
+        sizes = {n["id"]: n["size"] for n in t._transform_network(rows, m)["nodes"]}
+        assert sizes == {"A": 100.0, "X": 100.0}      # not 500
+
+    def test_additive_measure_still_summed(self, t):
+        # a genuine per-row amount that varies non-monotonically is still summed
+        rows = [{"src": "A", "tgt": "X", "w": w} for w in ("10", "5", "20", "3")]
+        m = AxisMapping(chart_type="network", x_column="src", y_column="tgt", z_column="w", aggregation="sum")
+        sizes = {n["id"]: n["size"] for n in t._transform_network(rows, m)["nodes"]}
+        assert sizes == {"A": 38.0, "X": 38.0}
+
+    def test_node_attribute_not_summed_across_neighbours(self, t):
+        # 'cwins' is the target node's OWN total (same 19 on both neighbours) — it
+        # must be taken once for X, not summed to 38. Each driver's own value would
+        # differ and would be summed (see test above).
+        rows = ([{"src": "H", "tgt": "X", "w": str(w)} for w in (0, 5, 10, 19)]
+                + [{"src": "R", "tgt": "X", "w": str(w)} for w in (0, 5, 10, 19)])
+        m = AxisMapping(chart_type="network", x_column="src", y_column="tgt", z_column="w", aggregation="sum")
+        sizes = {n["id"]: n["size"] for n in t._transform_network(rows, m)["nodes"]}
+        assert sizes == {"H": 19.0, "R": 19.0, "X": 19.0}   # X is 19, not 38
+
+
+class TestCollapseMeasure:
+    def test_constant_returns_value(self, t):
+        assert t._collapse_measure([7.0, 7.0, 7.0], "sum") == 7.0
+
+    def test_cumulative_returns_terminal(self, t):
+        assert t._collapse_measure([0.0, 1.0, 1.0, 4.0], "count") == 4.0
+
+    def test_additive_uses_func(self, t):
+        assert t._collapse_measure([10.0, 5.0, 20.0, 3.0], "sum") == 38.0
+        assert t._collapse_measure([10.0, 5.0, 20.0, 3.0], "mean") == 9.5
+
+    def test_ignores_nulls_and_empty(self, t):
+        assert t._collapse_measure([None, 5.0, None, 5.0], "sum") == 5.0
+        assert t._collapse_measure([None, None], "sum") is None
 
 
 # ── _transform_map ────────────────────────────────────────────────────────────

@@ -3,6 +3,36 @@
 import { createContext, useContext, useState } from "react";
 import Link from "next/link";
 
+// Faint grid texture (matches the main app background).
+const LIGHT_WEAVE_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26">' +
+  '<path d="M26 0H0V26" fill="none" stroke="black" stroke-opacity="0.07" stroke-width="0.5"/></svg>'
+);
+const DARK_WEAVE_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26">' +
+  '<path d="M26 0H0V26" fill="none" stroke="white" stroke-opacity="0.03" stroke-width="0.5"/></svg>'
+);
+
+const DARK_BG: React.CSSProperties = {
+  backgroundColor: "#0f1117",
+  backgroundImage: [
+    "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(99,102,241,0.16) 0%, transparent 60%)",
+    "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(139,92,246,0.10) 0%, transparent 55%)",
+    `url("data:image/svg+xml,${DARK_WEAVE_SVG}")`,
+  ].join(", "),
+  // pin to the viewport so the glow shows down the whole (tall) docs page
+  backgroundAttachment: "fixed",
+};
+const LIGHT_BG: React.CSSProperties = {
+  backgroundColor: "#f0f1f5",
+  backgroundImage: [
+    "radial-gradient(ellipse 280% 80% at 50% -10%, rgba(244,63,94,0.04) 0%, transparent 60%)",
+    "radial-gradient(ellipse 90% 70% at 12% 108%, rgba(220,38,38,0.03) 0%, transparent 55%)",
+    `url("data:image/svg+xml,${LIGHT_WEAVE_SVG}")`,
+  ].join(", "),
+  backgroundAttachment: "fixed",
+};
+
 // ── content data ────────────────────────────────────────────────────────────
 const SECTIONS = [
   { id: "overview", title: "Overview" },
@@ -68,9 +98,10 @@ const H = ({ id, children }: { id: string; children: React.ReactNode }) => (
 // ── page ──────────────────────────────────────────────────────────────────
 export default function DocsPage() {
   const [dark, setDark] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const c = {
-    page: dark ? "bg-[#0f1117] text-white/90" : "bg-white text-gray-800",
+    page: dark ? "text-white/90" : "text-gray-800",
     header: dark ? "bg-[#12141d] border-white/10" : "bg-white border-gray-200",
     muted: dark ? "text-white/50" : "text-gray-500",
     card: dark ? "bg-white/5 border-white/10" : "bg-gray-50 border-gray-200",
@@ -82,9 +113,18 @@ export default function DocsPage() {
 
   return (
     <DarkCtx.Provider value={dark}>
-    <main className={`min-h-screen ${c.page}`}>
+    <main className={`min-h-screen ${c.page}`} style={dark ? DARK_BG : LIGHT_BG}>
       <header className={`sticky top-0 z-10 border-b ${c.header}`}>
-        <div className="max-w-4xl mx-auto px-6 h-14 flex items-center gap-3">
+        <div className="px-6 h-14 flex items-center gap-3">
+          <button
+            onClick={() => setMenuOpen(true)}
+            aria-label="Sections"
+            className={`xl:hidden -ml-1 flex items-center justify-center w-8 h-8 rounded-lg ${c.muted} hover:${c.tocActive} cursor-pointer`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+            </svg>
+          </button>
           <Link href="/" className={`text-sm ${c.muted} hover:${c.tocActive}`}>← Weave</Link>
           <span className="text-sm font-semibold">Docs</span>
           <button
@@ -106,22 +146,63 @@ export default function DocsPage() {
         </div>
       </header>
 
-      {/* TOC + article, centered as a group (snug max width so it doesn't feel
-          left-heavy). Sidebar shows from lg and up. */}
-      <div className="mx-auto flex w-full max-w-4xl gap-10 px-6 py-10">
-        {/* TOC */}
-        <nav className="hidden lg:block w-44 shrink-0">
-          <ul className="sticky top-20 space-y-1.5 text-sm">
-            {SECTIONS.map((s) => (
-              <li key={s.id}>
-                <a href={`#${s.id}`} className={`${c.muted} hover:${c.tocActive} transition-colors`}>{s.title}</a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+      {/* The article is always page-centered. On xl+ the TOC is a fixed left
+          rail (doesn't shift the article); below xl it's a slide-in drawer
+          opened from the header hamburger. */}
+      <nav className="hidden xl:block xl:fixed xl:top-24 xl:left-6 xl:w-48">
+        <ul className="space-y-1.5 text-sm">
+          {SECTIONS.map((s) => (
+            <li key={s.id}>
+              <a href={`#${s.id}`} className={`${c.muted} hover:${c.tocActive} transition-colors`}>{s.title}</a>
+            </li>
+          ))}
+        </ul>
+      </nav>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0 leading-relaxed text-[15px]">
+      {menuOpen && (
+        <div className="fixed inset-0 z-40 xl:hidden" onClick={() => setMenuOpen(false)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <nav
+            onClick={(e) => e.stopPropagation()}
+            className={`absolute top-0 left-0 h-full w-72 max-w-[80vw] flex flex-col border-r shadow-2xl ${dark ? "bg-[#12141d] border-white/10" : "bg-white border-gray-200"}`}
+          >
+            {/* header */}
+            <div className={`flex items-center gap-2.5 px-4 h-14 border-b ${dark ? "border-white/10" : "border-gray-200"}`}>
+              <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${dark ? "bg-indigo-500" : "bg-red-600"}`}>
+                <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5 7.5 9l3 3 4.5-6L21 13.5" />
+                </svg>
+              </div>
+              <span className="text-sm font-semibold">Docs</span>
+              <button onClick={() => setMenuOpen(false)} aria-label="Close" className={`ml-auto flex items-center justify-center w-7 h-7 rounded-md ${c.muted} hover:${c.tocActive} ${dark ? "hover:bg-white/10" : "hover:bg-gray-100"} cursor-pointer`}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+            {/* section links */}
+            <ul className="flex-1 overflow-y-auto p-2.5 space-y-0.5">
+              {SECTIONS.map((s, i) => (
+                <li key={s.id}>
+                  <a
+                    href={`#${s.id}`}
+                    onClick={() => setMenuOpen(false)}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors
+                      ${dark ? "text-white/70 hover:bg-white/5 hover:text-white" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"}`}
+                  >
+                    <span className={`text-[11px] tabular-nums font-medium ${dark ? "text-white/25" : "text-gray-300"}`}>{String(i + 1).padStart(2, "0")}</span>
+                    {s.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            {/* footer */}
+            <div className={`px-4 py-3 border-t ${dark ? "border-white/10" : "border-gray-200"}`}>
+              <Link href="/" className={`text-sm font-medium ${c.accent} hover:underline`}>← Back to Weave</Link>
+            </div>
+          </nav>
+        </div>
+      )}
+
+      <article className="mx-auto max-w-3xl px-6 py-10 leading-relaxed text-[15px]">
           <H id="overview">Overview</H>
           <p className="mb-3">
             Weave turns a CSV and a plain-English description into an interactive D3 chart — no code, no config.
@@ -231,8 +312,7 @@ export default function DocsPage() {
           <div className={`mt-12 pt-6 border-t ${c.tr}`}>
             <Link href="/" className={`text-sm font-medium ${c.accent} hover:underline`}>← Back to Weave</Link>
           </div>
-        </div>
-      </div>
+      </article>
     </main>
     </DarkCtx.Provider>
   );

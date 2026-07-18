@@ -971,6 +971,16 @@ export default function Home() {
     } catch { /* ignore */ }
   }
 
+  // Clear the workspace + thread list on logout so a signed-out user can't see
+  // the previous user's charts (they live only in server-side, per-user storage).
+  function handleLogout() {
+    setUserMenuOpen(false);
+    newThread();
+    setThreads([]);
+    didAutoOpenRef.current = false;  // re-open the latest thread on next sign-in
+    logout();
+  }
+
   function updateSession(id: string, updates: Partial<ChartSession>) {
     setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   }
@@ -1413,7 +1423,7 @@ export default function Home() {
                       </span>
                     </div>
                     <button
-                      onClick={() => { setUserMenuOpen(false); logout(); }}
+                      onClick={handleLogout}
                       className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-white/70 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer"
                     >
                       Log out

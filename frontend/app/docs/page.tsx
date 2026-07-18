@@ -84,7 +84,7 @@ export default function DocsPage() {
     <DarkCtx.Provider value={dark}>
     <main className={`min-h-screen ${c.page}`}>
       <header className={`sticky top-0 z-10 border-b ${c.header}`}>
-        <div className="max-w-5xl mx-auto px-6 h-14 flex items-center gap-3">
+        <div className="max-w-4xl mx-auto px-6 h-14 flex items-center gap-3">
           <Link href="/" className={`text-sm ${c.muted} hover:${c.tocActive}`}>← Weave</Link>
           <span className="text-sm font-semibold">Docs</span>
           <button
@@ -106,11 +106,11 @@ export default function DocsPage() {
         </div>
       </header>
 
-      {/* 3-column grid: [1fr | article | 1fr] keeps the article dead-centered
-          while the TOC hugs its left edge (and a balancing right spacer). */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_1fr] gap-8 px-6 py-10">
+      {/* TOC + article, centered as a group (snug max width so it doesn't feel
+          left-heavy). Sidebar shows from lg and up. */}
+      <div className="mx-auto flex w-full max-w-4xl gap-10 px-6 py-10">
         {/* TOC */}
-        <nav className="hidden xl:block justify-self-end w-48">
+        <nav className="hidden lg:block w-44 shrink-0">
           <ul className="sticky top-20 space-y-1.5 text-sm">
             {SECTIONS.map((s) => (
               <li key={s.id}>
@@ -121,7 +121,7 @@ export default function DocsPage() {
         </nav>
 
         {/* Content */}
-        <div className="w-full max-w-3xl mx-auto min-w-0 leading-relaxed text-[15px]">
+        <div className="flex-1 min-w-0 leading-relaxed text-[15px]">
           <H id="overview">Overview</H>
           <p className="mb-3">
             Weave turns a CSV and a plain-English description into an interactive D3 chart — no code, no config.
@@ -232,9 +232,6 @@ export default function DocsPage() {
             <Link href="/" className={`text-sm font-medium ${c.accent} hover:underline`}>← Back to Weave</Link>
           </div>
         </div>
-
-        {/* right spacer balances the TOC so the article stays centered */}
-        <div className="hidden xl:block" />
       </div>
     </main>
     </DarkCtx.Provider>

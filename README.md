@@ -57,6 +57,7 @@ Copy `backend/.env.example` → `backend/.env` and set your LLM key (`ANTHROPIC_
 - **Google sign-in** — login via Google OAuth. The FastAPI backend owns identity: Google only authenticates, then the backend mints its **own JWT** in an httpOnly cookie (`api/auth.py`) and upserts the user in Postgres — it's the single source of truth for who the user is. Chart generation requires sign-in; the navbar shows "Sign in with Google" or the user's avatar + a logout menu
 - **Roles + daily limits** — an admin role (`ADMIN_EMAILS`) with unlimited access; everyone else gets a per-user daily quota **metered per LLM call** (`DAILY_REQUEST_LIMIT`, default 20). A navbar pill shows requests remaining (amber when low, red at 0); a multi-chart prompt is capped to the remaining quota, and hitting the limit returns a clear message
 - **Saved threads** — each CSV upload starts a **thread** (Claude-style): its charts + refine histories auto-save to Postgres, scoped to your account. A sidebar lists past threads; click one to restore the CSV and all its charts. They persist across logout, browser close, and other devices
+- **Admin dashboard** — admins get an `/admin` view (linked from the profile menu) listing every user with their page-open count, today's + total LLM calls, last-seen, and join date, plus headline totals. Backed by `api/admin.py` and a `require_admin` dependency that re-checks the role **against the database** (not the JWT claim), so access can be revoked instantly and a stale/forged-claim token can't get in — non-admins get 403, unauthenticated 401. Page opens are tracked via `POST /auth/visit` on load
 - **Rounded chart container** — the chart iframe has rounded corners and a subtle shadow that adapts to light/dark mode
 - **Upload-gated prompt bar** — the prompt input, mic button, and generate button stay disabled until a CSV is uploaded, with a "Upload a CSV to get started…" hint
 - **Playground** — pick a sample dataset from the landing page (Stocks, Revenue, World Cities, Diamonds, NYC Restaurants, Iris) to see auto-generated dashboards and experiment with refinements; resets when you upload your own CSV
@@ -368,6 +369,7 @@ backend/
 │   ├── auth.py                    # Google OAuth (Authlib) + httpOnly-cookie JWT session; roles; user upsert
 │   ├── usage.py                   # Per-user daily rate limiting (metered per LLM call; admins exempt)
 │   ├── threads.py                 # User-scoped thread CRUD + chart persistence
+│   ├── admin.py                   # Admin-only user/usage dashboard endpoints
 │   ├── db.py                      # Async SQLAlchemy engine, session factory, get_db dependency
 │   └── db_models.py               # ORM models: User, Thread, Chart, DailyUsage
 ├── alembic/                       # DB migrations (async env; versions/ holds each revision)

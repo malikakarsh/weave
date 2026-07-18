@@ -24,6 +24,7 @@ from pipeline.providers import get_provider
 from pipeline.category_resolver import ClarificationNeeded
 from api.auth import router as auth_router, current_user_required
 from api.threads import router as threads_router
+from api.admin import router as admin_router
 from api import usage
 
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +53,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(threads_router)
+app.include_router(admin_router)
 
 
 _SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "..", "samples")

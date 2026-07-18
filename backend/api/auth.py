@@ -11,11 +11,13 @@ import os
 import time
 from datetime import datetime, timezone
 
+import uuid
+
 import jwt
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from api import usage
 from api.db import SessionLocal
@@ -128,6 +130,17 @@ def current_user_required(request: Request) -> dict:
     return user
 
 
+async def require_admin(user: dict = Depends(current_user_required)) -> dict:
+    """Guard admin-only routes. The role is re-checked against the DB (the
+    source of truth) rather than trusting the JWT claim, so admin can be
+    revoked instantly and a stale token can't retain access."""
+    async with SessionLocal() as db:
+        row = await db.get(User, uuid.UUID(user["uid"]))
+    if row is None or row.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 # ── routes ────────────────────────────────────────────────────────────────
 @router.get("/login/google")
 async def login_google(request: Request):
@@ -185,6 +198,19 @@ async def me(user: dict | None = Depends(current_user_optional)):
         },
         "expires_at": datetime.fromtimestamp(user["exp"], tz=timezone.utc).isoformat(),
     }
+
+
+@router.post("/visit")
+async def visit(user: dict = Depends(current_user_required)):
+    """Record a page open — bumps the visit count and last-seen time."""
+    async with SessionLocal() as db:
+        await db.execute(
+            update(User)
+            .where(User.id == uuid.UUID(user["uid"]))
+            .values(visits=User.visits + 1, last_seen_at=func.now())
+        )
+        await db.commit()
+    return {"ok": True}
 
 
 @router.post("/logout")

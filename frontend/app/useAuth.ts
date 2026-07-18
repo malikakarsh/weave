@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -41,6 +41,7 @@ export function useAuth() {
     }
   }, []);
 
+  const pingedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -48,6 +49,11 @@ export function useAuth() {
         const res = await fetch(`${API}/auth/me`, { credentials: "include" });
         const next = res.ok ? ((await res.json()) as AuthUser) : null;
         if (!cancelled) setUser(next);
+        // Count this page open once per load, only when authenticated.
+        if (next && !pingedRef.current) {
+          pingedRef.current = true;
+          fetch(`${API}/auth/visit`, { method: "POST", credentials: "include" }).catch(() => {});
+        }
       } catch {
         if (!cancelled) setUser(null);
       } finally {

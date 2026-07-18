@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { get, set, del } from "idb-keyval";
+import Link from "next/link";
 import { useAuth } from "./useAuth";
 import { listThreads, getThread, createThread, saveCharts, deleteThread, type ThreadSummary } from "./threads";
 
@@ -1444,6 +1445,15 @@ export default function Home() {
                         {user.role === "admin" ? "Unlimited" : `${user.usage.used} / ${user.usage.limit}`}
                       </span>
                     </div>
+                    {user.role === "admin" && (
+                      <Link
+                        href="/admin"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="block px-3 py-2 text-sm text-gray-700 dark:text-white/70 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                      >
+                        Admin dashboard
+                      </Link>
+                    )}
                     <button
                       onClick={handleLogout}
                       className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-white/70 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer"

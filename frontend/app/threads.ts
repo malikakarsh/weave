@@ -54,6 +54,9 @@ export const createThread = (body: { title: string; csv_name: string; csv_conten
 export const saveCharts = (id: string, charts: ChartRow[]) =>
   fetch(`${API}/threads/${id}/charts`, opts("PUT", charts)).then(json<ThreadDetail>);
 
+export const renameThread = (id: string, title: string) =>
+  fetch(`${API}/threads/${id}`, opts("PATCH", { title })).then(json<ThreadSummary>);
+
 export const deleteThread = (id: string) =>
   fetch(`${API}/threads/${id}`, opts("DELETE")).then((r) => {
     if (!r.ok) throw new Error("Failed to delete");

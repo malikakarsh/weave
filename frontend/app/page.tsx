@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useAuth } from "./useAuth";
 import { useTheme } from "./useTheme";
 // import { Constellation } from "./Constellation"; // background overlay (kept, currently disabled)
-import { listThreads, getThread, createThread, saveCharts, deleteThread, type ThreadSummary } from "./threads";
+import { listThreads, getThread, createThread, saveCharts, deleteThread, renameThread, type ThreadSummary } from "./threads";
 import { detectJoins, executeJoin, buildDefaultPlan, joinPairs, type DetectResult, type JoinPlan } from "./joins";
 import { fetchSchema, isSchemaRequest, type SchemaInfo } from "./schema";
 
@@ -1062,6 +1062,27 @@ export default function Home() {
     } catch { /* ignore */ }
   }
 
+  // Inline thread rename: which thread is being edited + its draft title.
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [threadDraft, setThreadDraft] = useState("");
+
+  function startRename(t: ThreadSummary) {
+    setEditingThreadId(t.id);
+    setThreadDraft(t.title);
+  }
+
+  async function commitRename(id: string) {
+    const title = threadDraft.trim();
+    setEditingThreadId(null);
+    const current = threads.find((t) => t.id === id);
+    if (!title || (current && current.title === title)) return;
+    setThreads((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));  // optimistic
+    try {
+      await renameThread(id, title);
+      refreshThreads();
+    } catch { refreshThreads(); }
+  }
+
   // Wipe all client-side workspace state (charts live only in per-user
   // server storage; nothing signed-out should remain on screen).
   const clearWorkspace = useCallback(() => {
@@ -1595,30 +1616,59 @@ export default function Home() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
               New thread
             </button>
-            <div className="flex-1 overflow-y-auto px-2 pb-3">
+            <div
+              className="flex-1 overflow-y-auto px-2 pb-3"
+              style={{ scrollbarWidth: "thin", scrollbarColor: dark ? "#374151 transparent" : "#cbd5e1 transparent" }}
+            >
               {threads.length === 0 ? (
                 <p className="px-3 py-6 text-center text-xs text-gray-400 dark:text-white/30">No threads yet. Upload a CSV and generate a chart to start one.</p>
               ) : (
                 threads.map((t) => (
                   <div
                     key={t.id}
-                    onClick={() => { setSidebarOpen(false); openThread(t.id); }}
+                    onClick={() => { if (editingThreadId !== t.id) { setSidebarOpen(false); openThread(t.id); } }}
                     className={`group flex items-center gap-2 rounded-lg px-3 py-2 mb-0.5 cursor-pointer transition-colors
                       ${t.id === currentThreadId
                         ? (dark ? "bg-white/10" : "bg-gray-100")
                         : (dark ? "hover:bg-white/5" : "hover:bg-gray-50")}`}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-800 dark:text-white/80 truncate">{t.title}</p>
+                      {editingThreadId === t.id ? (
+                        <input
+                          autoFocus
+                          value={threadDraft}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setThreadDraft(e.target.value)}
+                          onBlur={() => commitRename(t.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); commitRename(t.id); }
+                            else if (e.key === "Escape") { e.preventDefault(); setEditingThreadId(null); }
+                          }}
+                          className={`w-full text-sm rounded px-1.5 py-0.5 outline-none border ${dark ? "bg-white/10 border-indigo-400/50 text-white" : "bg-white border-red-400/60 text-gray-900"}`}
+                        />
+                      ) : (
+                        <p className="text-sm text-gray-800 dark:text-white/80 truncate" onDoubleClick={(e) => { e.stopPropagation(); startRename(t); }}>{t.title}</p>
+                      )}
                       <p className="text-[11px] text-gray-400 dark:text-white/30">{t.chart_count} chart{t.chart_count === 1 ? "" : "s"} · {new Date(t.updated_at).toLocaleDateString()}</p>
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}
-                      title="Delete thread"
-                      className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-white/30 hover:text-red-500 transition-all shrink-0"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 7.5h12M9.5 7.5V6a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 6v1.5m-6 0v10A1.5 1.5 0 0 0 10 19h4a1.5 1.5 0 0 0 1.5-1.5v-10" /></svg>
-                    </button>
+                    {editingThreadId !== t.id && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); startRename(t); }}
+                          title="Rename thread"
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-white/30 hover:text-gray-700 dark:hover:text-white/70 transition-all cursor-pointer"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeThread(t.id); }}
+                          title="Delete thread"
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-white/30 hover:text-red-500 transition-all cursor-pointer"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 7.5h12M9.5 7.5V6a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 6v1.5m-6 0v10A1.5 1.5 0 0 0 10 19h4a1.5 1.5 0 0 0 1.5-1.5v-10" /></svg>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}

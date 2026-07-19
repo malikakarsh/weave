@@ -147,24 +147,33 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     window.__weaveConfig = config;
 
     let svgBg    = config.svg_bg || "#1a1d27";
     let editMode = false;
     let activeSlice = null;
 
-    const total = d3.sum(raw, d => d.y);
+    // Interactive-control state (no-op when there are no controls).
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const allSlices = (controls && controls.slices) ? Object.values(controls.slices) : [raw];
 
-    // Color per slice
+    let total = d3.sum(raw, d => d.y);   // reassigned per draw
+
+    // Color per slice — domained over EVERY slice's labels so a slice keeps its color
+    // as you scrub, and category overrides win.
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
-    const colorScale = d3.scaleOrdinal(palette).domain(raw.map(d => d.x));
+    const allLabels  = [...new Set(allSlices.flatMap(d => Array.isArray(d) ? d.map(r => r.x) : []))];
+    const colorScale = d3.scaleOrdinal(palette).domain(allLabels);
     const catColors  = config.category_colors || {};
     const sliceColor = {};
-    raw.forEach(d => { sliceColor[d.x] = catColors[d.x] || colorScale(d.x); });
+    allLabels.forEach(x => { sliceColor[x] = catColors[x] || colorScale(x); });
 
     // ── Dimensions ──────────────────────────────────────────────────────
     const legendWidth = 160;
@@ -190,7 +199,6 @@
     const arcHover = d3.arc().innerRadius(innerRadius).outerRadius(radius * 1.06);
 
     const pie = d3.pie().value(d => d.y).sort(null);
-    const arcs = pie(raw);
 
     // ── Title ────────────────────────────────────────────────────────────
     const titleEl = svg.append("text")
@@ -232,77 +240,92 @@
       return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
     }
 
-    // ── Slices ───────────────────────────────────────────────────────────
+    // ── Slices + labels + legend — redrawn on every slider change ─────────
     const tooltip = document.getElementById("tooltip");
     const formatY = d3.format(config.y_format || ",.2f");
-
-    g.selectAll(".slice")
-      .data(arcs)
-      .join("path")
-        .attr("class", "slice")
-        .attr("data-x", d => CSS.escape(d.data.x))
-        .attr("fill", d => sliceColor[d.data.x])
-        .attr("stroke", "#1a1d27")
-        .attr("stroke-width", 2)
-        .attr("d", arc)
-        .attr("cursor", "default")
-        .on("mouseover", function(event, d) {
-          if (!editMode) {
-            d3.select(this).transition().duration(120).attr("d", arcHover);
-          }
-          const pct = ((d.data.y / total) * 100).toFixed(1);
-          tooltip.innerHTML = `
-            <div class="tip-label">${d.data.x}</div>
-            <div class="tip-val">${formatY(d.data.y)}</div>
-            <div class="tip-pct">${pct}% of total</div>`;
-          tooltip.style.opacity = 1;
-        })
-        .on("mousemove", function(event) {
-          const chartRect = chartEl.getBoundingClientRect();
-          tooltip.style.left = `${event.clientX - chartRect.left + 12}px`;
-          tooltip.style.top  = `${event.clientY - chartRect.top  - 40}px`;
-        })
-        .on("mouseout", function() {
-          d3.select(this).transition().duration(120).attr("d", arc);
-          tooltip.style.opacity = 0;
-        })
-        .on("click", function(event, d) {
-          if (!editMode) return;
-          event.stopPropagation();
-          openColorPicker(sliceColor[d.data.x], d.data.x, event);
-        });
-
-    // ── Percentage labels on slices larger than 5% ───────────────────────
-    g.selectAll(".slice-label")
-      .data(arcs.filter(d => (d.data.y / total) > 0.05))
-      .join("text")
-        .attr("class", "slice-label")
-        .attr("transform", d => `translate(${arc.centroid(d)})`)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "middle")
-        .attr("fill", "#fff")
-        .attr("font-size", "12px")
-        .attr("font-weight", "600")
-        .attr("pointer-events", "none")
-        .text(d => `${((d.data.y / total) * 100).toFixed(1)}%`);
-
-    // ── Legend ───────────────────────────────────────────────────────────
     const lx = pieArea + 16;
-    const ly = (totalHeight - raw.length * 24) / 2;
 
-    raw.forEach((d, i) => {
-      svg.append("rect")
-        .attr("class", "legend-swatch")
-        .attr("data-x", CSS.escape(d.x))
-        .attr("x", lx).attr("y", ly + i * 24)
-        .attr("width", 10).attr("height", 10).attr("rx", 2)
-        .attr("fill", sliceColor[d.x]);
+    function drawData(data) {
+      const filtered = (window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data)
+        .filter(d => (d.y ?? 0) > 0);
+      total = d3.sum(filtered, d => d.y);
+      const arcs = pie(filtered);
 
-      svg.append("text")
-        .attr("class", "legend-label")
-        .attr("x", lx + 16).attr("y", ly + i * 24 + 9)
-        .attr("fill", "#94a3b8").attr("font-size", "12px")
-        .text(d.x.length > 18 ? d.x.slice(0, 16) + "…" : d.x);
+      g.selectAll("*").remove();
+      svg.selectAll(".legend-swatch, .legend-label").remove();
+
+      g.selectAll(".slice")
+        .data(arcs)
+        .join("path")
+          .attr("class", "slice")
+          .attr("data-x", d => CSS.escape(d.data.x))
+          .attr("fill", d => sliceColor[d.data.x])
+          .attr("stroke", "#1a1d27")
+          .attr("stroke-width", 2)
+          .attr("d", arc)
+          .attr("cursor", "default")
+          .on("mouseover", function(event, d) {
+            if (!editMode) {
+              d3.select(this).transition().duration(120).attr("d", arcHover);
+            }
+            const pct = ((d.data.y / total) * 100).toFixed(1);
+            tooltip.innerHTML = `
+              <div class="tip-label">${d.data.x}</div>
+              <div class="tip-val">${formatY(d.data.y)}</div>
+              <div class="tip-pct">${pct}% of total</div>`;
+            tooltip.style.opacity = 1;
+          })
+          .on("mousemove", function(event) {
+            const chartRect = chartEl.getBoundingClientRect();
+            tooltip.style.left = `${event.clientX - chartRect.left + 12}px`;
+            tooltip.style.top  = `${event.clientY - chartRect.top  - 40}px`;
+          })
+          .on("mouseout", function() {
+            d3.select(this).transition().duration(120).attr("d", arc);
+            tooltip.style.opacity = 0;
+          })
+          .on("click", function(event, d) {
+            if (!editMode) return;
+            event.stopPropagation();
+            openColorPicker(sliceColor[d.data.x], d.data.x, event);
+          });
+
+      g.selectAll(".slice-label")
+        .data(arcs.filter(d => (d.data.y / total) > 0.05))
+        .join("text")
+          .attr("class", "slice-label")
+          .attr("transform", d => `translate(${arc.centroid(d)})`)
+          .attr("text-anchor", "middle")
+          .attr("dominant-baseline", "middle")
+          .attr("fill", "#fff")
+          .attr("font-size", "12px")
+          .attr("font-weight", "600")
+          .attr("pointer-events", "none")
+          .text(d => `${((d.data.y / total) * 100).toFixed(1)}%`);
+
+      const ly = (totalHeight - filtered.length * 24) / 2;
+      filtered.forEach((d, i) => {
+        svg.append("rect")
+          .attr("class", "legend-swatch")
+          .attr("data-x", CSS.escape(d.x))
+          .attr("x", lx).attr("y", ly + i * 24)
+          .attr("width", 10).attr("height", 10).attr("rx", 2)
+          .attr("fill", sliceColor[d.x]);
+        svg.append("text")
+          .attr("class", "legend-label")
+          .attr("x", lx + 16).attr("y", ly + i * 24 + 9)
+          .attr("fill", "#94a3b8").attr("font-size", "12px")
+          .text(d.x.length > 18 ? d.x.slice(0, 16) + "…" : d.x);
+      });
+
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    drawData(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawData(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawData(currentData); },
     });
 
     // ── SVG export ───────────────────────────────────────────────────────

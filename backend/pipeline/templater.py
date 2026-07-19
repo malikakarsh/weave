@@ -12,6 +12,7 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 class Templater:
     def __init__(self, templates_dir: Path = TEMPLATES_DIR):
         self._templates_dir = templates_dir
+        self._runtime = (templates_dir / "_controls_runtime.html").read_text()
 
     def render(self, data: list[dict], config: ChartConfig = ChartConfig(),
                controls: dict | None = None) -> str:
@@ -25,6 +26,7 @@ class Templater:
         template = template_path.read_text()
         return (
             template
+            .replace("__CONTROLS_RUNTIME__", self._runtime)   # shared slider runtime (opt-in per template)
             .replace("__DATA__", json.dumps(data))
             .replace("__CONFIG__", json.dumps(config.model_dump()))
             .replace("__CONTROLS__", json.dumps(controls))

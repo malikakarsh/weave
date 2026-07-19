@@ -1,0 +1,92 @@
+<style>
+  .weave-controls {
+    display: flex; gap: 32px; flex-wrap: wrap;
+    margin-top: 20px; padding-top: 16px;
+    border-top: 1px solid #2d3148;
+  }
+  .wc-item { flex: 1; min-width: 180px; }
+  .wc-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .wc-label { color: #94a3b8; font-size: 13px; font-weight: 600; }
+  .wc-val   { color: #e2e8f0; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .wc-item input[type="range"] { width: 100%; accent-color: #6366f1; cursor: pointer; }
+</style>
+<script>
+  // Shared runtime for interactive filter sliders. Injected once per chart. A chart
+  // provides a `drawData(data)` that redraws from a data payload; this handles the
+  // slider UI, the scrub-slice swap, and the min-threshold filter — identically for
+  // every chart type.
+  window.WeaveControls = (function () {
+    const isGroupedList = d => Array.isArray(d) && d.length > 0 && "group" in d[0];
+
+    // Drop marks whose measure is below the max active min-threshold. Handles the
+    // flat/grouped list shapes and the network {nodes, links} dict; anything else is
+    // returned unchanged (scrub still works, min is a no-op for that shape).
+    function applyMins(data, controls, minState) {
+      const mins = ((controls && controls.controls) || []).filter(c => c.kind === "min");
+      if (!mins.length) return data;
+      const thr = Math.max(...mins.map(c => minState[c.column]));
+      if (isGroupedList(data)) {
+        return data.map(g => ({ ...g, values: g.values.filter(v => (v.y ?? 0) >= thr) }))
+                   .filter(g => g.values.length);
+      }
+      if (Array.isArray(data)) {
+        return data.filter(d => (d.y ?? 0) >= thr);
+      }
+      if (data && Array.isArray(data.nodes)) {
+        const idOf = x => (x && typeof x === "object") ? x.id : x;
+        const keep = new Set(data.nodes
+          .filter(n => (n.value ?? n.size ?? Infinity) >= thr).map(n => n.id));
+        return {
+          nodes: data.nodes.filter(n => keep.has(n.id)),
+          links: data.links.filter(l => keep.has(idOf(l.source)) && keep.has(idOf(l.target))),
+        };
+      }
+      return data;
+    }
+
+    // Build the slider panel under the chart and wire it to the chart's callbacks.
+    function mount(controls, chartEl, handlers) {
+      if (!controls || !controls.controls.length) return;
+      const panel = document.createElement("div");
+      panel.className = "weave-controls";
+      controls.controls.forEach(c => {
+        const item = document.createElement("div"); item.className = "wc-item";
+        const head = document.createElement("div"); head.className = "wc-head";
+        const lbl  = document.createElement("span"); lbl.className = "wc-label"; lbl.textContent = c.label;
+        const val  = document.createElement("span"); val.className = "wc-val";
+        head.append(lbl, val);
+        const input = document.createElement("input"); input.type = "range";
+        if (c.kind === "scrub") {
+          input.min = 0; input.max = c.values.length - 1; input.step = 1;
+          const di = Math.max(0, c.values.indexOf(controls.default));
+          input.value = di; val.textContent = c.values[di];
+          input.addEventListener("input", () => {
+            const v = c.values[+input.value];
+            val.textContent = v;
+            handlers.onScrub(v);
+          });
+        } else {
+          input.min = c.min; input.max = c.max; input.step = c.step;
+          input.value = c.min; val.textContent = c.min;
+          input.addEventListener("input", () => {
+            val.textContent = input.value;
+            handlers.onMin(c.column, +input.value);
+          });
+        }
+        item.append(head, input);
+        panel.append(item);
+      });
+      chartEl.append(panel);
+    }
+
+    // Convenience: initial min-threshold state {column: min} from the control specs.
+    function initMinState(controls) {
+      const s = {};
+      ((controls && controls.controls) || [])
+        .filter(c => c.kind === "min").forEach(c => { s[c.column] = c.min; });
+      return s;
+    }
+
+    return { applyMins, mount, initMinState };
+  })();
+</script>

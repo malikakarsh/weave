@@ -167,10 +167,12 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
     const markScale = config.mark_scale || 1;   // multiplier for line stroke thickness
@@ -197,21 +199,16 @@
     });
 
     function highlightSeries(series) {
-      groups.forEach(grp => {
-        const key = grp.group ?? "__single__";
-        const s   = CSS.escape(key);
-        const active = key === series;
-        g.selectAll(`.area-path[data-series="${s}"]`).attr("opacity", active ? 1 : 0.25);
-        g.selectAll(`.line-path[data-series="${s}"]`).attr("opacity", active ? 1 : 0.3);
+      g.selectAll(".area-path").each(function () {
+        d3.select(this).attr("opacity", this.getAttribute("data-series") === series ? 1 : 0.25);
+      });
+      g.selectAll(".line-path").each(function () {
+        d3.select(this).attr("opacity", this.getAttribute("data-series") === series ? 1 : 0.3);
       });
     }
 
     function clearHighlight() {
-      groups.forEach(grp => {
-        const s = CSS.escape(grp.group ?? "__single__");
-        g.selectAll(`.area-path[data-series="${s}"]`).attr("opacity", 1);
-        g.selectAll(`.line-path[data-series="${s}"]`).attr("opacity", 1);
-      });
+      g.selectAll(".area-path, .line-path").attr("opacity", 1);
     }
 
     function openColorPicker(currentColor, series, event) {
@@ -258,15 +255,31 @@
     const isNumeric  = !isTemporal && !isNaN(parseFloat(firstX));
     const parseX     = v => isTemporal ? parseDate(v) : isNumeric ? parseFloat(v) : v;
 
-    const groups = isGrouped
-      ? raw.map(g => ({ group: g.group, values: g.values.map(d => ({ x: parseX(d.x), y: d.y })) }))
-      : [{ group: null, values: raw.map(d => ({ x: parseX(d.x), y: d.y })) }];
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
 
-    if (isTemporal || isNumeric) {
-      groups.forEach(grp => grp.values.sort((a, b) => a.x - b.x));
+    // Normalise a slice to grouped shape, parsed + sorted left-to-right.
+    function prep(data) {
+      const grouped = data.length > 0 && "group" in data[0];
+      const gs = grouped
+        ? data.map(gp => ({ group: gp.group, values: gp.values.map(d => ({ x: parseX(d.x), y: d.y })) }))
+        : [{ group: null, values: data.map(d => ({ x: parseX(d.x), y: d.y })) }];
+      if (isTemporal || isNumeric) gs.forEach(grp => grp.values.sort((a, b) => a.x - b.x));
+      return gs;
     }
 
-    const allPoints = groups.flatMap(g => g.values);
+    // Current slice's series (reassigned by drawSeries; hover reads the latest).
+    let groups = prep(raw);
+
+    // Fixed frame + colors from the union of ALL slices, so scrubbing keeps the
+    // axes, legend, gradients, and each series' color stable.
+    const unionGroups = allSlices.flatMap(prep);
+    const allPoints = unionGroups.flatMap(g => g.values);
+    const allGroupKeys = [...new Set(allSlices.flatMap(d => (d.length && "group" in d[0]) ? d.map(g => g.group) : []))];
 
     const legendWidth = isGrouped ? 130 : 0;
     const margin      = { top: 32, right: 16 + legendWidth, bottom: 64, left: 72 };
@@ -296,17 +309,18 @@
       }
       return fallback;
     }
-    const _baseCS    = isGrouped
-      ? d3.scaleOrdinal(palette).domain(groups.map(g => g.group))
+    const _baseCS    = allGroupKeys.length
+      ? d3.scaleOrdinal(palette).domain(allGroupKeys)
       : () => config.color;
     const colorScale = key => resolveColor(key, _baseCS(key));
 
-    // Per-group vertical gradient: color → transparent
+    // Per-series vertical gradient: color → transparent. Created once for EVERY
+    // series across all slices, so a scrubbed-in series has its gradient ready.
     // Single series: higher opacity (0.45). Grouped: lower (0.25) to keep overlaps readable.
     const areaOpacityTop = isGrouped ? 0.28 : 0.45;
-    groups.forEach((grp, i) => {
-      const key   = grp.group ?? "__single__";
-      const color = colorScale(grp.group);
+    (allGroupKeys.length ? allGroupKeys : [null]).forEach(gk => {
+      const key   = gk ?? "__single__";
+      const color = colorScale(gk);
       seriesColor[key] = color;
       const gradId = `area-grad-${CSS.escape(key)}`;
       const grad = defs.append("linearGradient")
@@ -411,93 +425,106 @@
       .y0(height).y1(d => yScale(d.y))
       .curve(curve);
 
-    // Draw areas first (so lines sit on top), then lines, then hit targets
-    groups.forEach(grp => {
-      const key   = grp.group ?? "__single__";
-      const color = colorScale(grp.group);
-      const s     = CSS.escape(key);
+    // Fixed layers (bottom→top): series paths, then hover line/dots, then the
+    // pointer overlay — so redrawing on a slider change never covers hover.
+    const seriesLayer = g.append("g").attr("class", "series-layer");
+    const hoverLayer  = g.append("g").attr("class", "hover-layer");
 
-      // Area fill
-      g.append("path").datum(grp.values)
-        .attr("class", "area-path")
-        .attr("data-series", key)
-        .attr("fill", `url(#area-grad-${s})`)
-        .attr("d", areaGen);
-
-      // Line on top of area
-      g.append("path").datum(grp.values)
-        .attr("class", "line-path")
-        .attr("data-series", key)
-        .attr("stroke", color)
-        .attr("stroke-width", 2 * markScale)
-        .attr("d", lineGen);
-    });
-
-    // Wide transparent hit targets for clicking in edit mode
-    groups.forEach(grp => {
-      const key = grp.group ?? "__single__";
-      g.append("path").datum(grp.values)
-        .attr("class", "line-hit")
-        .attr("data-series", key)
-        .attr("stroke", "transparent")
-        .attr("stroke-width", 20)
-        .attr("fill", "none")
-        .attr("cursor", "default")
-        .attr("d", lineGen)
-        .on("click", function(event) {
-          if (!editMode) return;
-          event.stopPropagation();
-          const series = this.getAttribute("data-series");
-          highlightSeries(series);
-          openColorPicker(seriesColor[series], series, event);
-        });
-    });
-
-    // Legend
-    if (isGrouped) {
-      const lx = margin.left + width + 20;
-      const ly = margin.top;
-      groups.forEach((grp, i) => {
-        svg.append("rect")
-          .attr("class", "legend-swatch").attr("data-series", grp.group)
-          .attr("x", lx).attr("y", ly + i * 22)
-          .attr("width", 10).attr("height", 10).attr("rx", 2)
-          .attr("fill", colorScale(grp.group));
-        svg.append("text")
-          .attr("class", "legend-text")
-          .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
-          .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(groupLabel(grp.group));
-      });
-    }
-
-    // Hover
-    const hoverLine = g.append("line")
+    const hoverLine = hoverLayer.append("line")
       .attr("class", "hover-line").attr("y1", 0).attr("y2", height);
-
-    const hoverDots = groups.map(grp =>
-      g.append("circle")
-        .attr("class", "hover-dot")
-        .attr("data-series", grp.group ?? "__single__")
-        .attr("r", 5)
-        .attr("fill", colorScale(grp.group))
-    );
 
     const bisect  = d3.bisector(d => d.x).center;
     const tooltip = document.getElementById("tooltip");
     const formatY = d3.format(",.2f");
     const formatX = isTemporal ? d3.timeFormat("%b %d, %Y") : d => d;
-
-    // Canonical x reference = the UNION of every group's x values, so the hovered
-    // year snaps against ALL data, not just groups[0] — otherwise the header year
-    // and guide line disagree with the per-group values whenever the first group is
-    // missing an x the others have. Keyed by time-ms for dates.
     const xKey = v => isTemporal ? +v : v;
-    const xUnion = new Map();
-    allPoints.forEach(d => { const k = xKey(d.x); if (!xUnion.has(k)) xUnion.set(k, d.x); });
-    const xRef = [...xUnion.values()]
-      .sort((a, b) => (isTemporal || isNumeric) ? xKey(a) - xKey(b) : d3.ascending(a, b))
-      .map(x => ({ x }));
+
+    // Rebuilt on every draw; the hover closures read the latest.
+    let hoverDots = [];
+    let xRef = [];
+
+    function drawSeries(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      groups = prep(filtered);
+
+      seriesLayer.selectAll("*").remove();
+      hoverLayer.selectAll(".hover-dot").remove();
+
+      // Areas first (so lines sit on top), then lines, then hit targets
+      groups.forEach(grp => {
+        const key   = grp.group ?? "__single__";
+        const s     = CSS.escape(key);
+        seriesLayer.append("path").datum(grp.values)
+          .attr("class", "area-path")
+          .attr("data-series", key)
+          .attr("fill", `url(#area-grad-${s})`)
+          .attr("d", areaGen);
+        seriesLayer.append("path").datum(grp.values)
+          .attr("class", "line-path")
+          .attr("data-series", key)
+          .attr("stroke", seriesColor[key] ?? colorScale(grp.group))
+          .attr("stroke-width", 2 * markScale)
+          .attr("d", lineGen);
+      });
+      groups.forEach(grp => {
+        const key = grp.group ?? "__single__";
+        seriesLayer.append("path").datum(grp.values)
+          .attr("class", "line-hit")
+          .attr("data-series", key)
+          .attr("stroke", "transparent")
+          .attr("stroke-width", 20)
+          .attr("fill", "none")
+          .attr("cursor", "default")
+          .attr("d", lineGen)
+          .on("click", function(event) {
+            if (!editMode) return;
+            event.stopPropagation();
+            const series = this.getAttribute("data-series");
+            highlightSeries(series);
+            openColorPicker(seriesColor[series], series, event);
+          });
+      });
+
+      hoverDots = groups.map(grp =>
+        hoverLayer.append("circle")
+          .attr("class", "hover-dot")
+          .attr("data-series", grp.group ?? "__single__")
+          .attr("r", 5)
+          .attr("fill", seriesColor[grp.group ?? "__single__"] ?? colorScale(grp.group))
+      );
+
+      // Canonical x reference = the UNION of every group's x values in the CURRENT
+      // slice, so hover snapping targets all visible data, not just groups[0].
+      const xUnionM = new Map();
+      groups.flatMap(gp => gp.values).forEach(d => {
+        const k = xKey(d.x);
+        if (!xUnionM.has(k)) xUnionM.set(k, d.x);
+      });
+      xRef = [...xUnionM.values()]
+        .sort((a, b) => (isTemporal || isNumeric) ? xKey(a) - xKey(b) : d3.ascending(a, b))
+        .map(x => ({ x }));
+
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    // Legend — built once from the union of series
+    if (isGrouped) {
+      const lx = margin.left + width + 20;
+      const ly = margin.top;
+      allGroupKeys.forEach((gk, i) => {
+        svg.append("rect")
+          .attr("class", "legend-swatch").attr("data-series", gk)
+          .attr("x", lx).attr("y", ly + i * 22)
+          .attr("width", 10).attr("height", 10).attr("rx", 2)
+          .attr("fill", colorScale(gk));
+        svg.append("text")
+          .attr("class", "legend-text")
+          .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
+          .attr("fill", "#94a3b8").attr("font-size", "12px")
+          .text(groupLabel(gk));
+      });
+    }
 
     const hoverOverlay = g.append("rect")
       .attr("width", width).attr("height", height)
@@ -569,6 +596,13 @@
         hoverDots.forEach(d => d.attr("opacity", 0));
         tooltip.style.opacity = 0;
       });
+
+    // Initial draw + slider wiring
+    drawSeries(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawSeries(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawSeries(currentData); },
+    });
 
     // --- SVG export ---
     const SVG_PROPS = [

@@ -166,10 +166,13 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
@@ -225,42 +228,59 @@
 
     // ── Data prep ─────────────────────────────────────────────────────────────
     const isGrouped  = raw.length > 0 && "group" in raw[0];
-    const groupNames = isGrouped ? raw.map(d => d.group) : ["Value"];
     const firstX     = isGrouped ? raw[0].values[0].x : raw[0].x;
     const isTemporal = parseDate(firstX) !== null;
     const isNumeric  = !isTemporal && !isNaN(parseFloat(firstX));
     const parseX     = v => isTemporal ? parseDate(v) : isNumeric ? parseFloat(v) : v;
 
-    // Collect all unique x keys in original order, then sort if orderable
-    const xMap = new Map(); // raw string → parsed value
-    if (isGrouped) {
-      raw.forEach(grp => grp.values.forEach(v => xMap.set(v.x, parseX(v.x))));
-    } else {
-      raw.forEach(v => xMap.set(v.x, parseX(v.x)));
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
+
+    // Pivot one slice into stack-ready form.
+    function pivotSlice(data) {
+      const grouped = data.length > 0 && "group" in data[0];
+      const names = grouped ? data.map(d => d.group) : ["Value"];
+      const xm = new Map(); // raw string → parsed value
+      if (grouped) data.forEach(grp => grp.values.forEach(v => xm.set(v.x, parseX(v.x))));
+      else data.forEach(v => xm.set(v.x, parseX(v.x)));
+      let xks = [...xm.keys()];
+      if (isTemporal || isNumeric) xks.sort((a, b) => xm.get(a) - xm.get(b));
+      const piv = xks.map(xk => {
+        const obj = { x: xm.get(xk), _xk: xk };
+        if (grouped) {
+          data.forEach(grp => {
+            const pt = grp.values.find(v => v.x === xk);
+            obj[grp.group] = pt && pt.y !== null ? pt.y : 0;
+          });
+        } else {
+          const pt = data.find(v => v.x === xk);
+          obj["Value"] = pt && pt.y !== null ? pt.y : 0;
+        }
+        return obj;
+      });
+      const lyrs = d3.stack().keys(names).order(d3.stackOrderNone).offset(d3.stackOffsetNone)(piv);
+      return { names, xMap: xm, xKeys: xks, pivoted: piv, layers: lyrs };
     }
-    let xKeys = [...xMap.keys()];
-    if (isTemporal || isNumeric) xKeys.sort((a, b) => xMap.get(a) - xMap.get(b));
 
-    // Pivot to [{x: parsed, _xk: raw, G1: y, G2: y, ...}]
-    const pivoted = xKeys.map(xk => {
-      const obj = { x: xMap.get(xk), _xk: xk };
-      if (isGrouped) {
-        raw.forEach(grp => {
-          const pt = grp.values.find(v => v.x === xk);
-          obj[grp.group] = pt && pt.y !== null ? pt.y : 0;
-        });
-      } else {
-        const pt = raw.find(v => v.x === xk);
-        obj["Value"] = pt && pt.y !== null ? pt.y : 0;
-      }
-      return obj;
-    });
+    // Current slice's stack (reassigned by drawStack; hover reads the latest).
+    let { names: groupNames, xMap, xKeys, pivoted, layers } = pivotSlice(raw);
 
-    // Stack
-    const stack  = d3.stack().keys(groupNames).order(d3.stackOrderNone).offset(d3.stackOffsetNone);
-    const layers = stack(pivoted);
-
-    const yMax = d3.max(pivoted, d => groupNames.reduce((s, g) => s + (d[g] || 0), 0)) || 1;
+    // Fixed frame from the union of ALL slices: x extent, categorical x keys, the
+    // max stack TOTAL, and every series name — so scrubbing keeps the axes, legend,
+    // and colors stable while only the layers re-render.
+    const unionPivots = allSlices.map(pivotSlice);
+    const allGroupKeys = [...new Set(unionPivots.flatMap(u => u.names))];
+    const unionXMap = new Map();
+    unionPivots.forEach(u => u.xMap.forEach((v, k) => { if (!unionXMap.has(k)) unionXMap.set(k, v); }));
+    let unionXKeys = [...unionXMap.keys()];
+    if (isTemporal || isNumeric) unionXKeys.sort((a, b) => unionXMap.get(a) - unionXMap.get(b));
+    const unionXVals = unionXKeys.map(k => unionXMap.get(k));
+    const yMax = d3.max(unionPivots, u =>
+      d3.max(u.pivoted, d => u.names.reduce((s, gn) => s + (d[gn] || 0), 0))) || 1;
 
     // ── Dimensions ────────────────────────────────────────────────────────────
     const legendWidth = isGrouped ? 130 : 0;
@@ -292,15 +312,15 @@
       }
       return fallback;
     }
-    const _baseCS    = d3.scaleOrdinal(palette).domain(groupNames);
+    const _baseCS    = d3.scaleOrdinal(palette).domain(allGroupKeys);
     const colorScale = key => resolveColor(key, _baseCS(key));
-    groupNames.forEach(n => { seriesColor[n] = colorScale(n); });
+    allGroupKeys.forEach(n => { seriesColor[n] = colorScale(n); });
 
     const xScale = isTemporal
-      ? d3.scaleTime().domain(d3.extent(pivoted, d => d.x)).range([0, width])
+      ? d3.scaleTime().domain(d3.extent(unionXVals)).range([0, width])
       : isNumeric
-        ? d3.scaleLinear().domain(d3.extent(pivoted, d => d.x)).range([0, width])
-        : d3.scalePoint().domain(xKeys.map(k => xMap.get(k))).range([0, width]).padding(0.5);
+        ? d3.scaleLinear().domain(d3.extent(unionXVals)).range([0, width])
+        : d3.scalePoint().domain(unionXVals).range([0, width]).padding(0.5);
 
     const yScale = d3.scaleLinear()
       .domain([0, yMax * 1.2])
@@ -325,7 +345,7 @@
         .tickFormat(years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y"));
     } else if (isNumeric) {
       // Integer x (years, ages): integer tick values + no thousands separator.
-      const xIsInt = pivoted.every(d => Number.isInteger(d.x));
+      const xIsInt = unionXVals.every(v => Number.isInteger(v));
       if (xIsInt) {
         const [x0, x1] = xScale.domain();
         const step = Math.max(1, Math.ceil((x1 - x0) / 6));
@@ -335,10 +355,9 @@
         xAxis = d3.axisBottom(xScale).ticks(6);
       }
     } else {
-      const allX = xKeys.map(k => xMap.get(k));
-      const step = allX.length > 8 ? Math.ceil(allX.length / 8) : 1;
-      const shown = new Set(allX.filter((_, i) => i % step === 0));
-      xAxis = d3.axisBottom(xScale).tickValues(allX.filter(x => shown.has(x)));
+      const step = unionXVals.length > 8 ? Math.ceil(unionXVals.length / 8) : 1;
+      const shown = new Set(unionXVals.filter((_, i) => i % step === 0));
+      xAxis = d3.axisBottom(xScale).tickValues(unionXVals.filter(x => shown.has(x)));
     }
 
     const xAxisG = g.append("g").attr("class", "axis")
@@ -385,33 +404,57 @@
       .y1(d => yScale(d[1]))
       .curve(curve);
 
-    // ── Draw stacked layers (bottom → top) ────────────────────────────────────
-    layers.forEach((layer, i) => {
-      const name  = groupNames[i];
-      const color = colorScale(name);
+    // ── Fixed layers (bottom→top): stack, hover line/dots, pointer overlay ────
+    const stackLayer = g.append("g").attr("class", "stack-layer");
+    const hoverLayer = g.append("g").attr("class", "hover-layer");
+    const hoverLine  = hoverLayer.append("line").attr("class", "hover-line").attr("y1", 0).attr("y2", height);
+    let hoverDots = [];
 
-      g.append("path")
-        .datum(layer)
-        .attr("class", "area-path")
-        .attr("data-series", name)
-        .attr("fill", color)
-        .attr("fill-opacity", 0.82)
-        .attr("stroke", "#1a1d27")
-        .attr("stroke-width", 0.8)
-        .attr("d", areaGen)
-        .style("cursor", "default")
-        .on("click", function(event) {
-          if (!editMode) return;
-          event.stopPropagation();
-          openColorPicker(seriesColor[name], name, event);
-        });
-    });
+    // Draw the stack for one data payload — re-callable so a slider change swaps
+    // layers without touching the fixed frame (scales, axes, legend).
+    function drawStack(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      ({ names: groupNames, xMap, xKeys, pivoted, layers } = pivotSlice(filtered));
 
-    // ── Legend ────────────────────────────────────────────────────────────────
+      stackLayer.selectAll("*").remove();
+      hoverLayer.selectAll(".hover-dot").remove();
+
+      layers.forEach((layer, i) => {
+        const name = groupNames[i];
+        stackLayer.append("path")
+          .datum(layer)
+          .attr("class", "area-path")
+          .attr("data-series", name)
+          .attr("fill", seriesColor[name] ?? colorScale(name))
+          .attr("fill-opacity", 0.82)
+          .attr("stroke", "#1a1d27")
+          .attr("stroke-width", 0.8)
+          .attr("d", areaGen)
+          .style("cursor", "default")
+          .on("click", function(event) {
+            if (!editMode) return;
+            event.stopPropagation();
+            openColorPicker(seriesColor[name], name, event);
+          });
+      });
+
+      hoverDots = groupNames.map(name =>
+        hoverLayer.append("circle")
+          .attr("class", "hover-dot")
+          .attr("data-series", name)
+          .attr("r", 4)
+          .attr("fill", seriesColor[name] ?? colorScale(name))
+      );
+
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    // ── Legend — built once from the union of series ──────────────────────────
     if (isGrouped) {
       const lx = margin.left + width + 20;
       const ly = margin.top;
-      groupNames.forEach((name, i) => {
+      allGroupKeys.forEach((name, i) => {
         svg.append("rect")
           .attr("class", "legend-swatch").attr("data-series", name)
           .attr("x", lx).attr("y", ly + i * 22)
@@ -424,17 +467,6 @@
           .text(groupLabel(name));
       });
     }
-
-    // ── Hover ─────────────────────────────────────────────────────────────────
-    const hoverLine = g.append("line").attr("class", "hover-line").attr("y1", 0).attr("y2", height);
-
-    const hoverDots = groupNames.map(name =>
-      g.append("circle")
-        .attr("class", "hover-dot")
-        .attr("data-series", name)
-        .attr("r", 4)
-        .attr("fill", colorScale(name))
-    );
 
     const bisect  = d3.bisector(d => d.x).center;
     const tooltip = document.getElementById("tooltip");
@@ -494,6 +526,13 @@
         hoverDots.forEach(d => d.attr("opacity", 0));
         tooltip.style.opacity = 0;
       });
+
+    // Initial draw + slider wiring
+    drawStack(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawStack(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawStack(currentData); },
+    });
 
     // ── SVG export ────────────────────────────────────────────────────────────
     const SVG_PROPS = [

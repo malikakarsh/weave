@@ -125,16 +125,6 @@
     .tooltip .tip-label { color: #94a3b8; flex: 1; }
     .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; }
 
-    .weave-controls {
-      display: flex; gap: 32px; flex-wrap: wrap;
-      margin-top: 20px; padding-top: 16px;
-      border-top: 1px solid #2d3148;
-    }
-    .wc-item { flex: 1; min-width: 180px; }
-    .wc-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-    .wc-label { color: #94a3b8; font-size: 13px; font-weight: 600; }
-    .wc-val   { color: #e2e8f0; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .wc-item input[type="range"] { width: 100%; accent-color: #6366f1; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -177,6 +167,7 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
@@ -245,13 +236,12 @@
     // slider swaps which slice is drawn; a min slider hides bars below the chosen
     // measure value. `raw` is the default slice, so the chart opens on a valid view.
     const controls = __CONTROLS__;
-    const scrubCtl = controls && controls.controls.find(c => c.kind === "scrub");
     const minCtls  = controls ? controls.controls.filter(c => c.kind === "min") : [];
     const slices   = (controls && controls.slices) || {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
 
     let currentData = raw;
-    const minState = {};
-    minCtls.forEach(c => { minState[c.column] = c.min; });
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
 
     const dataIsGrouped = d => Array.isArray(d) && d.length > 0 && "group" in d[0];
 
@@ -266,7 +256,7 @@
       return fallback;
     }
     // Color domain spans EVERY slice's groups so a series keeps its color as you scrub.
-    const allSlices = scrubCtl ? Object.values(slices) : [raw];
+    const allSlices = _hasSlices ? Object.values(slices) : [raw];
     const allGroups = [...new Set(allSlices.flatMap(d => dataIsGrouped(d) ? d.map(g => g.group) : []))];
     const _baseCS   = allGroups.length ? d3.scaleOrdinal(palette).domain(allGroups) : () => config.color;
     const colorScale = key => resolveColor(key, _baseCS(key));
@@ -473,42 +463,10 @@
     }
 
     drawData(currentData);
-
-    // ── Slider UI (below the chart) ──────────────────────────────────────────
-    if (controls && controls.controls.length) {
-      const panel = document.createElement("div");
-      panel.className = "weave-controls";
-      controls.controls.forEach(c => {
-        const item = document.createElement("div"); item.className = "wc-item";
-        const head = document.createElement("div"); head.className = "wc-head";
-        const lbl  = document.createElement("span"); lbl.className = "wc-label"; lbl.textContent = c.label;
-        const val  = document.createElement("span"); val.className = "wc-val";
-        head.append(lbl, val);
-        const input = document.createElement("input"); input.type = "range";
-        if (c.kind === "scrub") {
-          input.min = 0; input.max = c.values.length - 1; input.step = 1;
-          const defIdx = Math.max(0, c.values.indexOf(controls.default));
-          input.value = defIdx; val.textContent = c.values[defIdx];
-          input.addEventListener("input", () => {
-            const v = c.values[+input.value];
-            val.textContent = v;
-            currentData = slices[v] || [];
-            drawData(currentData);
-          });
-        } else {
-          input.min = c.min; input.max = c.max; input.step = c.step;
-          input.value = c.min; val.textContent = c.min;
-          input.addEventListener("input", () => {
-            minState[c.column] = +input.value;
-            val.textContent = input.value;
-            drawData(currentData);
-          });
-        }
-        item.append(head, input);
-        panel.append(item);
-      });
-      chartEl.append(panel);
-    }
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (slices[v] || []); drawData(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawData(currentData); },
+    });
 
     // --- SVG export ---
     const SVG_PROPS = [

@@ -21,16 +21,19 @@
     // Drop marks whose measure is below the max active min-threshold. Handles the
     // flat/grouped list shapes and the network {nodes, links} dict; anything else is
     // returned unchanged (scrub still works, min is a no-op for that shape).
+    // Measure of one mark: aggregated y, histogram bin count, else 0.
+    const measureOf = d => (d.y ?? d.count ?? 0);
+
     function applyMins(data, controls, minState) {
       const mins = ((controls && controls.controls) || []).filter(c => c.kind === "min");
       if (!mins.length) return data;
       const thr = Math.max(...mins.map(c => minState[c.column]));
       if (isGroupedList(data)) {
-        return data.map(g => ({ ...g, values: g.values.filter(v => (v.y ?? 0) >= thr) }))
+        return data.map(g => ({ ...g, values: g.values.filter(v => measureOf(v) >= thr) }))
                    .filter(g => g.values.length);
       }
       if (Array.isArray(data)) {
-        return data.filter(d => (d.y ?? 0) >= thr);
+        return data.filter(d => measureOf(d) >= thr);
       }
       if (data && Array.isArray(data.nodes)) {
         const idOf = x => (x && typeof x === "object") ? x.id : x;
@@ -45,10 +48,19 @@
     }
 
     // Build the slider panel under the chart and wire it to the chart's callbacks.
+    // Multiple scrub sliders (e.g. Year + Month) compose: the shown slice is keyed
+    // by the JOINED selection of every scrub dimension, so moving either slider
+    // calls onScrub with the composite key. Single-scrub keys are the plain value.
     function mount(controls, chartEl, handlers) {
       if (!controls || !controls.controls.length) return;
+      const sep = controls.scrub_sep || "\x1f";
+      const scrubs = controls.controls.filter(c => c.kind === "scrub");
+      const scrubVals = scrubs.map(c => c.default ?? c.values[c.values.length - 1]);
+      const compositeKey = () => scrubVals.join(sep);
+
       const panel = document.createElement("div");
       panel.className = "weave-controls";
+      let scrubIdx = 0;
       controls.controls.forEach(c => {
         const item = document.createElement("div"); item.className = "wc-item";
         const head = document.createElement("div"); head.className = "wc-head";
@@ -57,13 +69,14 @@
         head.append(lbl, val);
         const input = document.createElement("input"); input.type = "range";
         if (c.kind === "scrub") {
+          const i = scrubIdx++;
           input.min = 0; input.max = c.values.length - 1; input.step = 1;
-          const di = Math.max(0, c.values.indexOf(controls.default));
+          const di = Math.max(0, c.values.indexOf(scrubVals[i]));
           input.value = di; val.textContent = c.values[di];
           input.addEventListener("input", () => {
-            const v = c.values[+input.value];
-            val.textContent = v;
-            handlers.onScrub(v);
+            scrubVals[i] = c.values[+input.value];
+            val.textContent = scrubVals[i];
+            handlers.onScrub(compositeKey());
           });
         } else {
           input.min = c.min; input.max = c.max; input.step = c.step;

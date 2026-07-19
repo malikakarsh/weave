@@ -65,6 +65,9 @@ class ControlSpec(BaseModel):
     column: str
     kind: str = "scrub"        # "scrub" (discrete value slider) | "min" (measure threshold)
     label: str = ""            # display label; defaults to a prettified column name
+    time_unit: str | None = None  # year | month | day — bucket a DATE scrub column so
+                                  # "year slider" steps 2022→2023, not one raw timestamp
+                                  # at a time. Date columns auto-bucket to year if unset.
 
 
 class AxisMapping(BaseModel):

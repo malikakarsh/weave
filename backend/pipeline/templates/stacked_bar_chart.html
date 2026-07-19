@@ -164,10 +164,13 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
@@ -225,60 +228,76 @@
 
     // ── Data prep ─────────────────────────────────────────────────────────────
     const isGrouped  = raw.length > 0 && "group" in raw[0];
-    const groupNames = isGrouped ? raw.map(d => d.group) : ["Value"];
 
-    // Collect all unique x keys in insertion order, then sort if they look like dates
-    const xMap = new Map();
-    if (isGrouped) {
-      raw.forEach(grp => grp.values.forEach(v => xMap.set(v.x, v.x)));
-    } else {
-      raw.forEach(v => xMap.set(v.x, v.x));
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
+
+    function _xKeysOf(data) {
+      const grouped = data.length > 0 && "group" in data[0];
+      const xm = new Map();
+      if (grouped) data.forEach(grp => grp.values.forEach(v => xm.set(v.x, v.x)));
+      else data.forEach(v => xm.set(v.x, v.x));
+      return [...xm.keys()];
     }
-    let xKeys = [...xMap.keys()];
 
-    // Detect temporal x for sorting and label formatting
-    const _firstX = xKeys[0] != null ? String(xKeys[0]) : null;
+    // Detect temporal x for sorting and label formatting (from the union)
+    const unionXAll = [...new Set(allSlices.flatMap(_xKeysOf))];
+    const _firstX = unionXAll[0] != null ? String(unionXAll[0]) : null;
     const isTemporal = _firstX !== null && _parseDate(_firstX) !== null;
-    if (isTemporal) {
-      xKeys.sort((a, b) => {
-        const da = _parseDate(String(a)), db = _parseDate(String(b));
-        return da - db;
-      });
-    }
+    const _sortX = ks => isTemporal
+      ? [...ks].sort((a, b) => _parseDate(String(a)) - _parseDate(String(b)))
+      : ks;
+    const unionXKeys = _sortX(unionXAll);
 
     // Friendly x label formatter
     const fmtX = isTemporal
       ? str => {
           const d = _parseDate(String(str));
           if (!d) return str;
-          const [t0, t1] = [_parseDate(String(xKeys[0])), _parseDate(String(xKeys[xKeys.length - 1]))];
+          const [t0, t1] = [_parseDate(String(unionXKeys[0])), _parseDate(String(unionXKeys[unionXKeys.length - 1]))];
           const spanYears = t1 && t0 ? (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25) : 1;
           return spanYears > 3 ? d3.timeFormat("%Y")(d) : d3.timeFormat("%b %Y")(d);
         }
       : str => String(str);
 
-    // Pivot to [{_xk: rawKey, G1: y, G2: y, ...}]
-    const pivoted = xKeys.map(xk => {
-      const obj = { _xk: xk };
-      if (isGrouped) {
-        raw.forEach(grp => {
-          const pt = grp.values.find(v => v.x === xk);
-          obj[grp.group] = pt && pt.y !== null ? pt.y : 0;
-        });
-      } else {
-        const pt = raw.find(v => v.x === xk);
-        obj["Value"] = pt && pt.y !== null ? pt.y : 0;
-      }
-      return obj;
-    });
+    // Pivot one slice into stack-ready form.
+    function pivotSlice(data) {
+      const grouped = data.length > 0 && "group" in data[0];
+      const names = grouped ? data.map(d => d.group) : ["Value"];
+      const xks = _sortX(_xKeysOf(data));
+      const piv = xks.map(xk => {
+        const obj = { _xk: xk };
+        if (grouped) {
+          data.forEach(grp => {
+            const pt = grp.values.find(v => v.x === xk);
+            obj[grp.group] = pt && pt.y !== null ? pt.y : 0;
+          });
+        } else {
+          const pt = data.find(v => v.x === xk);
+          obj["Value"] = pt && pt.y !== null ? pt.y : 0;
+        }
+        return obj;
+      });
+      const lyrs = d3.stack().keys(names).order(d3.stackOrderNone).offset(d3.stackOffsetNone)(piv);
+      return { names, xKeys: xks, pivoted: piv, layers: lyrs };
+    }
 
-    const stack  = d3.stack().keys(groupNames).order(d3.stackOrderNone).offset(d3.stackOffsetNone);
-    const layers = stack(pivoted);
-    const yMax   = d3.max(pivoted, d => groupNames.reduce((s, k) => s + (d[k] || 0), 0)) || 1;
+    // Current slice's stack (reassigned by drawStack).
+    let { names: groupNames, xKeys, pivoted, layers } = pivotSlice(raw);
+
+    // Fixed frame from the union of ALL slices.
+    const unionPivots = allSlices.map(pivotSlice);
+    const allGroupKeys = [...new Set(unionPivots.flatMap(u => u.names))];
+    const yMax = d3.max(unionPivots, u =>
+      d3.max(u.pivoted, d => u.names.reduce((s, k) => s + (d[k] || 0), 0))) || 1;
 
     // ── Dimensions ────────────────────────────────────────────────────────────
     const legendWidth = isGrouped ? 130 : 0;
-    const margin = { top: 32, right: 16 + legendWidth, bottom: xKeys.length > 6 ? 110 : 72, left: 72 };
+    const margin = { top: 32, right: 16 + legendWidth, bottom: unionXKeys.length > 6 ? 110 : 72, left: 72 };
     const totalWidth  = config.width;
     const totalHeight = config.height;
     const width  = totalWidth  - margin.left - margin.right;
@@ -308,19 +327,19 @@
     }
     // Grouped: color by series name. Flat: color each bar by x position.
     const _baseCS    = isGrouped
-      ? d3.scaleOrdinal(palette).domain(groupNames)
-      : d3.scaleOrdinal(palette).domain(xKeys);
+      ? d3.scaleOrdinal(palette).domain(allGroupKeys)
+      : d3.scaleOrdinal(palette).domain(unionXKeys);
     const colorScale = key => resolveColor(key, _baseCS(key));
     if (isGrouped) {
-      groupNames.forEach(n => { seriesColor[n] = colorScale(n); });
+      allGroupKeys.forEach(n => { seriesColor[n] = colorScale(n); });
     } else {
-      xKeys.forEach(xk => { seriesColor[xk] = colorScale(xk); });
+      unionXKeys.forEach(xk => { seriesColor[xk] = colorScale(xk); });
     }
 
     const xScale = d3.scaleBand()
-      .domain(xKeys)
+      .domain(unionXKeys)
       .range([0, width])
-      .padding(xKeys.length > 20 ? 0.05 : 0.15);
+      .padding(unionXKeys.length > 20 ? 0.05 : 0.15);
 
     const yScale = d3.scaleLinear()
       .domain([0, yMax * 1.2])
@@ -333,14 +352,14 @@
 
     // ── X axis ────────────────────────────────────────────────────────────────
     const maxXTicks = Math.max(4, Math.floor(width / 60));
-    const tickStep  = Math.ceil(xKeys.length / maxXTicks);
-    const shownKeys = new Set(xKeys.filter((_, i) => i % tickStep === 0));
+    const tickStep  = Math.ceil(unionXKeys.length / maxXTicks);
+    const shownKeys = new Set(unionXKeys.filter((_, i) => i % tickStep === 0));
 
     const xAxisG = g.append("g").attr("class", "axis")
       .attr("transform", `translate(0,${height})`)
       .call(
         d3.axisBottom(xScale)
-          .tickValues(xKeys.filter(k => shownKeys.has(k)))
+          .tickValues(unionXKeys.filter(k => shownKeys.has(k)))
           .tickFormat(fmtX)
           .tickSize(4)
       );
@@ -351,7 +370,7 @@
       .attr("font-size", "12px")
       .call(el => {
         // Rotate labels if they'd overlap
-        if (xKeys.length > 8) {
+        if (unionXKeys.length > 8) {
           el.attr("transform", "rotate(-35)")
             .attr("text-anchor", "end")
             .attr("dy", "0.5em")
@@ -398,10 +417,21 @@
     const tooltip = document.getElementById("tooltip");
     const formatY = d3.format(",.2f");
 
-    layers.forEach((layer, i) => {
+    const barLayer = g.append("g").attr("class", "bar-layer");
+
+    // Draw the stacked bars for one data payload — re-callable so a slider change
+    // swaps bars without touching the fixed frame (scales, axes, legend).
+    function drawStack(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      ({ names: groupNames, xKeys, pivoted, layers } = pivotSlice(filtered));
+
+      barLayer.selectAll("*").remove();
+
+      layers.forEach((layer, i) => {
       const name  = groupNames[i];
 
-      g.selectAll(null)
+      barLayer.selectAll(null)
         .data(layer)
         .join("rect")
         .attr("class", "bar-seg")
@@ -412,7 +442,7 @@
         .attr("height", d => Math.max(0, yScale(d[0]) - yScale(d[1])))
         .attr("width", _barW(xScale.bandwidth(), xScale.step()))
         // Grouped: one color per series. Flat: one color per x category.
-        .attr("fill", d => isGrouped ? colorScale(name) : colorScale(d.data._xk))
+        .attr("fill", d => isGrouped ? (seriesColor[name] ?? colorScale(name)) : (seriesColor[d.data._xk] ?? colorScale(d.data._xk)))
         .attr("fill-opacity", 0.88)
         .attr("stroke", "#1a1d27")
         .attr("stroke-width", 0.5)
@@ -459,13 +489,16 @@
           const seriesKey = isGrouped ? name : d.data._xk;
           openColorPicker(seriesColor[seriesKey], seriesKey, event);
         });
-    });
+      });
 
-    // ── Legend ────────────────────────────────────────────────────────────────
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    // ── Legend — built once from the union of series ──────────────────────────
     if (isGrouped) {
       const lx = margin.left + width + 20;
       const ly = margin.top;
-      groupNames.forEach((name, i) => {
+      allGroupKeys.forEach((name, i) => {
         svg.append("rect")
           .attr("class", "legend-swatch").attr("data-series", name)
           .attr("x", lx).attr("y", ly + i * 22)
@@ -478,6 +511,13 @@
           .text(groupLabel(name));
       });
     }
+
+    // Initial draw + slider wiring
+    drawStack(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawStack(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawStack(currentData); },
+    });
 
     // ── SVG export ────────────────────────────────────────────────────────────
     const SVG_PROPS = [

@@ -124,30 +124,97 @@ class Transformer:
         cols = set(rows[0].keys())
         base = mapping.model_copy(update={"controls": None})  # avoid recursion
 
-        scrub = next((c for c in mapping.controls
-                      if c.kind == "scrub" and c.column in cols), None)
+        scrubs = [c for c in mapping.controls
+                  if c.kind == "scrub" and c.column in cols][:2]   # at most two dimensions
         mins = [c for c in mapping.controls if c.kind == "min" and c.column in cols]
 
         specs: list[dict] = []
         slices: dict[str, object] = {}
         default: str | None = None
         scrub_col: str | None = None
+        SEP = "\x1f"   # composite-slice key separator (multi-scrub)
 
-        if scrub is not None:
-            scrub_col = scrub.column
-            values = self._distinct_sorted(rows, scrub.column)
-            for v in values:
-                sub = [r for r in rows if r.get(scrub.column, "").strip() == v]
+        if scrubs:
+            scrub_col = scrubs[0].column
+            # Build one key function per scrub dimension. DATE columns are bucketed
+            # by a time unit — a raw-value scrub would produce one near-empty slice
+            # per exact timestamp. Two scrubs on the SAME date column become a
+            # hierarchy: first → year, second → month-of-year (separate Year and
+            # Month sliders, e.g. "add a year and a month slider").
+            date_seen: dict[str, int] = {}
+            key_fns = []
+            for c in scrubs:
+                sample_vals = [r.get(c.column, "").strip() for r in rows[:50]
+                               if r.get(c.column, "").strip()]
+                is_date = bool(sample_vals) and all(_parse_dt(v) for v in sample_vals)
+                nth = date_seen.get(c.column, 0)
+                unit = c.time_unit if c.time_unit in ("year", "month", "day") else None
+                if is_date and unit is None:
+                    unit = ("year", "month", "day")[min(nth, 2)]
+                if is_date:
+                    date_seen[c.column] = nth + 1
+
+                if is_date and unit:
+                    # First scrub on a column keeps the full period prefix ("2023",
+                    # "2023-09"); a REPEAT scrub extracts the sub-component so the
+                    # sliders are independent (Month: "01".."12", Day: "01".."31").
+                    span = {"year": (0, 4), "month": (5, 7) if nth else (0, 7),
+                            "day": (8, 10) if nth else (0, 10)}[unit]
+                    def fn(r, col=c.column, u=unit, s=span):
+                        t = _truncate(r.get(col, "").strip(), u)
+                        return t[s[0]:s[1]] if t else None
+                    label = c.label or (unit.title() if nth else _pretty_col(c.column))
+                else:
+                    def fn(r, col=c.column):
+                        return r.get(col, "").strip() or None
+                    label = c.label or _pretty_col(c.column)
+                key_fns.append(fn)
+                specs.append({"column": c.column, "kind": "scrub", "label": label})
+
+            # Bucket rows by the tuple of scrub keys; cap the combination count so a
+            # pathological pairing can't explode the payload — drop the 2nd dimension.
+            buckets: dict[tuple, list[dict]] = {}
+            for r in rows:
+                ks = tuple(fn(r) for fn in key_fns)
+                if all(k is not None for k in ks):
+                    buckets.setdefault(ks, []).append(r)
+            if len(buckets) > 400 and len(key_fns) > 1:
+                key_fns = key_fns[:1]
+                specs = specs[:1]
+                merged: dict[tuple, list[dict]] = {}
+                for ks, rs in buckets.items():
+                    merged.setdefault(ks[:1], []).extend(rs)
+                buckets = merged
+
+            # Per-dimension value lists (numeric-aware sort), each spec gets its own.
+            def _sorted_vals(vals: set[str]) -> list[str]:
+                nums = {v: _to_float(v) for v in vals}
+                if all(n is not None for n in nums.values()):
+                    return sorted(vals, key=lambda v: nums[v])
+                return sorted(vals)
+            dim_values = [
+                _sorted_vals({ks[i] for ks in buckets}) for i in range(len(key_fns))
+            ]
+            for spec, vals in zip(specs, dim_values):
+                spec["values"] = vals
+
+            # Emit slices in dimension order so the payload is deterministic.
+            orders = [{v: i for i, v in enumerate(vals)} for vals in dim_values]
+            key_order = lambda ks: tuple(orders[i][k] for i, k in enumerate(ks))
+            for ks in sorted(buckets, key=key_order):
+                sub = buckets[ks]
                 try:
-                    slices[v] = self.transform(sub, base)
+                    slices[SEP.join(ks)] = self.transform(sub, base)
                 except Exception:
-                    slices[v] = [] if base.chart_type not in ("network",) else {"nodes": [], "links": []}
-            default = values[-1] if values else None   # newest / highest by default
-            specs.append({
-                "column": scrub.column, "kind": "scrub",
-                "label": scrub.label or _pretty_col(scrub.column),
-                "values": values,
-            })
+                    slices[SEP.join(ks)] = [] if base.chart_type not in ("network",) else {"nodes": [], "links": []}
+
+            # Default = the newest/highest EXISTING combination, so the chart never
+            # opens on an empty slice (e.g. a month with no data in the latest year).
+            if buckets:
+                best = max(buckets, key=key_order)
+                default = SEP.join(best)
+                for spec, k in zip(specs, best):
+                    spec["default"] = k
 
         # Data the min-thresholds apply to (a scrub slice if present, else the whole chart)
         ref_data = slices.get(default) if default is not None else self.transform(rows, base)
@@ -164,7 +231,7 @@ class Transformer:
         if not specs:
             return None
         return {"controls": specs, "slices": slices, "scrub_column": scrub_col,
-                "default": default}
+                "scrub_sep": SEP, "default": default}
 
     @staticmethod
     def _distinct_sorted(rows: list[dict], col: str) -> list[str]:

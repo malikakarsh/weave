@@ -166,10 +166,13 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
@@ -212,9 +215,24 @@
     // flat:    [{x0, x1, count}]
     // grouped: [{group, values:[{x0, x1, count}]}]
     const isGrouped = raw.length > 0 && "group" in raw[0] && "values" in raw[0];
-    const series    = isGrouped ? raw : [{ group: null, values: raw }];
-    const groups    = series.map(s => s.group);
-    const allBins   = series.flatMap(s => s.values);
+
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
+
+    const toSeries = data => (data.length > 0 && "group" in data[0] && "values" in data[0])
+      ? data : [{ group: null, values: data }];
+
+    // Current slice's series (reassigned by drawBins).
+    let series = toSeries(raw);
+
+    // Fixed frame + colors from the union of ALL slices.
+    const unionSeries = allSlices.flatMap(toSeries);
+    const groups  = [...new Set(unionSeries.map(s => s.group).filter(gp => gp !== null))];
+    const allBins = unionSeries.flatMap(s => s.values);
 
     const palette   = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const catColors = config.category_colors || {};
@@ -328,10 +346,20 @@
     const barW  = d => Math.min(binPx(d), Math.max(1, (binPx(d) - 1) * markScale));
     const barX  = d => xScale(d.x0) + (binPx(d) - barW(d)) / 2;
 
-    series.forEach(s => {
+    const binLayer = g.append("g").attr("class", "bin-layer");
+
+    // Draw the bins for one data payload — re-callable so a slider change swaps
+    // bars without touching the fixed frame (scales, axes, legend).
+    function drawBins(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      series = toSeries(filtered);
+      binLayer.selectAll("*").remove();
+
+      series.forEach(s => {
       const color = seriesColor(s);
       const sel = isGrouped ? { attr: "data-group", val: s.group } : { attr: "data-x", val: "" };
-      g.selectAll(null)
+      binLayer.selectAll(null)
         .data(s.values)
         .join("rect")
         .attr("class", "hbar")
@@ -353,9 +381,12 @@
           event.stopPropagation();
           openColorPicker(d3.select(this).attr("fill"), isGrouped ? s.group : "__single__", event);
         });
-    });
+      });
 
-    // ── Legend (grouped only) ───────────────────────────────────────────────────
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    // ── Legend (grouped only) — built once from the union of series ─────────────
     if (isGrouped) {
       const lx = margin.left + width + 20;
       const ly = margin.top;
@@ -372,6 +403,13 @@
           .text(groupLabel(grp));
       });
     }
+
+    // Initial draw + slider wiring
+    drawBins(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawBins(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawBins(currentData); },
+    });
 
     // ── SVG export ──────────────────────────────────────────────────────────────
     const SVG_PROPS = [

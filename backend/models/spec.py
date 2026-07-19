@@ -48,6 +48,25 @@ class FilterSpec(BaseModel):
         return None if v is None else str(v)
 
 
+class ControlSpec(BaseModel):
+    """An interactive filter control rendered under the chart (slider). Filtering
+    happens in the browser with NO server round-trip and NO raw rows shipped:
+
+    - kind="scrub": a single-value slider over a discrete column (e.g. year). The
+      server pre-computes one fully-aggregated chart per distinct value and the
+      slider just swaps which pre-built slice is shown — bounded by the column's
+      cardinality, so it scales regardless of raw row count.
+    - kind="min": a threshold slider on the chart's aggregated measure (e.g. keep
+      only entities with >= N wins). Applied client-side to the current slice.
+
+    Only ONE scrub control is supported (a second would be a cross-product); any
+    number of min controls may accompany it.
+    """
+    column: str
+    kind: str = "scrub"        # "scrub" (discrete value slider) | "min" (measure threshold)
+    label: str = ""            # display label; defaults to a prettified column name
+
+
 class AxisMapping(BaseModel):
     chart_type: str = "line"
     x_column: str
@@ -73,6 +92,7 @@ class AxisMapping(BaseModel):
     color: str | None = None             # CSS color for single-series charts; null means use default palette
     category_colors: dict[str, str] | None = None  # per-category color overrides: {"CategoryName": "#hex"}
     group_labels: dict[str, str] | None = None  # legend display-label overrides: {"0": "death", "1": "survived"}
+    controls: list[ControlSpec] | None = None  # interactive filter sliders rendered under the chart
     palette: str | None = None            # named palette for grouped charts (e.g. 'dark', 'light', 'tableau10')
     background: str | None = None         # chart background color (CSS hex); null means use theme default
     mark_scale: float | None = None       # size multiplier for marks (bar width, line stroke, point radius); 1.0 = default

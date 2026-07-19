@@ -124,6 +124,17 @@
     .tooltip .tip-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
     .tooltip .tip-label { color: #94a3b8; flex: 1; }
     .tooltip .tip-val   { color: #e2e8f0; font-weight: 600; }
+
+    .weave-controls {
+      display: flex; gap: 32px; flex-wrap: wrap;
+      margin-top: 20px; padding-top: 16px;
+      border-top: 1px solid #2d3148;
+    }
+    .wc-item { flex: 1; min-width: 180px; }
+    .wc-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .wc-label { color: #94a3b8; font-size: 13px; font-weight: 600; }
+    .wc-val   { color: #e2e8f0; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .wc-item input[type="range"] { width: 100%; accent-color: #6366f1; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -228,14 +239,24 @@
       return m ? "#" + m.slice(0,3).map(v => (+v).toString(16).padStart(2,"0")).join("") : "#6366f1";
     }
 
-    const isGrouped = raw.length > 0 && "group" in raw[0];
+    // ── Interactive filter controls ───────────────────────────────────────────
+    // The server ships one pre-aggregated slice per scrub value (e.g. per year) and
+    // the bounds for each min-threshold. Filtering is entirely client-side: a scrub
+    // slider swaps which slice is drawn; a min slider hides bars below the chosen
+    // measure value. `raw` is the default slice, so the chart opens on a valid view.
+    const controls = __CONTROLS__;
+    const scrubCtl = controls && controls.controls.find(c => c.kind === "scrub");
+    const minCtls  = controls ? controls.controls.filter(c => c.kind === "min") : [];
+    const slices   = (controls && controls.slices) || {};
 
-    // For grouped bars, collect all categories and groups
-    let categories, groups, colorScale;
+    let currentData = raw;
+    const minState = {};
+    minCtls.forEach(c => { minState[c.column] = c.min; });
+
+    const dataIsGrouped = d => Array.isArray(d) && d.length > 0 && "group" in d[0];
 
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const catColors  = config.category_colors || {};
-
     function resolveColor(key, fallback) {
       if (catColors[key]) return catColors[key];
       const kl = (key || "").toLowerCase();
@@ -244,36 +265,37 @@
       }
       return fallback;
     }
+    // Color domain spans EVERY slice's groups so a series keeps its color as you scrub.
+    const allSlices = scrubCtl ? Object.values(slices) : [raw];
+    const allGroups = [...new Set(allSlices.flatMap(d => dataIsGrouped(d) ? d.map(g => g.group) : []))];
+    const _baseCS   = allGroups.length ? d3.scaleOrdinal(palette).domain(allGroups) : () => config.color;
+    const colorScale = key => resolveColor(key, _baseCS(key));
+    const groupLabel = grp => (config.group_labels && config.group_labels[grp] != null) ? config.group_labels[grp] : grp;
 
-    const _baseCS    = isGrouped
-      ? d3.scaleOrdinal(palette).domain(raw.map(g => g.group))
-      : () => config.color;
-    colorScale = key => resolveColor(key, _baseCS(key));
-
-    // Legend display label: user-renamed via group_labels, else the raw group value.
-    const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
-
-    if (isGrouped) {
-      categories = raw[0].values.map(d => d.x);
-      groups     = raw.map(g => g.group);
-    } else {
-      // Data is already aggregated by the backend
-      categories = raw.map(d => d.x);
-      groups = [null];
+    // Threshold filter: drop marks whose aggregated measure is below the max min-slider.
+    function applyMins(data) {
+      if (!minCtls.length) return data;
+      const thr = Math.max(...minCtls.map(c => minState[c.column]));
+      if (dataIsGrouped(data)) {
+        return data.map(gp => ({ ...gp, values: gp.values.filter(v => (v.y ?? 0) >= thr) }))
+                   .filter(gp => gp.values.length);
+      }
+      return data.filter(d => (d.y ?? 0) >= thr);
     }
 
-    // Compute allY first so we can size the left margin from the widest tick label
-    const allY = isGrouped
-      ? raw.flatMap(g => g.values.map(v => v.y).filter(y => y !== null))
-      : raw.map(d => d.y).filter(y => y !== null);
-    const maxY = (d3.max(allY) || 0) * 1.2;
+    // ── Fixed layout from the union of all slices, so the frame doesn't jump ──
+    const _statsN    = d => dataIsGrouped(d) ? (d[0] ? d[0].values.length : 0) : d.length;
+    const _statsMaxY = d => d3.max(dataIsGrouped(d)
+      ? d.flatMap(g => g.values.map(v => v.y)).filter(y => y !== null)
+      : d.map(r => r.y).filter(y => y !== null)) || 0;
+    const globalCats = d3.max(allSlices, _statsN) || 1;
+    const maxY = (d3.max(allSlices, _statsMaxY) || 0) * 1.2;
     const widestTick = d3.format(config.y_format)(maxY);
     const leftMargin = Math.max(64, Math.min(widestTick.length * 7.5 + 40, 160));
 
-    // Dimensions
-    const legendWidth = isGrouped ? 130 : 0;
-    const manyCategories = categories.length > 20;
-    const someCategories = categories.length > 6;
+    const legendWidth = allGroups.length ? 130 : 0;
+    let manyCategories = globalCats > 20;
+    let someCategories = globalCats > 6;
     const bottomMargin = manyCategories ? 150 : someCategories ? 110 : 72;
     const margin = { top: 32, right: 16 + legendWidth, bottom: bottomMargin, left: leftMargin };
     const totalWidth  = config.width;
@@ -292,49 +314,12 @@
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Scales
     let barPadding = 0.2;
+    // Reassigned on every draw; the edit-panel handlers read the latest.
+    let xOuter, xInner, isGrouped, categories, groups, xAxisG, yAxisG;
+    const yScale = d3.scaleLinear().domain([0, maxY]).nice().range([height, 0]);
 
-    const xOuter = d3.scaleBand()
-      .domain(categories)
-      .range([0, width])
-      .padding(barPadding);
-
-    const xInner = isGrouped
-      ? d3.scaleBand().domain(groups).range([0, xOuter.bandwidth()]).padding(0.05)
-      : null;
-
-    const yScale = d3.scaleLinear()
-      .domain([0, maxY])
-      .nice()
-      .range([height, 0]);
-
-    // Grid
-    g.append("g").attr("class", "grid")
-      .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
-      .selectAll("line").attr("stroke", "#1e2235");
-
-    // X axis — rotate labels if many categories
-    const xAxisG = g.append("g").attr("class", "axis")
-      .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(xOuter));
-
-    xAxisG.selectAll("text")
-      .attr("fill", "#64748b")
-      .attr("font-size", manyCategories ? "10px" : "12px")
-      .attr("text-anchor", someCategories ? "end" : "middle")
-      .attr("transform", manyCategories ? "rotate(-90)" : someCategories ? "rotate(-45)" : null)
-      .attr("dy", manyCategories ? "-0.4em" : someCategories ? "0.2em" : "1.2em")
-      .attr("dx", someCategories ? "-0.5em" : null);
-    xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
-
-    // Y axis
-    const yAxisG = g.append("g").attr("class", "axis")
-      .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
-    yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "12px");
-    yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
-
-    // Labels — always created so edit panel can update them
+    // Labels — created once so the edit panel can update them; positions refreshed per draw
     const titleEl = svg.append("text")
       .attr("x", (totalWidth - legendWidth) / 2).attr("y", 18)
       .attr("text-anchor", "middle")
@@ -342,19 +327,11 @@
       .text(config.title || "");
 
     const _prettify = s => s.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, c => c.toUpperCase());
-    const _xLabel = config.x_label || (config.x_column ? _prettify(config.x_column) : isTemporal ? "Date" : "");
+    const _xLabel = config.x_label || (config.x_column ? _prettify(config.x_column) : "");
     const xLabelEl = svg.append("text")
       .attr("x", margin.left + width / 2).attr("y", totalHeight - 12)
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(_xLabel);
-    // Position the x-axis label just below the tick labels (dynamic — accounts
-    // for rotated labels), instead of pinning it to the bottom of the SVG.
-    (function(){
-      try {
-        const _axb = xAxisG.node().getBBox();
-        xLabelEl.attr("y", margin.top + height + _axb.y + _axb.height + 20);
-      } catch (_e) {}
-    })();
 
     const yLabelEl = svg.append("text")
       .attr("transform", "rotate(-90)")
@@ -362,7 +339,6 @@
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(config.y_label || "");
 
-    // Draw bars
     const tooltip = document.getElementById("tooltip");
     const formatY = d3.format(",.2f");
 
@@ -387,65 +363,151 @@
 
     function hideTooltip() { tooltip.style.opacity = 0; }
 
-    if (isGrouped) {
-      raw.forEach(grp => {
-        const color = colorScale(grp.group);
-        g.selectAll(`.bar-${CSS.escape(grp.group)}`)
-          .data(grp.values)
+    // ── Data layer — redrawn on every slider change ──────────────────────────
+    function drawData(data) {
+      const filtered = applyMins(data);
+      isGrouped = dataIsGrouped(filtered);
+      if (isGrouped) {
+        categories = filtered[0] ? filtered[0].values.map(d => d.x) : [];
+        groups     = filtered.map(gp => gp.group);
+      } else {
+        categories = filtered.map(d => d.x);
+        groups = [null];
+      }
+      manyCategories = categories.length > 20;
+      someCategories = categories.length > 6;
+
+      g.selectAll("*").remove();
+      svg.selectAll(".legend-swatch, .legend-text").remove();
+
+      xOuter = d3.scaleBand().domain(categories).range([0, width]).padding(barPadding);
+      xInner = isGrouped ? d3.scaleBand().domain(groups).range([0, xOuter.bandwidth()]).padding(0.05) : null;
+
+      g.append("g").attr("class", "grid")
+        .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
+        .selectAll("line").attr("stroke", "#1e2235");
+
+      xAxisG = g.append("g").attr("class", "axis")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(xOuter));
+      xAxisG.selectAll("text")
+        .attr("fill", "#64748b")
+        .attr("font-size", manyCategories ? "10px" : "12px")
+        .attr("text-anchor", someCategories ? "end" : "middle")
+        .attr("transform", manyCategories ? "rotate(-90)" : someCategories ? "rotate(-45)" : null)
+        .attr("dy", manyCategories ? "-0.4em" : someCategories ? "0.2em" : "1.2em")
+        .attr("dx", someCategories ? "-0.5em" : null);
+      xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+      yAxisG = g.append("g").attr("class", "axis")
+        .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+      yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "12px");
+      yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+
+      try {
+        const _axb = xAxisG.node().getBBox();
+        xLabelEl.attr("y", margin.top + height + _axb.y + _axb.height + 20);
+      } catch (_e) {}
+
+      if (isGrouped) {
+        filtered.forEach(grp => {
+          const color = colorScale(grp.group);
+          g.selectAll(`.bar-${CSS.escape(grp.group)}`)
+            .data(grp.values)
+            .join("rect")
+            .attr("class", "bar")
+            .attr("data-group", grp.group)
+            .attr("x",      d => xOuter(d.x) + xInner(grp.group) + _barDx(xInner.bandwidth(), xInner.step()))
+            .attr("y",      d => d.y !== null ? yScale(d.y) : height)
+            .attr("width",  _barW(xInner.bandwidth(), xInner.step()))
+            .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
+            .attr("fill",   color)
+            .attr("rx", 2)
+            .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: groupLabel(grp.group), value: d.y, color }]))
+            .on("mouseleave", hideTooltip)
+            .on("click", function(event) {
+              if (!editMode) return;
+              event.stopPropagation();
+              openColorPicker(d3.select(this).attr("fill"), grp.group, event);
+            });
+        });
+      } else {
+        g.selectAll(".bar")
+          .data(filtered)
           .join("rect")
           .attr("class", "bar")
-          .attr("data-group", grp.group)
-          .attr("x",      d => xOuter(d.x) + xInner(grp.group) + _barDx(xInner.bandwidth(), xInner.step()))
+          .attr("data-x", d => d.x)
+          .attr("x",      d => xOuter(d.x) + _barDx(xOuter.bandwidth(), xOuter.step()))
           .attr("y",      d => d.y !== null ? yScale(d.y) : height)
-          .attr("width",  _barW(xInner.bandwidth(), xInner.step()))
+          .attr("width",  _barW(xOuter.bandwidth(), xOuter.step()))
           .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
-          .attr("fill",   color)
+          .attr("fill",   d => resolveColor(d.x, config.color))
           .attr("rx", 2)
-          .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: groupLabel(grp.group), value: d.y, color }]))
+          .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: resolveColor(d.x, config.color) }]))
           .on("mouseleave", hideTooltip)
-          .on("click", function(event) {
+          .on("click", function(event, d) {
             if (!editMode) return;
             event.stopPropagation();
-            openColorPicker(d3.select(this).attr("fill"), grp.group, event);
+            openColorPicker(d3.select(this).attr("fill"), "__x__" + d.x, event);
           });
-      });
-    } else {
-      g.selectAll(".bar")
-        .data(raw)
-        .join("rect")
-        .attr("class", "bar")
-        .attr("data-x", d => d.x)
-        .attr("x",      d => xOuter(d.x) + _barDx(xOuter.bandwidth(), xOuter.step()))
-        .attr("y",      d => d.y !== null ? yScale(d.y) : height)
-        .attr("width",  _barW(xOuter.bandwidth(), xOuter.step()))
-        .attr("height", d => d.y !== null ? height - yScale(d.y) : 0)
-        .attr("fill",   d => resolveColor(d.x, config.color))
-        .attr("rx", 2)
-        .on("mousemove", (event, d) => showTooltip(event, d.x, [{ name: "Value", value: d.y, color: resolveColor(d.x, config.color) }]))
-        .on("mouseleave", hideTooltip)
-        .on("click", function(event, d) {
-          if (!editMode) return;
-          event.stopPropagation();
-          openColorPicker(d3.select(this).attr("fill"), "__x__" + d.x, event);
+      }
+
+      if (allGroups.length) {
+        const lx = margin.left + width + 20;
+        const ly = margin.top;
+        groups.forEach((grp, i) => {
+          svg.append("rect")
+            .attr("class", "legend-swatch").attr("data-group", grp)
+            .attr("x", lx).attr("y", ly + i * 22)
+            .attr("width", 10).attr("height", 10).attr("rx", 2)
+            .attr("fill", colorScale(grp));
+          svg.append("text")
+            .attr("class", "legend-text")
+            .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
+            .attr("fill", "#94a3b8").attr("font-size", "12px")
+            .text(groupLabel(grp));
         });
+      }
+
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
     }
 
-    // Legend (grouped only)
-    if (isGrouped) {
-      const lx = margin.left + width + 20;
-      const ly = margin.top;
-      groups.forEach((grp, i) => {
-        svg.append("rect")
-          .attr("class", "legend-swatch").attr("data-group", grp)
-          .attr("x", lx).attr("y", ly + i * 22)
-          .attr("width", 10).attr("height", 10).attr("rx", 2)
-          .attr("fill", colorScale(grp));
-        svg.append("text")
-          .attr("class", "legend-text")
-          .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
-          .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(groupLabel(grp));
+    drawData(currentData);
+
+    // ── Slider UI (below the chart) ──────────────────────────────────────────
+    if (controls && controls.controls.length) {
+      const panel = document.createElement("div");
+      panel.className = "weave-controls";
+      controls.controls.forEach(c => {
+        const item = document.createElement("div"); item.className = "wc-item";
+        const head = document.createElement("div"); head.className = "wc-head";
+        const lbl  = document.createElement("span"); lbl.className = "wc-label"; lbl.textContent = c.label;
+        const val  = document.createElement("span"); val.className = "wc-val";
+        head.append(lbl, val);
+        const input = document.createElement("input"); input.type = "range";
+        if (c.kind === "scrub") {
+          input.min = 0; input.max = c.values.length - 1; input.step = 1;
+          const defIdx = Math.max(0, c.values.indexOf(controls.default));
+          input.value = defIdx; val.textContent = c.values[defIdx];
+          input.addEventListener("input", () => {
+            const v = c.values[+input.value];
+            val.textContent = v;
+            currentData = slices[v] || [];
+            drawData(currentData);
+          });
+        } else {
+          input.min = c.min; input.max = c.max; input.step = c.step;
+          input.value = c.min; val.textContent = c.min;
+          input.addEventListener("input", () => {
+            minState[c.column] = +input.value;
+            val.textContent = input.value;
+            drawData(currentData);
+          });
+        }
+        item.append(head, input);
+        panel.append(item);
       });
+      chartEl.append(panel);
     }
 
     // --- SVG export ---
@@ -597,27 +659,7 @@
     const PAD_STEP = 0.08, PAD_MIN = 0.02, PAD_MAX = 0.85;
     function adjustPadding(delta) {
       barPadding = Math.min(PAD_MAX, Math.max(PAD_MIN, barPadding + delta));
-      xOuter.padding(barPadding);
-      if (xInner) xInner.range([0, xOuter.bandwidth()]);
-      if (isGrouped) {
-        raw.forEach(grp => {
-          g.selectAll(`rect[data-group="${grp.group}"]`)
-            .attr("x",     d => xOuter(d.x) + xInner(grp.group) + _barDx(xInner.bandwidth(), xInner.step()))
-            .attr("width", _barW(xInner.bandwidth(), xInner.step()));
-        });
-      } else {
-        g.selectAll(".bar")
-          .attr("x", d => xOuter(d.x) + _barDx(xOuter.bandwidth(), xOuter.step()))
-          .attr("width", _barW(xOuter.bandwidth(), xOuter.step()));
-      }
-      xAxisG.call(d3.axisBottom(xOuter));
-      xAxisG.selectAll("text")
-        .attr("fill", "#64748b").attr("font-size", manyCategories ? "10px" : "12px")
-        .attr("text-anchor", someCategories ? "end" : "middle")
-        .attr("transform", manyCategories ? "rotate(-90)" : someCategories ? "rotate(-45)" : null)
-        .attr("dy", manyCategories ? "-0.4em" : someCategories ? "0.2em" : "1.2em")
-        .attr("dx", someCategories ? "-0.5em" : null);
-      xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+      drawData(currentData);   // full redraw picks up the new padding
     }
     document.getElementById("ep-thinner")?.addEventListener("click", () => adjustPadding(+PAD_STEP));
     document.getElementById("ep-wider")?.addEventListener("click",   () => adjustPadding(-PAD_STEP));

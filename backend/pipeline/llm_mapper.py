@@ -1,8 +1,28 @@
 import json
+import re
 
 from models import AxisMapping, Schema
 from pipeline.prompts import AXIS_MAPPING_SYSTEM, REFINE_SYSTEM
 from pipeline.providers import LLMProvider, AnthropicProvider
+
+# Token stems that mark a measure as a CUMULATIVE / running-total / standings value
+# rather than an additive fact. Summing such a column across the rows it repeats on
+# double-counts (a season standing appears on every race row), so its terminal value
+# (max) is the true figure. Matched per name-token (so 'outstanding' ≠ 'standing').
+_CUMULATIVE_STEMS = ("standing", "cumulative", "running", "career", "ytd", "todate")
+
+
+def _is_cumulative_measure(col: str) -> bool:
+    spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", col)          # split camelCase
+    tokens = [t for t in re.split(r"[^a-zA-Z0-9]+", spaced) if t]
+    return any(t.lower().startswith(stem) for t in tokens for stem in _CUMULATIVE_STEMS)
+
+
+def _prefer_terminal_agg(data: dict) -> None:
+    """Flip a plain 'sum' to 'max' when the measure is a cumulative/standings column,
+    in place. Only touches 'sum' — an explicit mean/count/min/max is left as asked."""
+    if data.get("aggregation") == "sum" and _is_cumulative_measure(data.get("y_column", "")):
+        data["aggregation"] = "max"
 
 
 class LLMMapper:
@@ -38,7 +58,7 @@ class LLMMapper:
 
         # LLMs sometimes return "null" as a string instead of JSON null
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
-                    "z_column", "label_column", "facet_direction", "color", "category_colors", "group_labels",
+                    "z_column", "label_column", "facet_direction", "color", "category_colors", "group_labels", "controls",
                     "filters", "limit", "palette", "background", "mark_scale", "metric_columns"):
             if data.get(key) == "null":
                 data[key] = None
@@ -62,6 +82,7 @@ class LLMMapper:
             if not data.get(key):
                 data[key] = default
 
+        _prefer_terminal_agg(data)   # cumulative/standings column → max, not sum
         mapping = AxisMapping(**data)
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping
@@ -104,7 +125,7 @@ class LLMMapper:
             raise ValueError(f"LLM returned invalid JSON: {raw!r}") from e
 
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
-                    "z_column", "label_column", "facet_direction", "color", "category_colors", "group_labels",
+                    "z_column", "label_column", "facet_direction", "color", "category_colors", "group_labels", "controls",
                     "filters", "limit", "palette", "background", "mark_scale", "metric_columns"):
             if data.get(key) == "null":
                 data[key] = None
@@ -115,6 +136,7 @@ class LLMMapper:
             if not data.get(key):
                 data[key] = current[key]
 
+        _prefer_terminal_agg(data)   # cumulative/standings column → max, not sum
         return AxisMapping(**data)
 
     def _strip_fences(self, text: str) -> str:

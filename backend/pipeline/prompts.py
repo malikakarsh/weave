@@ -50,6 +50,15 @@ REFINE_SYSTEM = (
     "  appears in the data, as a string) to its display label, e.g. {\"0\": \"death\", \"1\": \"survived\"}.\n"
     "  This only changes the legend text; it does NOT filter, recolor, or re-aggregate. Merge with any existing\n"
     "  group_labels — keep labels the user did NOT mention. Set to null to revert to the raw values.\n"
+    "- For INTERACTIVE FILTER SLIDERS under the chart (e.g. 'add a year slider', 'let me scrub\n"
+    "  through years', 'add a minimum wins filter', 'filter by at least N wins'): set the 'controls'\n"
+    "  field to a list of control specs. Two kinds:\n"
+    "    • {\"column\": <discrete column, e.g. year>, \"kind\": \"scrub\"} — a single-value slider that\n"
+    "      steps through that column's distinct values (one view at a time). Use for year/season/round.\n"
+    "    • {\"column\": <measure column, e.g. wins>, \"kind\": \"min\"} — a threshold slider that hides\n"
+    "      entities below the chosen value of the chart's measure. Use for 'minimum wins', 'at least N'.\n"
+    "  At most ONE 'scrub' control; any number of 'min' controls. The scrub column should NOT be the\n"
+    "  x-axis or group column. Set to null to remove all sliders.\n"
     "- For color palette / color scheme changes on multi-series or grouped charts\n"
     "  (e.g. 'use a dark palette', 'change the color palette to light shades', 'use tableau colors', 'pastel palette'):\n"
     "  set the 'palette' field to exactly one of: 'vibrant', 'dark', 'light', 'muted', 'tableau10', 'category10', 'set2', 'dark2', 'pastel'.\n"
@@ -178,6 +187,10 @@ AXIS_MAPPING_SYSTEM = (
     "  - 'min'  — 'lowest', 'minimum'\n"
     "  - 'max'  — 'highest', 'maximum', 'peak'\n"
     "  Default to 'sum' for bar charts and 'mean' for line/scatter when ambiguous.\n"
+    "  CUMULATIVE / STANDINGS columns: if the measure is a running total or point-in-time snapshot that\n"
+    "  ACCUMULATES across rows (name hints: 'standings', 'cumulative', 'running total', 'career', 'year-to-date'),\n"
+    "  use 'max' (its terminal value) even when the user says 'total' — summing it double-counts the same figure\n"
+    "  repeated on every underlying row. (A plain additive fact like 'revenue' or 'race wins' still uses 'sum'.)\n"
     "- limit: keep only the top N values of a SPECIFIC dimension, as {\"column\": <exact column name>, \"n\": N}, or null.\n"
     "  Use this for 'top N <thing>' where <thing> names a column — e.g. 'top 3 colors' → {\"column\": \"color\", \"n\": 3},\n"
     "  'top 5 products' → {\"column\": \"product\", \"n\": 5}. In grouped charts x_column and group_column are different\n"
@@ -234,5 +247,5 @@ AXIS_MAPPING_SYSTEM = (
     '"time_unit": "year|month|day or null", "x_min": "<date/number or null>", "x_max": "<date/number or null>", '
     '"z_column": "<column name or null>", "label_column": "<column name or null>", '
     '"facet_direction": "columns|rows|null", "facet_free_y": false, "mark_scale": null, '
-    '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>", "color": null, "category_colors": null, "group_labels": null}'
+    '"title": "<chart title>", "x_label": "<x-axis label>", "y_label": "<y-axis label>", "color": null, "category_colors": null, "group_labels": null, "controls": null}'
 )

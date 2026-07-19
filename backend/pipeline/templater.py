@@ -13,7 +13,8 @@ class Templater:
     def __init__(self, templates_dir: Path = TEMPLATES_DIR):
         self._templates_dir = templates_dir
 
-    def render(self, data: list[dict], config: ChartConfig = ChartConfig()) -> str:
+    def render(self, data: list[dict], config: ChartConfig = ChartConfig(),
+               controls: dict | None = None) -> str:
         if config.facet_direction and config.chart_type in ("line", "area", "scatter"):
             template_path = self._templates_dir / "facet_chart.html"
         else:
@@ -26,4 +27,5 @@ class Templater:
             template
             .replace("__DATA__", json.dumps(data))
             .replace("__CONFIG__", json.dumps(config.model_dump()))
+            .replace("__CONTROLS__", json.dumps(controls))
         )

@@ -33,6 +33,14 @@ def _to_float(s: str) -> float | None:
     return parse_number(s)
 
 
+def _pretty_col(col: str) -> str:
+    """Human label for a raw column name: 'raceId' → 'Race', 'min_wins' → 'Min Wins'."""
+    import re
+    s = re.sub(r"[_\s]+", " ", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", col)).strip()
+    s = re.sub(r"\bId\b", "", s, flags=re.IGNORECASE).strip()
+    return s.title() or col
+
+
 def _parse_comparable(s: str):
     """Return a datetime or float for range comparison, or the raw string."""
     d = _parse_dt(s)
@@ -98,6 +106,101 @@ class Transformer:
         if mapping.group_column:
             return self._transform_grouped(rows, mapping)
         return self._transform_flat(rows, mapping)
+
+    # ------------------------------------------------------------------
+    # Interactive controls (client-side filter sliders)
+    # ------------------------------------------------------------------
+
+    def build_control_payload(self, rows: list[dict], mapping: AxisMapping) -> dict | None:
+        """Pre-compute everything the browser needs to drive the filter sliders with
+        NO server round-trip. For a `scrub` control the server runs the full pipeline
+        once per distinct value of that column and ships the finished slices keyed by
+        value; the slider just swaps which pre-built slice is shown. `min` controls
+        ship only their bounds and are applied client-side to the current slice.
+
+        Returns None when there are no controls, so callers can skip injection."""
+        if not mapping.controls or not rows:
+            return None
+        cols = set(rows[0].keys())
+        base = mapping.model_copy(update={"controls": None})  # avoid recursion
+
+        scrub = next((c for c in mapping.controls
+                      if c.kind == "scrub" and c.column in cols), None)
+        mins = [c for c in mapping.controls if c.kind == "min" and c.column in cols]
+
+        specs: list[dict] = []
+        slices: dict[str, object] = {}
+        default: str | None = None
+        scrub_col: str | None = None
+
+        if scrub is not None:
+            scrub_col = scrub.column
+            values = self._distinct_sorted(rows, scrub.column)
+            for v in values:
+                sub = [r for r in rows if r.get(scrub.column, "").strip() == v]
+                try:
+                    slices[v] = self.transform(sub, base)
+                except Exception:
+                    slices[v] = [] if base.chart_type not in ("network",) else {"nodes": [], "links": []}
+            default = values[-1] if values else None   # newest / highest by default
+            specs.append({
+                "column": scrub.column, "kind": "scrub",
+                "label": scrub.label or _pretty_col(scrub.column),
+                "values": values,
+            })
+
+        # Data the min-thresholds apply to (a scrub slice if present, else the whole chart)
+        ref_data = slices.get(default) if default is not None else self.transform(rows, base)
+        for c in mins:
+            hi = self._measure_max(ref_data) if slices else self._column_max(rows, c.column)
+            hi = hi if hi and hi > 0 else 1.0
+            step = 1.0 if float(hi).is_integer() and hi <= 50 else round(hi / 20, 2) or 1.0
+            specs.append({
+                "column": c.column, "kind": "min",
+                "label": c.label or f"Minimum {_pretty_col(c.column)}",
+                "min": 0, "max": math.ceil(hi), "step": step,
+            })
+
+        if not specs:
+            return None
+        return {"controls": specs, "slices": slices, "scrub_column": scrub_col,
+                "default": default}
+
+    @staticmethod
+    def _distinct_sorted(rows: list[dict], col: str) -> list[str]:
+        vals = {r.get(col, "").strip() for r in rows if r.get(col, "").strip()}
+        nums = {v: _to_float(v) for v in vals}
+        if all(n is not None for n in nums.values()):
+            return sorted(vals, key=lambda v: nums[v])
+        return sorted(vals)
+
+    @staticmethod
+    def _measure_max(data) -> float:
+        """Largest aggregated measure in a transformed chart payload, for a min
+        slider's upper bound — handles flat/grouped lists and the network dict."""
+        best = 0.0
+        if isinstance(data, dict):  # network
+            for n in data.get("nodes", []):
+                for k in ("value", "size", "weight"):
+                    if isinstance(n.get(k), (int, float)):
+                        best = max(best, float(n[k]))
+        elif isinstance(data, list):
+            for d in data:
+                if isinstance(d, dict) and isinstance(d.get("y"), (int, float)):
+                    best = max(best, float(d["y"]))
+                for v in (d.get("values") or []) if isinstance(d, dict) else []:
+                    if isinstance(v.get("y"), (int, float)):
+                        best = max(best, float(v["y"]))
+        return best
+
+    @staticmethod
+    def _column_max(rows: list[dict], col: str) -> float:
+        best = 0.0
+        for r in rows:
+            f = _to_float(r.get(col, "").strip())
+            if f is not None:
+                best = max(best, f)
+        return best
 
     # ------------------------------------------------------------------
     # Internal helpers

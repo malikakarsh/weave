@@ -135,11 +135,11 @@ class Pipeline:
         config = _apply_mapping(config, mapping)
 
         _emit("transforming")
-        data = self._transformer.transform(rows, mapping)
+        data, controls = self._transform_and_controls(rows, mapping)
         _ensure_non_empty(data)
 
         _emit("rendering")
-        html = self._templater.render(data, config)
+        html = self._templater.render(data, config, controls)
 
         return html, mapping
 
@@ -183,12 +183,23 @@ class Pipeline:
         config = _apply_mapping(config, mapping)
 
         _emit("transforming")
-        data = self._transformer.transform(rows, mapping)
+        data, controls = self._transform_and_controls(rows, mapping)
         _ensure_non_empty(data)
 
         _emit("rendering")
-        html = self._templater.render(data, config)
+        html = self._templater.render(data, config, controls)
         return html, mapping
+
+    def _transform_and_controls(self, rows, mapping):
+        """Transform + (optionally) build the interactive-control payload. When a
+        `scrub` control exists the rendered data is its default pre-built slice, so
+        the chart opens on a valid view and the slider swaps slices client-side."""
+        controls = self._transformer.build_control_payload(rows, mapping)
+        if controls and controls.get("default") is not None:
+            data = controls["slices"].get(controls["default"], [])
+        else:
+            data = self._transformer.transform(rows, mapping)
+        return data, controls
 
     def render_mapping(
         self,
@@ -208,6 +219,6 @@ class Pipeline:
             if clar.options:
                 mapping = apply_choice(mapping, clar, clar.options[0])
         config = _apply_mapping(config, mapping)
-        data = self._transformer.transform(rows, mapping)
-        html = self._templater.render(data, config)
+        data, controls = self._transform_and_controls(rows, mapping)
+        html = self._templater.render(data, config, controls)
         return html, mapping

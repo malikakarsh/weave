@@ -1,5 +1,5 @@
 from .schema import ColumnInfo, ColumnType, Schema
-from .spec import AxisMapping, ChartConfig
+from .spec import AxisMapping, ChartConfig, ControlSpec
 
 __all__ = [
     "ColumnType",
@@ -7,4 +7,5 @@ __all__ = [
     "Schema",
     "AxisMapping",
     "ChartConfig",
+    "ControlSpec",
 ]

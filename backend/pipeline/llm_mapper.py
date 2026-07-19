@@ -25,6 +25,17 @@ def _prefer_terminal_agg(data: dict) -> None:
         data["aggregation"] = "max"
 
 
+def _ungroup_degenerate(data: dict) -> None:
+    """Grouping by the x-axis column is degenerate — each category band gets one
+    skinny sub-slot plus a legend that repeats the x labels. It's what the LLM
+    emits for 'make each <x> a different color', so convert it to what was meant:
+    a flat chart colored per category (via a palette unless colors were given)."""
+    if data.get("group_column") and data.get("group_column") == data.get("x_column"):
+        data["group_column"] = None
+        if not any(data.get(k) for k in ("color", "category_colors", "palette")):
+            data["palette"] = "vibrant"
+
+
 class LLMMapper:
     def __init__(self, provider: LLMProvider | None = None):
         self._provider = provider or AnthropicProvider()
@@ -83,6 +94,7 @@ class LLMMapper:
                 data[key] = default
 
         _prefer_terminal_agg(data)   # cumulative/standings column → max, not sum
+        _ungroup_degenerate(data)    # group == x-axis → flat chart, per-category palette
         mapping = AxisMapping(**data)
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping
@@ -137,6 +149,7 @@ class LLMMapper:
                 data[key] = current[key]
 
         _prefer_terminal_agg(data)   # cumulative/standings column → max, not sum
+        _ungroup_degenerate(data)    # group == x-axis → flat chart, per-category palette
         return AxisMapping(**data)
 
     def _strip_fences(self, text: str) -> str:

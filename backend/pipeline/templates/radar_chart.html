@@ -156,10 +156,13 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
@@ -204,14 +207,30 @@
     // ── Data shape ────────────────────────────────────────────────────────────
     // grouped: [{group, values:[{x,y}]}]  ·  flat: [{x,y}] (single polygon)
     const isGrouped = raw.length > 0 && "group" in raw[0] && "values" in raw[0];
-    const series    = isGrouped ? raw.map(s => ({ name: String(s.group), values: s.values }))
-                                : [{ name: "__single__", values: raw }];
-    const axes      = (series[0].values || []).map(v => v.x);
-    const N         = axes.length;
 
-    // Per-axis max for normalisation (handles mixed units across metrics).
-    const axisMax = axes.map((_, i) =>
-      d3.max(series, s => (s.values[i] && s.values[i].y != null) ? s.values[i].y : 0) || 1);
+    // Interactive-control state. Radar supports SCRUB sliders only — a min
+    // threshold would drop individual axis points and corrupt the polygon/axis
+    // alignment, so min controls are ignored here.
+    let currentData = raw;
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
+
+    const toSeries = data => (data.length > 0 && "group" in data[0] && "values" in data[0])
+      ? data.map(sr => ({ name: String(sr.group), values: sr.values,
+                          byAxis: new Map(sr.values.map(v => [v.x, v.y])) }))
+      : [{ name: "__single__", values: data, byAxis: new Map(data.map(v => [v.x, v.y])) }];
+
+    // Current slice's series (reassigned by drawRadar; tooltips read the latest).
+    let series = toSeries(raw);
+
+    // Fixed frame from the union of ALL slices: axis set (stable spoke layout) and
+    // per-axis max (stable normalisation, so polygons are comparable across scrub).
+    const unionSeries = allSlices.flatMap(toSeries);
+    const axes = [...new Set(unionSeries.flatMap(sr => sr.values.map(v => v.x)))];
+    const N    = axes.length;
+    const axisMax = axes.map(ax =>
+      d3.max(unionSeries, sr => { const yv = sr.byAxis.get(ax); return yv != null ? yv : 0; }) || 1);
+    const allSeriesNames = [...new Set(unionSeries.map(sr => sr.name))];
 
     const palette   = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const catColors = config.category_colors || {};
@@ -224,7 +243,7 @@
       }
       return fallback;
     }
-    const _groupCS = d3.scaleOrdinal(palette).domain(series.map(s => s.name));
+    const _groupCS = d3.scaleOrdinal(palette).domain(allSeriesNames);
     const seriesColor = s => isGrouped ? resolveColor(s.name, _groupCS(s.name)) : config.color;
 
     // ── Dimensions ────────────────────────────────────────────────────────────
@@ -302,11 +321,11 @@
     function showAxisTooltip(event, i) {
       let html = `<div class="tip-date">${_prettify(axes[i])}</div>`;
       series.forEach(s => {
-        const v = s.values[i];
+        const yv = s.byAxis.get(axes[i]);
         html += `<div class="tip-row">
           <span class="tip-swatch" style="background:${seriesColor(s)}"></span>
           <span class="tip-label">${s.name === "__single__" ? "Value" : s.name}</span>
-          <span class="tip-val">${v && v.y != null ? fmt(v.y) : "—"}</span></div>`;
+          <span class="tip-val">${yv != null ? fmt(yv) : "—"}</span></div>`;
       });
       tooltip.innerHTML = html;
       tooltip.style.opacity = 1;
@@ -328,15 +347,24 @@
     function hideTooltip() { tooltip.style.opacity = 0; }
 
     // ── Polygons ─────────────────────────────────────────────────────────────────
-    const vertices = [];   // {x, y, i} for the on-top hover targets
-    series.forEach(s => {
+    const radarLayer = svg.append("g").attr("class", "radar-layer");
+
+    // Draw the polygons for one data payload — re-callable so a scrub swaps
+    // shapes without touching the fixed frame (spokes, labels, normalisation).
+    function drawRadar(data) {
+      series = toSeries(data);
+      radarLayer.selectAll("*").remove();
+
+      const vertices = [];   // {x, y, i} for the on-top hover targets
+      series.forEach(s => {
       const color = seriesColor(s);
-      const pts = s.values.map((v, i) => {
-        const t = axisMax[i] > 0 && v.y != null ? v.y / axisMax[i] : 0;
+      const pts = axes.map((ax, i) => {
+        const yv = s.byAxis.get(ax);
+        const t = axisMax[i] > 0 && yv != null ? yv / axisMax[i] : 0;
         return [px(i, t), py(i, t)];
       });
 
-      svg.append("polygon")
+      radarLayer.append("polygon")
         .attr("class", "radar-area")
         .attr("data-series", s.name)
         .attr("points", pts.map(p => p.join(",")).join(" "))
@@ -354,7 +382,7 @@
         });
 
       pts.forEach((p, i) => {
-        svg.append("circle")
+        radarLayer.append("circle")
           .attr("class", "radar-dot")
           .attr("data-series", s.name)
           .attr("cx", p[0]).attr("cy", p[1])
@@ -363,37 +391,47 @@
           .style("pointer-events", "none");
         vertices.push({ x: p[0], y: p[1], i });
       });
-    });
+      });
 
-    // On-top transparent hit targets at every vertex: hovering near any axis
-    // vertex shows all series' values for that axis (readable even when polygons
-    // overlap). Drawn last so they sit above the fills.
-    vertices.forEach(vtx => {
-      svg.append("circle")
-        .attr("cx", vtx.x).attr("cy", vtx.y).attr("r", 11)
-        .attr("fill", "transparent")
-        .style("cursor", "default")
-        .on("mousemove", event => showAxisTooltip(event, vtx.i))
-        .on("mouseleave", hideTooltip);
-    });
+      // On-top transparent hit targets at every vertex: hovering near any axis
+      // vertex shows all series' values for that axis (readable even when polygons
+      // overlap). Drawn last so they sit above the fills.
+      vertices.forEach(vtx => {
+        radarLayer.append("circle")
+          .attr("cx", vtx.x).attr("cy", vtx.y).attr("r", 11)
+          .attr("fill", "transparent")
+          .style("cursor", "default")
+          .on("mousemove", event => showAxisTooltip(event, vtx.i))
+          .on("mouseleave", hideTooltip);
+      });
 
-    // ── Legend (grouped only) ───────────────────────────────────────────────────
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    // ── Legend (grouped only) — built once from the union of series ─────────────
     if (isGrouped) {
       const lx = margin.left + plotW + 20;
       const ly = margin.top;
-      series.forEach((s, i) => {
+      allSeriesNames.forEach((name, i) => {
         svg.append("rect")
-          .attr("class", "legend-swatch").attr("data-series", s.name)
+          .attr("class", "legend-swatch").attr("data-series", name)
           .attr("x", lx).attr("y", ly + i * 22)
           .attr("width", 10).attr("height", 10).attr("rx", 2)
-          .attr("fill", seriesColor(s));
+          .attr("fill", resolveColor(name, _groupCS(name)));
         svg.append("text")
           .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(groupLabel(s.name));
+          .text(groupLabel(name));
       });
     }
+
+    // Initial draw + slider wiring (scrub only — see note above)
+    drawRadar(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawRadar(currentData); },
+      onMin:  () => {},   // min thresholds are a no-op on radar
+    });
 
     // ── SVG export ──────────────────────────────────────────────────────────────
     const SVG_PROPS = [

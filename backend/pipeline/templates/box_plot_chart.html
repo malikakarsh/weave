@@ -169,10 +169,13 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
@@ -219,8 +222,18 @@
     // ── Data shape ────────────────────────────────────────────────────────────
     // raw = [{x, q1, median, q3, whisker_low, whisker_high, outliers[], mean, count, group?}]
     const isGrouped  = raw.length > 0 && "group" in raw[0];
-    const categories = [...new Set(raw.map(d => d.x))];
-    const groups     = isGrouped ? [...new Set(raw.map(d => d.group))] : [null];
+
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
+    const unionBoxes = allSlices.flat();
+
+    // Fixed frame + colors from the union of ALL slices.
+    const categories = [...new Set(unionBoxes.map(d => d.x))];
+    const groups     = isGrouped ? [...new Set(unionBoxes.map(d => d.group))] : [null];
 
     const palette   = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const catColors = config.category_colors || {};
@@ -233,13 +246,16 @@
       return fallback;
     }
     const _groupCS = d3.scaleOrdinal(palette).domain(groups);
+    // Flat charts color per category when the user chose a palette ("make each
+    // cut a different color"); otherwise the single accent color as before.
+    const _flatCS  = config.palette ? d3.scaleOrdinal(config.palette).domain(categories) : null;
     const boxColor = d => isGrouped
       ? resolveColor(d.group, _groupCS(d.group))
-      : resolveColor(d.x, config.color);
+      : resolveColor(d.x, _flatCS ? _flatCS(d.x) : config.color);
 
     // ── y domain covers whiskers, quartiles, and outliers ─────────────────────
     const allVals = [];
-    raw.forEach(d => {
+    unionBoxes.forEach(d => {
       allVals.push(d.whisker_low, d.whisker_high, d.q1, d.q3, d.median);
       (d.outliers || []).forEach(o => allVals.push(o));
     });
@@ -373,12 +389,21 @@
         : _boxW(xOuter.bandwidth(), xOuter.step());
     }
 
-    raw.forEach(d => {
+    const boxLayer = g.append("g").attr("class", "box-layer");
+
+    // Draw the boxes for one data payload — re-callable so a slider change swaps
+    // boxes without touching the fixed frame (scales, axes, legend).
+    function drawBoxes(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      boxLayer.selectAll("*").remove();
+
+      filtered.forEach(d => {
       const cx = centerX(d);
       const bw = boxWidth();
       const color = boxColor(d);
       const sel = isGrouped ? { attr: "data-group", val: d.group } : { attr: "data-x", val: d.x };
-      const box = g.append("g");
+      const box = boxLayer.append("g");
 
       // Whisker lines (vertical) + caps (horizontal)
       box.append("line").attr("class", "box-whisker")
@@ -436,9 +461,12 @@
           .attr("r", 3 * markScale)
           .attr("fill", color).attr("fill-opacity", 0.85);
       });
-    });
+      });
 
-    // ── Legend (grouped only) ───────────────────────────────────────────────────
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    // ── Legend (grouped only) — built once from the union of series ─────────────
     if (isGrouped) {
       const lx = margin.left + width + 20;
       const ly = margin.top;
@@ -455,6 +483,13 @@
           .text(groupLabel(grp));
       });
     }
+
+    // Initial draw + slider wiring
+    drawBoxes(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawBoxes(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawBoxes(currentData); },
+    });
 
     // ── SVG export ──────────────────────────────────────────────────────────────
     const SVG_PROPS = [

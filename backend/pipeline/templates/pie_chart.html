@@ -162,7 +162,11 @@
     // Interactive-control state (no-op when there are no controls).
     let currentData = raw;
     const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
-    const allSlices = (controls && controls.slices) ? Object.values(controls.slices) : [raw];
+    // Guard on NON-EMPTY slices: with a min-only control the backend sends
+    // slices:{} — an empty object is truthy, and treating it as "has slices"
+    // would empty the color domain and blank every slice.
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
 
     let total = d3.sum(raw, d => d.y);   // reassigned per draw
 

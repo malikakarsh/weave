@@ -163,10 +163,12 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     const groupLabel = g => (config.group_labels && config.group_labels[g] != null) ? config.group_labels[g] : g;
     window.__weaveConfig = config;
 
@@ -185,10 +187,8 @@
     });
 
     function highlightSeries(series) {
-      groups.forEach(grp => {
-        const s = CSS.escape(grp.group ?? "__single__");
-        const active = (grp.group ?? "__single__") === series;
-        g.selectAll(`.dot[data-series="${s}"]`).attr("opacity", active ? 1 : 0.08);
+      g.selectAll(".dot").attr("opacity", function () {
+        return this.getAttribute("data-series") === series ? 1 : 0.08;
       });
     }
 
@@ -236,19 +236,33 @@
     // Detect grouped vs flat
     const isGrouped = raw.length > 0 && "group" in raw[0];
 
-    const groups = isGrouped
-      ? raw.map(g => ({
-          group: g.group,
-          values: g.values
-            .filter(d => d.x !== null && d.y !== null)
-            .map(d => ({ x: parseX(d.x), y: +d.y }))
-        }))
-      : [{ group: null, values: raw.filter(d => d.x !== null && d.y !== null).map(d => ({ x: parseX(d.x), y: +d.y })) }];
+    // Interactive-control state (no-op when there are no controls).
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    // Guard on NON-EMPTY slices: with a min-only control the backend sends
+    // slices:{} — an empty object is truthy, and treating it as "has slices"
+    // yields an empty union → NaN scale domains → a blank chart.
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
 
-    const allPoints = groups.flatMap(grp => grp.values.map(d => ({ ...d, group: grp.group })));
+    // Normalise a slice to grouped {group, values:[{x,y}]}, parsing + filtering nulls.
+    function prep(data) {
+      const grouped = data.length > 0 && "group" in data[0];
+      return grouped
+        ? data.map(g => ({ group: g.group, values: g.values
+            .filter(d => d.x !== null && d.y !== null).map(d => ({ x: parseX(d.x), y: +d.y })) }))
+        : [{ group: null, values: data.filter(d => d.x !== null && d.y !== null).map(d => ({ x: parseX(d.x), y: +d.y })) }];
+    }
+    const pointsOf = gs => gs.flatMap(grp => grp.values.map(d => ({ ...d, group: grp.group })));
+
+    // Fixed frame + colors from the union of ALL slices, so scrubbing keeps the axes
+    // and each series' color stable; only the dots re-render.
+    const unionPoints = pointsOf(allSlices.flatMap(prep));
+    const allPoints   = unionPoints;   // scales/quadtree bounds use the union
+    const allGroupKeys = [...new Set(allSlices.flatMap(d => (d.length && "group" in d[0]) ? d.map(g => g.group) : []))];
 
     const DOT_OPACITY = isGrouped ? 0.75 : 0.8;
-    const DOT_RADIUS  = Math.max(3, Math.min(6, Math.round(200 / Math.sqrt(allPoints.length)))) * (config.mark_scale || 1);
+    const DOT_RADIUS  = Math.max(3, Math.min(6, Math.round(200 / Math.sqrt(Math.max(1, allPoints.length))))) * (config.mark_scale || 1);
 
     // Dimensions
     const legendWidth = isGrouped ? 130 : 0;
@@ -270,14 +284,14 @@
     // Color scale
     const palette    = config.palette || d3.range(20).map(i => d3.hcl(230 + i * 137.508, 68, 65).formatHex());
     const catColors  = config.category_colors || {};
-    const _baseCS    = isGrouped
-      ? d3.scaleOrdinal(palette).domain(groups.map(g => g.group))
+    const _baseCS    = allGroupKeys.length
+      ? d3.scaleOrdinal(palette).domain(allGroupKeys)
       : () => config.color;
     const colorScale = key => catColors[key] !== undefined ? catColors[key] : _baseCS(key);
 
     // Track current color per series so the highlight ring stays in sync after recoloring
     const seriesColor = {};
-    groups.forEach(grp => { seriesColor[grp.group ?? "__single__"] = colorScale(grp.group); });
+    (allGroupKeys.length ? allGroupKeys : [null]).forEach(gk => { seriesColor[gk ?? "__single__"] = colorScale(gk); });
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
@@ -358,47 +372,60 @@
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(config.y_label || "");
 
-    // Draw dots per group
-    groups.forEach(grp => {
-      const color  = colorScale(grp.group);
-      const series = grp.group ?? "__single__";
-      g.selectAll(null)
-        .data(grp.values)
-        .enter().append("circle")
-          .attr("class", "dot")
-          .attr("data-series", series)
-          .attr("cx", d => xScale(d.x))
-          .attr("cy", d => yScale(d.y))
-          .attr("r", DOT_RADIUS)
-          .attr("fill", color)
-          .attr("opacity", DOT_OPACITY)
-          .attr("cursor", "default")
-          .on("click", function(event) {
-            if (!editMode) return;
-            event.stopPropagation();
-            const s = this.getAttribute("data-series");
-            highlightSeries(s);
-            openColorPicker(seriesColor[s], s, event);
-          });
-    });
+    // Draw dots per group — re-callable so a slider swap redraws just the points
+    // (scales/axes/legend are fixed from the union of slices, so they don't move).
+    let quadtree;
+    function drawDots(data) {
+      const gs  = prep(window.WeaveControls ? window.WeaveControls.applyMins(data, controls, minState) : data);
+      const pts = pointsOf(gs);
+      const layer = g.select(".dots-layer");   // a fixed layer below hover ring + overlay
+      layer.selectAll(".dot").remove();
+      gs.forEach(grp => {
+        const color  = colorScale(grp.group);
+        const series = grp.group ?? "__single__";
+        layer.selectAll(null)
+          .data(grp.values)
+          .enter().append("circle")
+            .attr("class", "dot")
+            .attr("data-series", series)
+            .attr("cx", d => xScale(d.x))
+            .attr("cy", d => yScale(d.y))
+            .attr("r", DOT_RADIUS)
+            .attr("fill", color)
+            .attr("opacity", DOT_OPACITY)
+            .attr("cursor", "default")
+            .on("click", function(event) {
+              if (!editMode) return;
+              event.stopPropagation();
+              const s = this.getAttribute("data-series");
+              highlightSeries(s);
+              openColorPicker(seriesColor[s], s, event);
+            });
+      });
+      quadtree = d3.quadtree().x(d => xScale(d.x)).y(d => yScale(d.y)).addAll(pts);
+    }
 
-    // Legend (grouped only)
+    // Legend (grouped only) — built once from the union of series
     if (isGrouped) {
       const lx = margin.left + width + 20;
       const ly = margin.top;
-      groups.forEach((grp, i) => {
+      allGroupKeys.forEach((gk, i) => {
         svg.append("rect")
-          .attr("class", "legend-swatch").attr("data-series", grp.group)
+          .attr("class", "legend-swatch").attr("data-series", gk)
           .attr("x", lx).attr("y", ly + i * 22)
           .attr("width", 10).attr("height", 10).attr("rx", 2)
-          .attr("fill", colorScale(grp.group));
+          .attr("fill", colorScale(gk));
         svg.append("text")
           .attr("class", "legend-text")
           .attr("x", lx + 16).attr("y", ly + i * 22 + 9)
           .attr("fill", "#94a3b8").attr("font-size", "12px")
-          .text(groupLabel(grp.group));
+          .text(groupLabel(gk));
       });
     }
+
+    // Fixed layers (bottom→top): dots, then hover ring, then the pointer overlay —
+    // so re-drawing dots on a slider change never covers the hover surface.
+    g.append("g").attr("class", "dots-layer");
 
     // Hover — ring around nearest dot, tooltip with x/y
     const hoverRing = g.append("circle")
@@ -414,11 +441,12 @@
     const formatXV = d3.format(",.4~g");
     const formatYV = d3.format(",.4~g");
 
-    // Quadtree for O(log n) nearest-point lookup
-    const quadtree = d3.quadtree()
-      .x(d => xScale(d.x))
-      .y(d => yScale(d.y))
-      .addAll(allPoints);
+    // Draw the initial slice (builds the quadtree) and wire the sliders.
+    drawDots(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawDots(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawDots(currentData); },
+    });
 
     const HOVER_THRESHOLD = 50; // pixels
 

@@ -124,9 +124,35 @@ class Transformer:
         cols = set(rows[0].keys())
         base = mapping.model_copy(update={"controls": None})  # avoid recursion
 
-        scrubs = [c for c in mapping.controls
-                  if c.kind == "scrub" and c.column in cols][:2]   # at most two dimensions
-        mins = [c for c in mapping.controls if c.kind == "min" and c.column in cols]
+        # A scrub on the chart's own x-axis is special. On a CONTINUOUS/temporal x
+        # it WINDOWS the axis — each slice rescales the x to its own period, so a
+        # "month slider" shows one month spread across the panel (window_x=True). On
+        # a CATEGORICAL x it's degenerate (one category per slice) and is dropped.
+        x_col = mapping.x_column
+        x_vals = [r.get(x_col, "").strip() for r in rows[:50] if r.get(x_col, "").strip()]
+        x_continuous = bool(x_vals) and (
+            all(_parse_dt(v) for v in x_vals) or all(_to_float(v) is not None for v in x_vals)
+        )
+        # Only the templates that rescale the x per slice support windowing — the
+        # non-faceted line/area and the facet renderer (faceted line/area/scatter).
+        faceted = bool(mapping.facet_direction) and mapping.chart_type in ("line", "area", "scatter")
+        windowable_chart = faceted or (
+            not mapping.facet_direction and mapping.chart_type in ("line", "area"))
+        window_x = False
+        scrubs = []
+        for c in mapping.controls:
+            if c.kind != "scrub" or c.column not in cols:
+                continue
+            if c.column == x_col:
+                if x_continuous and windowable_chart:
+                    window_x = True
+                    scrubs.append(c)
+                # else: degenerate x-scrub (categorical x, or a chart without
+                # windowing support) — drop it so the chart keeps its full axis
+            else:
+                scrubs.append(c)
+        scrubs = scrubs[:2]
+        thresholds = [c for c in mapping.controls if c.kind in ("min", "max") and c.column in cols]
 
         specs: list[dict] = []
         slices: dict[str, object] = {}
@@ -216,22 +242,50 @@ class Transformer:
                 for spec, k in zip(specs, best):
                     spec["default"] = k
 
-        # Data the min-thresholds apply to (a scrub slice if present, else the whole chart)
+        # Data the thresholds apply to (a scrub slice if present, else the whole chart)
         ref_data = slices.get(default) if default is not None else self.transform(rows, base)
-        for c in mins:
-            hi = self._measure_max(ref_data) if slices else self._column_max(rows, c.column)
+        # Charts whose y is an AGGREGATE — a threshold on the y-column filters the
+        # aggregated value, so its bound comes from the transformed payload.
+        aggregating = base.chart_type in ("bar", "line", "area", "stacked_bar",
+                                          "stacked_area", "pie")
+        for c in thresholds:
+            field = self._control_field(c, base)
+            # Bound: aggregated measures come from the payload; a raw coordinate
+            # (scatter x/y, bubble z, a map's size) comes from the source column.
+            if field == "measure" or (field == "y" and aggregating):
+                hi = self._measure_max(ref_data)
+            else:
+                hi = self._column_max(rows, c.column)
             hi = hi if hi and hi > 0 else 1.0
             step = 1.0 if float(hi).is_integer() and hi <= 50 else round(hi / 20, 2) or 1.0
+            prefix = "Maximum" if c.kind == "max" else "Minimum"
             specs.append({
-                "column": c.column, "kind": "min",
-                "label": c.label or f"Minimum {_pretty_col(c.column)}",
+                "column": c.column, "kind": c.kind, "field": field,
+                "label": c.label or f"{prefix} {_pretty_col(c.column)}",
                 "min": 0, "max": math.ceil(hi), "step": step,
             })
 
         if not specs:
             return None
         return {"controls": specs, "slices": slices, "scrub_column": scrub_col,
-                "scrub_sep": SEP, "default": default}
+                "scrub_sep": SEP, "default": default, "window_x": window_x}
+
+    @staticmethod
+    def _control_field(c, mapping) -> str:
+        """Which value a threshold control filters on, matching the fields the
+        transformed marks carry: 'x'/'y'/'z' when the control names an axis column,
+        else 'measure' (the aggregated y / bin count / node value). This is what
+        makes a 'minimum sepal length' slider filter the x column, not the y."""
+        ct = mapping.chart_type
+        if ct in ("histogram", "network"):   # bins/nodes carry a count/value measure
+            return "measure"
+        if c.column == mapping.z_column:
+            return "z"
+        if c.column == mapping.x_column:
+            return "x"
+        if c.column == mapping.y_column:
+            return "y"
+        return "measure"
 
     @staticmethod
     def _distinct_sorted(rows: list[dict], col: str) -> list[str]:
@@ -252,12 +306,23 @@ class Transformer:
                     if isinstance(n.get(k), (int, float)):
                         best = max(best, float(n[k]))
         elif isinstance(data, list):
+            def _measure_of(d: dict) -> float | None:
+                # mirror the client accessor: aggregated y, bin count, heatmap z
+                for k in ("y", "count", "z"):
+                    v = d.get(k)
+                    if isinstance(v, (int, float)):
+                        return float(v)
+                return None
             for d in data:
-                if isinstance(d, dict) and isinstance(d.get("y"), (int, float)):
-                    best = max(best, float(d["y"]))
-                for v in (d.get("values") or []) if isinstance(d, dict) else []:
-                    if isinstance(v.get("y"), (int, float)):
-                        best = max(best, float(v["y"]))
+                if not isinstance(d, dict):
+                    continue
+                mv = _measure_of(d)
+                if mv is not None:
+                    best = max(best, mv)
+                for v in (d.get("values") or []):
+                    mv = _measure_of(v) if isinstance(v, dict) else None
+                    if mv is not None:
+                        best = max(best, mv)
         return best
 
     @staticmethod

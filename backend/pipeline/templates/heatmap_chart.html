@@ -179,10 +179,13 @@
   </div>
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     window.__weaveConfig = config;
 
     // ── Color scale ──────────────────────────────────────────────────────────
@@ -199,7 +202,17 @@
     const initScale = SCALES[config.color] ? config.color : "viridis";
     let colorInterp = SCALES[initScale];
 
-    const zExtent = d3.extent(raw, d => d.z);
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
+    const unionCells = allSlices.flat();
+
+    // Color range fixed from the union of ALL slices, so a cell's color means the
+    // same thing in every scrub position.
+    const zExtent = d3.extent(unionCells, d => d.z);
     const zMin = zExtent[0] ?? 0;
     const zMax = zExtent[1] ?? 1;
     const zRange = zMax - zMin || 1;
@@ -231,14 +244,14 @@
     // ── Scales ───────────────────────────────────────────────────────────────
     // Density (2D histogram) cells carry bin ranges {x0,x1,y0,y1}; matrix cells
     // carry categorical {x,y}. Branch the scales accordingly.
-    const isDensity = raw.length > 0 && "x0" in raw[0];
+    const isDensity = unionCells.length > 0 && "x0" in unionCells[0];
     let xScale, yScale, xDomain = [];
     if (isDensity) {
-      xScale = d3.scaleLinear().domain([d3.min(raw, d => d.x0), d3.max(raw, d => d.x1)]).range([0, width]);
-      yScale = d3.scaleLinear().domain([d3.min(raw, d => d.y0), d3.max(raw, d => d.y1)]).range([height, 0]);
+      xScale = d3.scaleLinear().domain([d3.min(unionCells, d => d.x0), d3.max(unionCells, d => d.x1)]).range([0, width]);
+      yScale = d3.scaleLinear().domain([d3.min(unionCells, d => d.y0), d3.max(unionCells, d => d.y1)]).range([height, 0]);
     } else {
-      xDomain = [...new Map(raw.map(d => [d.x, 1])).keys()];
-      const yDomain = [...new Map(raw.map(d => [d.y, 1])).keys()];
+      xDomain = [...new Map(unionCells.map(d => [d.x, 1])).keys()];
+      const yDomain = [...new Map(unionCells.map(d => [d.y, 1])).keys()];
       xScale = d3.scaleBand().domain(xDomain).range([0, width]).padding(0.06);
       yScale = d3.scaleBand().domain(yDomain).range([0, height]).padding(0.06);
     }
@@ -321,8 +334,18 @@
     }
     function hideTooltip() { tooltip.style.opacity = 0; }
 
-    const cells = g.selectAll(".cell")
-      .data(raw)
+    const cellLayer = g.append("g").attr("class", "cell-layer");
+    let cells = null, cellLabels = null;
+
+    // Draw the cells for one data payload — re-callable so a slider change swaps
+    // cells without touching the fixed frame (scales, axes, color range, legend).
+    function drawCells(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      cellLayer.selectAll("*").remove();
+
+      cells = cellLayer.selectAll(".cell")
+      .data(filtered)
       .join("rect")
       .attr("class", "cell")
       .attr("x",      d => isDensity ? xScale(d.x0) : xScale(d.x))
@@ -336,11 +359,11 @@
 
     // Cell value labels (only when cells are large enough)
     const MIN_LABEL_BAND = 26;
-    let cellLabels = null;
+    cellLabels = null;
     if (!isDensity && xScale.bandwidth() > MIN_LABEL_BAND && yScale.bandwidth() > MIN_LABEL_BAND) {
       const fontSize = Math.min(11, Math.floor(Math.min(xScale.bandwidth(), yScale.bandwidth()) * 0.3));
-      cellLabels = g.selectAll(".cell-label")
-        .data(raw)
+      cellLabels = cellLayer.selectAll(".cell-label")
+        .data(filtered)
         .join("text")
         .attr("class", "cell-label")
         .attr("x", d => xScale(d.x) + xScale.bandwidth() / 2)
@@ -356,8 +379,11 @@
         .text(d => d.z !== null ? d3.format(",.1f")(d.z) : "");
     }
 
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
     function redrawColors() {
-      cells.attr("fill", d => cellColor(d.z));
+      if (cells) cells.attr("fill", d => cellColor(d.z));
       if (cellLabels) {
         cellLabels.attr("fill", d => {
           const t = d.z !== null ? (d.z - zMin) / zRange : 0;
@@ -394,6 +420,13 @@
       .attr("x", -(margin.top + height / 2)).attr("y", 14)
       .attr("text-anchor", "middle").attr("fill", "#64748b").attr("font-size", "12px")
       .text(config.y_label || "");
+
+    // Initial draw + slider wiring
+    drawCells(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawCells(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawCells(currentData); },
+    });
 
     // ── SVG export ───────────────────────────────────────────────────────────
     const SVG_PROPS = [

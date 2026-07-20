@@ -161,10 +161,13 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     window.__weaveConfig = config;
 
     let svgBg     = config.svg_bg || "#1a1d27";
@@ -180,44 +183,63 @@
     });
 
     // ── Data prep ─────────────────────────────────────────────────────────────
-    const nodes = raw.nodes.map(d => ({ ...d }));
-    const links = raw.links.map(d => ({ ...d }));
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
 
-    const hasWeight = links.length > 0 &&
-      links[0].weight !== null && links[0].weight !== undefined;
+    const idOf = x => (x && typeof x === "object") ? x.id : x;
+    function computeDegrees(ns, ls) {
+      const dm = {};
+      ls.forEach(l => {
+        dm[idOf(l.source)] = (dm[idOf(l.source)] || 0) + 1;
+        dm[idOf(l.target)] = (dm[idOf(l.target)] || 0) + 1;
+      });
+      ns.forEach(n => { n.degree = dm[n.id] || 0; });
+    }
 
-    // Compute degree per node
-    const degreeMap = {};
-    links.forEach(l => {
-      const s = typeof l.source === "object" ? l.source.id : l.source;
-      const t = typeof l.target === "object" ? l.target.id : l.target;
-      degreeMap[s] = (degreeMap[s] || 0) + 1;
-      degreeMap[t] = (degreeMap[t] || 0) + 1;
-    });
-    nodes.forEach(n => { n.degree = degreeMap[n.id] || 0; });
+    // Current slice's graph (reassigned by drawGraph; hover/sim read the latest).
+    let nodes = [];
+    let links = [];
+
+    // Fixed frame from the union of ALL slices: node-size and link-width scales,
+    // group palette — so scrubbing never rescales or recolors the survivors.
+    const unionNodes = allSlices.flatMap(sl => (sl && sl.nodes) || []);
+    const unionLinks = allSlices.flatMap(sl => (sl && sl.links) || []);
+    const hasWeight = unionLinks.some(l => l.weight !== null && l.weight !== undefined);
 
     // Two-tone contrast: color nodes by which categorical side they belong to
     // (source vs target). Falls back to a single color for a non-bipartite graph.
-    const groups = [...new Set(nodes.map(n => n.group).filter(Boolean))];
+    const groups = [...new Set(unionNodes.map(n => n.group).filter(Boolean))];
     const groupPalette = (config.palette && config.palette.length >= 2)
       ? config.palette
       : ["#6366f1", "#f59e0b", "#10b981"];
     const groupColor = {};
-    groups.forEach((g, i) => { groupColor[g] = groupPalette[i % groupPalette.length]; });
+    groups.forEach((gp, i) => { groupColor[gp] = groupPalette[i % groupPalette.length]; });
     const hasGroups = groups.length > 1;
     const fillFor = d =>
       nodeColors[d.id] ? nodeColors[d.id]
       : (hasGroups && d.group ? (groupColor[d.group] || nodeColor) : nodeColor);
 
-    const hasNodeSize = nodes.length > 0 && "size" in nodes[0];
-    const maxDeg      = d3.max(nodes, n => n.degree) || 1;
-    const maxSize     = hasNodeSize ? (d3.max(nodes, n => n.size) || 1) : null;
-    const nodeR       = hasNodeSize
+    const hasNodeSize = unionNodes.some(n => "size" in n);
+    const _unionDegrees = (() => {   // max degree across every slice
+      let best = 1;
+      allSlices.forEach(sl => {
+        const ns = ((sl && sl.nodes) || []).map(n => ({ ...n }));
+        computeDegrees(ns, (sl && sl.links) || []);
+        best = Math.max(best, d3.max(ns, n => n.degree) || 0);
+      });
+      return best;
+    })();
+    const maxSize = hasNodeSize ? (d3.max(unionNodes, n => n.size) || 1) : null;
+    const nodeR   = hasNodeSize
       ? d3.scaleSqrt().domain([0, maxSize]).range([5, 22])
-      : d3.scaleSqrt().domain([0, maxDeg]).range([5, 18]);
-    const getR        = d => hasNodeSize ? nodeR(d.size || 0) : nodeR(d.degree);
+      : d3.scaleSqrt().domain([0, _unionDegrees]).range([5, 18]);
+    const getR    = d => hasNodeSize ? nodeR(d.size || 0) : nodeR(d.degree);
 
-    const maxWeight = hasWeight ? (d3.max(links, l => Math.abs(l.weight || 0)) || 1) : 1;
+    const maxWeight = hasWeight ? (d3.max(unionLinks, l => Math.abs(l.weight || 0)) || 1) : 1;
     const linkW     = hasWeight
       ? d3.scaleLinear().domain([0, maxWeight]).range([1, 5])
       : () => 1.5;
@@ -253,22 +275,22 @@
       })
       .on("end", () => svg.style("cursor", "grab")));
 
-    // ── Link layer ────────────────────────────────────────────────────────────
-    const linkG = zoomG.append("g").attr("class", "links");
-    const linkSel = linkG.selectAll("line")
-      .data(links)
-      .join("line")
-      .attr("stroke", "#2d3148")
-      .attr("stroke-width", d => linkW(d.weight || 0))
-      .attr("stroke-opacity", 0.7);
+    // ── Layers (links under nodes under labels) ───────────────────────────────
+    const linkG  = zoomG.append("g").attr("class", "links");
+    const nodeG  = zoomG.append("g").attr("class", "nodes");
+    const labelG = zoomG.append("g").attr("class", "labels");
 
-    // ── Node layer ────────────────────────────────────────────────────────────
-    const nodeG = zoomG.append("g").attr("class", "nodes");
+    // Rebound on every draw; hover/tick handlers read the latest.
+    let linkSel  = linkG.selectAll("line");
+    let nodeSel  = nodeG.selectAll("circle");
+    let labelSel = labelG.selectAll("text");
 
     let chargeStrength = -220;
 
-    const simulation = d3.forceSimulation(nodes)
-      .force("link",      d3.forceLink(links).id(d => d.id).distance(90))
+    // ONE persistent simulation — a slider change swaps its nodes/links and
+    // reheats it, so zoom state and the Spread control keep working.
+    const simulation = d3.forceSimulation()
+      .force("link",      d3.forceLink().id(d => d.id).distance(90))
       .force("charge",    d3.forceManyBody().strength(chargeStrength))
       .force("center",    d3.forceCenter(totalWidth / 2, totalHeight / 2))
       .force("collision", d3.forceCollide(d => getR(d) + 4))
@@ -322,8 +344,31 @@
 
     function hideTooltip() { tooltip.style.opacity = 0; }
 
-    const nodeSel = nodeG.selectAll("circle")
-      .data(nodes)
+    // Draw the graph for one data payload — re-callable so a slider change swaps
+    // nodes/links without touching zoom, scales, or the legend. Surviving nodes
+    // keep their positions (matched by id), so scrubbing doesn't scatter the layout.
+    function drawGraph(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      const prev = new Map(nodes.map(n => [n.id, n]));
+      nodes = ((filtered && filtered.nodes) || []).map(d => {
+        const pv = prev.get(d.id);
+        return { ...d, ...(pv ? { x: pv.x, y: pv.y, vx: pv.vx, vy: pv.vy } : {}) };
+      });
+      links = ((filtered && filtered.links) || []).map(d => ({
+        ...d, source: idOf(d.source), target: idOf(d.target),
+      }));
+      computeDegrees(nodes, links);
+
+      linkSel = linkG.selectAll("line")
+        .data(links)
+        .join("line")
+        .attr("stroke", "#2d3148")
+        .attr("stroke-width", d => linkW(d.weight || 0))
+        .attr("stroke-opacity", 0.7);
+
+      nodeSel = nodeG.selectAll("circle")
+      .data(nodes, d => d.id)
       .join("circle")
       .attr("r",           d => getR(d))
       .attr("fill",        fillFor)
@@ -371,16 +416,21 @@
           d.fx = null; d.fy = null;
         }));
 
-    // ── Label layer ───────────────────────────────────────────────────────────
-    const labelSel = zoomG.append("g").attr("class", "labels")
-      .selectAll("text")
-      .data(nodes)
-      .join("text")
-      .attr("text-anchor", "middle")
-      .attr("font-size", "10px")
-      .attr("fill", "#94a3b8")
-      .attr("pointer-events", "none")
-      .text(d => d.id);
+      labelSel = labelG.selectAll("text")
+        .data(nodes, d => d.id)
+        .join("text")
+        .attr("text-anchor", "middle")
+        .attr("font-size", "10px")
+        .attr("fill", "#94a3b8")
+        .attr("pointer-events", "none")
+        .text(d => d.id);
+
+      simulation.nodes(nodes);
+      simulation.force("link").links(links);
+      simulation.alpha(0.8).restart();
+
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
 
     // ── Legend (source vs target sides) ───────────────────────────────────────
     if (hasGroups) {
@@ -396,6 +446,13 @@
         .attr("font-size", "12px").attr("fill", "#94a3b8")
         .text(d => d);
     }
+
+    // Initial draw + slider wiring
+    drawGraph(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || { nodes: [], links: [] }); drawGraph(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawGraph(currentData); },
+    });
 
     // ── SVG export ────────────────────────────────────────────────────────────
     const SVG_PROPS = [

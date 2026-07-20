@@ -18,27 +18,44 @@
   window.WeaveControls = (function () {
     const isGroupedList = d => Array.isArray(d) && d.length > 0 && "group" in d[0];
 
-    // Drop marks whose measure is below the max active min-threshold. Handles the
-    // flat/grouped list shapes and the network {nodes, links} dict; anything else is
-    // returned unchanged (scrub still works, min is a no-op for that shape).
-    // Measure of one mark: aggregated y, histogram bin count, else 0.
-    const measureOf = d => (d.y ?? d.count ?? 0);
+    // Keep marks that pass every active min/max threshold. Each control carries a
+    // `field` (x | y | z | measure) telling us WHICH value it filters on — so a
+    // "minimum sepal length" slider filters the x column, not the y measure.
+    // Threshold state is keyed "min:<col>" / "max:<col>" so a min AND a max on the
+    // same column (a range) don't collide.
+    const markValue = (d, field) =>
+        field === "x" ? d.x
+      : field === "z" ? d.z
+      : field === "y" ? d.y
+      : (d.y ?? d.count ?? d.z ?? d.value ?? d.size ?? null);   // "measure" fallback
 
-    function applyMins(data, controls, minState) {
-      const mins = ((controls && controls.controls) || []).filter(c => c.kind === "min");
-      if (!mins.length) return data;
-      const thr = Math.max(...mins.map(c => minState[c.column]));
+    function passesThresholds(v, controls, state) {
+      for (const c of ((controls && controls.controls) || [])) {
+        if (c.kind !== "min" && c.kind !== "max") continue;
+        const val = markValue(v, c.field || "measure");
+        if (val === null || val === undefined) continue;   // no such field on this mark
+        const t = state[c.kind + ":" + c.column];
+        if (c.kind === "min" && val < t) return false;
+        if (c.kind === "max" && val > t) return false;
+      }
+      return true;
+    }
+
+    function applyMins(data, controls, state) {
+      const active = ((controls && controls.controls) || [])
+        .some(c => c.kind === "min" || c.kind === "max");
+      if (!active) return data;
+      const ok = v => passesThresholds(v, controls, state);
       if (isGroupedList(data)) {
-        return data.map(g => ({ ...g, values: g.values.filter(v => measureOf(v) >= thr) }))
+        return data.map(g => ({ ...g, values: g.values.filter(ok) }))
                    .filter(g => g.values.length);
       }
       if (Array.isArray(data)) {
-        return data.filter(d => measureOf(d) >= thr);
+        return data.filter(ok);
       }
       if (data && Array.isArray(data.nodes)) {
         const idOf = x => (x && typeof x === "object") ? x.id : x;
-        const keep = new Set(data.nodes
-          .filter(n => (n.value ?? n.size ?? Infinity) >= thr).map(n => n.id));
+        const keep = new Set(data.nodes.filter(ok).map(n => n.id));
         return {
           nodes: data.nodes.filter(n => keep.has(n.id)),
           links: data.links.filter(l => keep.has(idOf(l.source)) && keep.has(idOf(l.target))),
@@ -79,11 +96,17 @@
             handlers.onScrub(compositeKey());
           });
         } else {
+          // min or max threshold. A max slider starts at the TOP (nothing hidden)
+          // and drags down; a min slider starts at 0 and drags up. State key is
+          // "<kind>:<col>" so both can coexist on one measure.
+          const isMax = c.kind === "max";
+          const key = c.kind + ":" + c.column;
           input.min = c.min; input.max = c.max; input.step = c.step;
-          input.value = c.min; val.textContent = c.min;
+          input.value = isMax ? c.max : c.min;
+          val.textContent = input.value;
           input.addEventListener("input", () => {
             val.textContent = input.value;
-            handlers.onMin(c.column, +input.value);
+            handlers.onMin(key, +input.value);
           });
         }
         item.append(head, input);
@@ -92,14 +115,29 @@
       chartEl.append(panel);
     }
 
-    // Convenience: initial min-threshold state {column: min} from the control specs.
+    // Initial threshold state, keyed "min:<col>"/"max:<col>". A min starts at its
+    // lower bound and a max at its upper bound, so neither hides anything until moved.
     function initMinState(controls) {
       const s = {};
-      ((controls && controls.controls) || [])
-        .filter(c => c.kind === "min").forEach(c => { s[c.column] = c.min; });
+      ((controls && controls.controls) || []).forEach(c => {
+        if (c.kind === "min") s["min:" + c.column] = c.min;
+        else if (c.kind === "max") s["max:" + c.column] = c.max;
+      });
       return s;
     }
 
-    return { applyMins, mount, initMinState };
+    // Axis tick format: honour the configured spec, but if it collapses distinct
+    // ticks into DUPLICATE labels (e.g. ",.0f" on 2.5 / 3.0 / 3.5 → "2 / 3 / 4"
+    // duplicates), fall back to d3's auto precision so decimals show. Returns a
+    // format function suitable for `.tickFormat(...)`.
+    function axisFormat(scale, spec, count) {
+      const n = count || 6;
+      let fmt;
+      try { fmt = d3.format(spec); } catch (e) { return scale.tickFormat(n); }
+      const labels = scale.ticks(n).map(fmt);
+      return new Set(labels).size < labels.length ? scale.tickFormat(n) : fmt;
+    }
+
+    return { applyMins, mount, initMinState, axisFormat };
   })();
 </script>

@@ -367,7 +367,7 @@
 
     // ── Y axis ────────────────────────────────────────────────────────────────
     const yAxisG = g.append("g").attr("class", "axis")
-      .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+      .call(d3.axisLeft(yScale).ticks(6).tickFormat(window.WeaveControls.axisFormat(yScale, config.y_format, 6)));
     yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "12px");
     yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 

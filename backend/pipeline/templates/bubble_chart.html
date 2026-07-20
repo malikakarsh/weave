@@ -161,6 +161,7 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
@@ -275,7 +276,7 @@
     xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 
     const yAxisG = g.append("g").attr("class", "axis")
-      .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+      .call(d3.axisLeft(yScale).ticks(6).tickFormat(window.WeaveControls.axisFormat(yScale, config.y_format, 6)));
     yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "12px");
     yAxisG.selectAll("path, line").attr("stroke", "#2d3148");
 

@@ -336,12 +336,51 @@
 
     const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-    // Scales
-    const xScale = isTemporal
-      ? d3.scaleTime().domain(d3.extent(allPoints, d => d.x)).range([0, width])
-      : isNumeric
-        ? d3.scaleLinear().domain(d3.extent(allPoints, d => d.x)).range([0, width])
-        : d3.scalePoint().domain([...new Set(allPoints.map(d => d.x))]).range([0, width]).padding(0.5);
+    // Scales — the x windows to the current slice when a scrub is on the x-axis
+    // (window_x), so "scrub through months" shows one month across the full width.
+    const windowX = !!(controls && controls.window_x);
+
+    function buildXScale(pts) {
+      const xs = isTemporal
+        ? d3.scaleTime().domain(d3.extent(pts, d => d.x)).range([0, width])
+        : isNumeric
+          ? d3.scaleLinear().domain(d3.extent(pts, d => d.x)).range([0, width])
+          : d3.scalePoint().domain([...new Set(pts.map(d => d.x))]).range([0, width]).padding(0.5);
+      let ax;
+      if (isTemporal) {
+        const [t0, t1] = xs.domain();
+        const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
+        const interval = years > 20 ? d3.timeYear.every(5)
+          : years > 10 ? d3.timeYear.every(2)
+          : years > 1  ? d3.timeYear.every(1)
+          : years > 0.5 ? d3.timeMonth.every(2)
+          : d3.timeMonth.every(1);
+        const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
+        ax = d3.axisBottom(xs).ticks(interval).tickFormat(fmt);
+      } else if (isNumeric) {
+        const xIsInt = pts.every(d => Number.isInteger(d.x));
+        if (xIsInt) {
+          const [x0, x1] = xs.domain();
+          const step = Math.max(1, Math.ceil((x1 - x0) / 6));
+          const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
+          ax = d3.axisBottom(xs).tickValues(vals).tickFormat(d3.format("d"));
+        } else {
+          ax = d3.axisBottom(xs).ticks(6);
+        }
+      } else {
+        const allX = [...new Set(pts.map(d => d.x))];
+        if (allX.length > 8) {
+          const step = Math.ceil(allX.length / 8);
+          const shown = new Set(allX.filter((_, i) => i % step === 0));
+          ax = d3.axisBottom(xs).tickValues(allX.filter(x => shown.has(x)));
+        } else {
+          ax = d3.axisBottom(xs);
+        }
+      }
+      return { xScale: xs, xAxis: ax };
+    }
+
+    let { xScale, xAxis } = buildXScale(allPoints);
 
     const yScale = d3.scaleLinear()
       .domain([0, d3.max(allPoints, d => d.y) * 1.2])
@@ -352,54 +391,17 @@
       .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(""))
       .selectAll("line").attr("stroke", "#1e2235");
 
-    // For temporal axes, pick a tick interval based on the actual date span
-    // so we always get ~6 readable ticks regardless of range
-    let xAxis;
-    if (isTemporal) {
-      const [t0, t1] = xScale.domain();
-      const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
-      const interval = years > 20 ? d3.timeYear.every(5)
-        : years > 10 ? d3.timeYear.every(2)
-        : years > 1  ? d3.timeYear.every(1)
-        : years > 0.5 ? d3.timeMonth.every(2)
-        : d3.timeMonth.every(1);
-      const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
-      xAxis = d3.axisBottom(xScale).ticks(interval).tickFormat(fmt);
-    } else if (isNumeric) {
-      // Integer x (years, ages): integer tick values + no thousands separator, so a
-      // year reads "2021", never "2,021.5". Floats keep the default ~6 ticks.
-      const xIsInt = allPoints.every(d => Number.isInteger(d.x));
-      if (xIsInt) {
-        const [x0, x1] = xScale.domain();
-        const step = Math.max(1, Math.ceil((x1 - x0) / 6));
-        const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
-        xAxis = d3.axisBottom(xScale).tickValues(vals).tickFormat(d3.format("d"));
-      } else {
-        xAxis = d3.axisBottom(xScale).ticks(6);
-      }
-    } else {
-      // For categorical x, show at most ~8 evenly spaced tick labels
-      const allX = [...new Set(allPoints.map(d => d.x))];
-      if (allX.length > 8) {
-        const step = Math.ceil(allX.length / 8);
-        const shown = new Set(allX.filter((_, i) => i % step === 0));
-        xAxis = d3.axisBottom(xScale).tickValues(allX.filter(x => shown.has(x)));
-      } else {
-        xAxis = d3.axisBottom(xScale);
-      }
-    }
-
     const xAxisG = g.append("g").attr("class", "axis")
-      .attr("transform", `translate(0,${height})`)
-      .call(xAxis);
-    xAxisG.selectAll("text")
-      .attr("dy", "1.2em")
-      .attr("fill", "#64748b")
-      .attr("font-size", "12px");
-    xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+      .attr("transform", `translate(0,${height})`);
+    function styleXAxis() {
+      xAxisG.call(xAxis);
+      xAxisG.selectAll("text").attr("dy", "1.2em").attr("fill", "#64748b").attr("font-size", "12px");
+      xAxisG.selectAll("path, line").attr("stroke", "#2d3148");
+    }
+    styleXAxis();
 
     const yAxisG = g.append("g").attr("class", "axis")
-      .call(d3.axisLeft(yScale).ticks(6).tickFormat(d => d3.format(config.y_format)(d)));
+      .call(d3.axisLeft(yScale).ticks(6).tickFormat(window.WeaveControls.axisFormat(yScale, config.y_format, 6)));
     yAxisG.selectAll("text")
       .attr("fill", "#64748b")
       .attr("font-size", "12px");
@@ -469,6 +471,10 @@
       const filtered = window.WeaveControls
         ? window.WeaveControls.applyMins(data, controls, minState) : data;
       groups = prep(filtered);
+      if (windowX) {                       // rescale the x-axis to this slice's period
+        ({ xScale, xAxis } = buildXScale(groups.flatMap(gp => gp.values)));
+        styleXAxis();
+      }
 
       seriesLayer.selectAll("*").remove();
       hoverLayer.selectAll(".hover-dot").remove();

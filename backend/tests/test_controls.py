@@ -48,9 +48,65 @@ class TestControlPayload:
         assert m["max"] >= 9                          # covers Brabham's 9 in 1967
         assert m["label"] == "Minimum Wins"
 
+    def test_threshold_field_matches_named_column(self):
+        # A threshold slider filters the value of the column it NAMES, not always the
+        # y measure — so 'minimum sepal length' (the x-axis) filters x, bounded by
+        # the length column's max, not the width measure.
+        rows = [{"len": str(L), "wid": str(W)} for L, W in
+                [(4.6, 3.6), (5.7, 4.1), (7.9, 3.8)]]
+        m = AxisMapping(chart_type="scatter", x_column="len", y_column="wid",
+                        controls=[ControlSpec(column="len", kind="min"),
+                                  ControlSpec(column="wid", kind="max")])
+        p = Transformer().build_control_payload(rows, m)
+        by_col = {c["column"]: c for c in p["controls"]}
+        assert by_col["len"]["field"] == "x"
+        assert by_col["len"]["max"] >= 7          # bounded by sepal LENGTH (~7.9)
+        assert by_col["wid"]["field"] == "y"
+        assert by_col["wid"]["max"] >= 4 and by_col["wid"]["max"] < 7   # by WIDTH (~4.1)
+
+    def test_max_control_and_range_pair(self):
+        # a max threshold, and a min+max pair on the same column (a range)
+        p = _payload([ControlSpec(column="year", kind="scrub"),
+                      ControlSpec(column="wins", kind="min"),
+                      ControlSpec(column="wins", kind="max")])
+        kinds = [c["kind"] for c in p["controls"]]
+        assert "min" in kinds and "max" in kinds
+        mx = next(c for c in p["controls"] if c["kind"] == "max")
+        assert mx["label"] == "Maximum Wins"
+        assert mx["min"] == 0 and mx["max"] >= 9
+
     def test_unknown_column_control_is_ignored(self):
         p = _payload([ControlSpec(column="nonexistent", kind="scrub")])
         assert p is None
+
+    def test_scrub_on_categorical_x_is_dropped(self):
+        # Scrubbing a CATEGORICAL x-axis is degenerate (one category per slice) — dropped.
+        rows = [{"cut": c, "price": "100"} for c in ["A", "B", "C", "A", "B"]]
+        m = AxisMapping(chart_type="bar", x_column="cut", y_column="price",
+                        aggregation="sum",
+                        controls=[ControlSpec(column="cut", kind="scrub")])
+        assert Transformer().build_control_payload(rows, m) is None
+
+    def test_scrub_on_temporal_x_windows_the_axis(self):
+        # Scrubbing a CONTINUOUS/temporal x windows it: one slice per period,
+        # window_x flags the template to rescale the axis to the current slice.
+        rows = [{"date": f"2023-{mo:02d}-15", "revenue": "100"} for mo in range(1, 7)]
+        m = AxisMapping(chart_type="line", x_column="date", y_column="revenue",
+                        aggregation="sum",
+                        controls=[ControlSpec(column="date", kind="scrub", time_unit="month")])
+        p = Transformer().build_control_payload(rows, m)
+        assert p is not None and p["window_x"] is True
+        assert list(p["slices"].keys()) == [f"2023-{mo:02d}" for mo in range(1, 7)]
+
+    def test_min_on_x_axis_column_still_works(self):
+        # only scrub is positional; a min threshold on any column is fine
+        rows = [{"cut": c, "price": str(p)} for c, p in
+                [("A", 100), ("B", 200), ("C", 300)]]
+        m = AxisMapping(chart_type="bar", x_column="cut", y_column="price",
+                        aggregation="sum",
+                        controls=[ControlSpec(column="price", kind="min")])
+        p = Transformer().build_control_payload(rows, m)
+        assert p is not None and p["controls"][0]["kind"] == "min"
 
     def test_scrub_values_sorted_numerically(self):
         rows = [{"year": y, "constructor": "L", "wins": "1"} for y in ["9", "10", "2"]]

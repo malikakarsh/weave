@@ -1,6 +1,8 @@
+import re
 from collections.abc import Callable
 
 from models import AxisMapping, ChartConfig
+from models.spec import ControlSpec
 from pipeline.data_loader import DataLoader
 from pipeline.llm_mapper import LLMMapper
 from pipeline.providers import LLMProvider
@@ -33,6 +35,61 @@ def _pretty(col: str) -> str:
     import re
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", col)
     return s.replace("_", " ").strip().title()
+
+
+def _promote_threshold_filter(mapping: AxisMapping, instruction: str) -> AxisMapping:
+    """When the user asks for an INTERACTIVE min/max filter/slider with no explicit
+    number (e.g. 'add a maximum sepal width filter') but the model emitted a hard
+    `filters` threshold instead, promote it to a `controls` slider. A hard filter
+    with a guessed cutoff can wipe the chart to empty; a slider is bounded by the
+    data and starts non-filtering. A threshold with an EXPLICIT number (which shows
+    up as a digit in the instruction) is left as a real filter."""
+    instr = instruction.lower()
+    slider_intent = (
+        ("slider" in instr
+         or ("filter" in instr and re.search(r"\b(min|max|minimum|maximum)\b", instr)))
+        and not re.search(r"\d", instr)          # an explicit number ⇒ a real hard filter
+    )
+    if not slider_intent or not mapping.filters:
+        return mapping
+
+    existing = {(c.column, c.kind) for c in (mapping.controls or [])}
+    new_controls = list(mapping.controls or [])
+    keep_filters = []
+    for f in mapping.filters:
+        if not f.values and (f.min is not None or f.max is not None):
+            if f.min is not None and (f.column, "min") not in existing:
+                new_controls.append(ControlSpec(column=f.column, kind="min"))
+            if f.max is not None and (f.column, "max") not in existing:
+                new_controls.append(ControlSpec(column=f.column, kind="max"))
+        else:
+            keep_filters.append(f)
+    if len(keep_filters) == len(mapping.filters):
+        return mapping                            # nothing promoted
+    return mapping.model_copy(update={
+        "filters": keep_filters or None,
+        "controls": new_controls or None,
+    })
+
+
+def _missing_column(mapping: AxisMapping, schema) -> str | None:
+    """A user-facing error if the mapping references a column that isn't in the
+    data (e.g. the instruction named a column that doesn't exist), else None."""
+    names = {c.name for c in schema.columns}
+    roles = [
+        ("x-axis", mapping.x_column), ("y-axis", mapping.y_column),
+        ("group", mapping.group_column), ("size", mapping.z_column),
+        ("label", mapping.label_column),
+    ]
+    for role, col in roles:
+        if col and col not in names:
+            avail = ", ".join(c.name for c in schema.columns)
+            return f"There's no '{col}' column to use for the {role}. Available columns: {avail}."
+    for col in (mapping.metric_columns or []):
+        if col not in names:
+            avail = ", ".join(c.name for c in schema.columns)
+            return f"There's no '{col}' column in your data. Available columns: {avail}."
+    return None
 
 
 def _keep_axes_on_type_change(mapping: AxisMapping, current: AxisMapping, instruction: str) -> AxisMapping:
@@ -169,7 +226,11 @@ class Pipeline:
         if mapping.chart_type != current_mapping.chart_type:
             mapping = _keep_axes_on_type_change(mapping, current_mapping, instruction)
 
-        err = validate_chart(mapping, schema)
+        # A bare "min/max <col> filter/slider" is interactive — if the model made it
+        # a hard filter (which can empty the chart), turn it back into a slider.
+        mapping = _promote_threshold_filter(mapping, instruction)
+
+        err = _missing_column(mapping, schema) or validate_chart(mapping, schema)
         if err:
             raise ValueError(err)
 
@@ -179,6 +240,16 @@ class Pipeline:
         if resolved.clarifications:
             raise ClarificationNeeded(resolved.mapping, resolved.clarifications)
         mapping = resolved.mapping
+
+        # No-op guard: if the instruction produced no change to the mapping, the
+        # model couldn't map it to a supported edit (commonly a column/value name
+        # that isn't in the data). Surface that instead of silently re-rendering
+        # the identical chart, which reads as "nothing happened".
+        if mapping.model_dump() == current_mapping.model_dump():
+            raise ValueError(
+                "Couldn't apply that change — the chart is unchanged. "
+                "Check that any column or value names in your instruction match your data."
+            )
 
         config = _apply_mapping(config, mapping)
 

@@ -165,10 +165,13 @@
   <input type="color" id="floating-color-pick" style="position:fixed;opacity:0;pointer-events:none;width:0;height:0;left:-200px;top:-200px">
   <div class="tooltip" id="tooltip"></div>
 
+  __CONTROLS_RUNTIME__
+
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script>
     const raw    = __DATA__;
     const config = __CONFIG__;
+    const controls = __CONTROLS__;
     window.__weaveConfig = config;
     const markScale = config.mark_scale || 1;   // multiplier for point radius / line stroke
 
@@ -234,16 +237,32 @@
     const isNumericX = !isTemporal && firstX != null && !isNaN(parseFloat(String(firstX)));
     const parseX     = v => isTemporal ? parseDate(String(v)) : isNumericX ? parseFloat(v) : String(v);
 
-    const groups = isGrouped
-      ? raw.map(r => ({ group: String(r.group), values: r.values.map(d => ({ x: parseX(d.x), y: d.y })) }))
-      : [{ group: "Value", values: raw.map(d => ({ x: parseX(d.x), y: d.y })) }];
+    // Interactive-control state (no-op when there are no controls). Guard on
+    // NON-EMPTY slices: a min-only control ships slices:{} which is truthy.
+    let currentData = raw;
+    const minState = window.WeaveControls ? window.WeaveControls.initMinState(controls) : {};
+    const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
+    const allSlices = _hasSlices ? Object.values(controls.slices) : [raw];
 
-    if (isTemporal || isNumericX) {
-      groups.forEach(g => g.values.sort((a, b) => a.x - b.x));
+    function prep(data) {
+      const grouped = data.length > 0 && "group" in data[0];
+      const gs = grouped
+        ? data.map(r => ({ group: String(r.group), values: r.values.map(d => ({ x: parseX(d.x), y: d.y })) }))
+        : [{ group: "Value", values: data.map(d => ({ x: parseX(d.x), y: d.y })) }];
+      if (isTemporal || isNumericX) gs.forEach(gp => gp.values.sort((a, b) => a.x - b.x));
+      return gs;
     }
 
-    const N        = groups.length;
-    const allPts   = groups.flatMap(g => g.values);
+    // Current slice's series (reassigned by drawPanels).
+    let groups = prep(raw);
+
+    // Fixed frame from the union of ALL slices: the panel GRID is one slot per
+    // union group (a group missing in a slice shows an empty panel instead of
+    // reflowing the grid), and the shared scales cover every slice.
+    const unionGroups = allSlices.flatMap(prep);
+    const unionGroupNames = [...new Set(unionGroups.map(gp => gp.group))];
+    const N        = unionGroupNames.length;
+    const allPts   = unionGroups.flatMap(gp => gp.values);
     const allYVals = allPts.map(d => d.y).filter(y => y !== null && !isNaN(y));
 
     // ── layout ──────────────────────────────────────────────────────────────
@@ -287,43 +306,50 @@
       }
       return fallback;
     }
-    const _baseCS    = d3.scaleOrdinal(palette).domain(groups.map(g => g.group));
+    const _baseCS    = d3.scaleOrdinal(palette).domain(unionGroupNames);
     const colorScale = key => resolveColor(key, _baseCS(key));
-    groups.forEach(g => { seriesColors[g.group] = colorScale(g.group); });
+    unionGroupNames.forEach(gn => { seriesColors[gn] = colorScale(gn); });
 
     // ── shared x scale ───────────────────────────────────────────────────────
-    const allXVals = allPts.map(d => d.x);
-    const xScale = isTemporal
-      ? d3.scaleTime().domain(d3.extent(allXVals)).range([0, panelW])
-      : isNumericX
-        ? d3.scaleLinear().domain(d3.extent(allXVals)).range([0, panelW])
-        : d3.scalePoint().domain([...new Set(allXVals)]).range([0, panelW]).padding(0.5);
-
-    // Shared x-axis tick definition — cap ticks by panel width so narrow panels don't crowd
+    // When a scrub control is on the x-axis itself (window_x), the axis rescales to
+    // the CURRENT slice's period — "scrub through months" shows one month spread
+    // across each panel. Otherwise the x is fixed from the union of all slices.
+    const windowX = !!(controls && controls.window_x);
     const maxXTicks = Math.max(3, Math.floor(panelW / 60));
-    let xAxisDef;
-    if (isTemporal) {
-      const [t0, t1] = xScale.domain();
-      const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
-      const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
-      xAxisDef = d3.axisBottom(xScale).ticks(maxXTicks).tickFormat(fmt).tickSize(4);
-    } else if (isNumericX) {
-      // Integer x (years, ages): integer tick values + no thousands separator.
-      const xIsInt = allXVals.every(v => Number.isInteger(v));
-      if (xIsInt) {
-        const [x0, x1] = xScale.domain();
-        const step = Math.max(1, Math.ceil((x1 - x0) / maxXTicks));
-        const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
-        xAxisDef = d3.axisBottom(xScale).tickValues(vals).tickFormat(d3.format("d")).tickSize(4);
+
+    function buildX(xVals) {
+      const xs = isTemporal
+        ? d3.scaleTime().domain(d3.extent(xVals)).range([0, panelW])
+        : isNumericX
+          ? d3.scaleLinear().domain(d3.extent(xVals)).range([0, panelW])
+          : d3.scalePoint().domain([...new Set(xVals)]).range([0, panelW]).padding(0.5);
+      let axisDef;
+      if (isTemporal) {
+        const [t0, t1] = xs.domain();
+        const years = (t1 - t0) / (1000 * 60 * 60 * 24 * 365.25);
+        const fmt = years > 1 ? d3.timeFormat("%Y") : d3.timeFormat("%b %Y");
+        axisDef = d3.axisBottom(xs).ticks(maxXTicks).tickFormat(fmt).tickSize(4);
+      } else if (isNumericX) {
+        const xIsInt = xVals.every(v => Number.isInteger(v));
+        if (xIsInt) {
+          const [x0, x1] = xs.domain();
+          const step = Math.max(1, Math.ceil((x1 - x0) / maxXTicks));
+          const vals = d3.range(Math.ceil(x0), Math.floor(x1) + 1, step);
+          axisDef = d3.axisBottom(xs).tickValues(vals).tickFormat(d3.format("d")).tickSize(4);
+        } else {
+          axisDef = d3.axisBottom(xs).ticks(maxXTicks).tickSize(4);
+        }
       } else {
-        xAxisDef = d3.axisBottom(xScale).ticks(maxXTicks).tickSize(4);
+        const allCats = [...new Set(xVals)];
+        const step    = allCats.length > maxXTicks ? Math.ceil(allCats.length / maxXTicks) : 1;
+        const shown   = new Set(allCats.filter((_, i) => i % step === 0));
+        axisDef = d3.axisBottom(xs).tickValues(allCats.filter(x => shown.has(x))).tickSize(4);
       }
-    } else {
-      const allCats = [...new Set(allXVals)];
-      const step    = allCats.length > maxXTicks ? Math.ceil(allCats.length / maxXTicks) : 1;
-      const shown   = new Set(allCats.filter((_, i) => i % step === 0));
-      xAxisDef = d3.axisBottom(xScale).tickValues(allCats.filter(x => shown.has(x))).tickSize(4);
+      return { xScale: xs, xAxisDef: axisDef };
     }
+
+    // Union x (fixed frame). Reassigned per slice inside drawPanels when windowing.
+    let { xScale, xAxisDef } = buildX(allPts.map(d => d.x));
 
     // ── shared y scale (used unless facetFreeY) ───────────────────────────────
     const globalYMax   = (d3.max(allYVals) || 1) * 1.2;
@@ -378,10 +404,24 @@
     const formatXD = isTemporal ? d3.timeFormat("%b %d, %Y") : d => String(d);
     const bisect   = d3.bisector(d => d.x).center;
 
-    // ── draw panels ──────────────────────────────────────────────────────────
+    // ── draw panels — redrawn on every slider change ─────────────────────────
     const allAxisGs = [];  // for theme updates
+    const panelsLayer = svg.append("g").attr("class", "panels-layer");
 
-    groups.forEach((grp, i) => {
+    function drawPanels(data) {
+      const filtered = window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState) : data;
+      groups = prep(filtered);
+      if (windowX) {                       // rescale the x-axis to this slice's period
+        ({ xScale, xAxisDef } = buildX(groups.flatMap(gp => gp.values.map(d => d.x))));
+      }
+      const byName = new Map(groups.map(gp => [gp.group, gp]));
+      panelsLayer.selectAll("*").remove();
+      allAxisGs.length = 0;
+
+      // One panel per UNION group so the grid never reflows across scrub.
+      unionGroupNames.forEach((gname, i) => {
+      const grp = byName.get(gname) || { group: gname, values: [] };
       const col = facetDirection === "rows" ? 0 : (i % numCols);
       const row = facetDirection === "rows" ? i : Math.floor(i / numCols);
 
@@ -391,7 +431,7 @@
       const yScale = makeYScale(grp.values.map(d => d.y));
       const color  = colorScale(grp.group);
 
-      const panel = svg.append("g").attr("transform", `translate(${tx},${ty})`);
+      const panel = panelsLayer.append("g").attr("transform", `translate(${tx},${ty})`);
 
       // Panel border
       panel.append("rect")
@@ -408,7 +448,7 @@
       const showYAxis = facetDirection === "rows" || col === 0;
       if (showYAxis) {
         const yAxisG = panel.append("g").attr("class", "axis")
-          .call(d3.axisLeft(yScale).ticks(4).tickFormat(d => d3.format(config.y_format)(d)).tickSize(4));
+          .call(d3.axisLeft(yScale).ticks(4).tickFormat(window.WeaveControls.axisFormat(yScale, config.y_format, 4)).tickSize(4));
         yAxisG.selectAll("text").attr("fill", "#64748b").attr("font-size", "10px");
         yAxisG.selectAll("path,line").attr("stroke", "#2d3148");
         allAxisGs.push(yAxisG);
@@ -575,6 +615,16 @@
             tooltip.style.opacity = 0;
           });
       }
+      });
+
+      if (typeof applyTheme === "function") applyTheme(isLightBg(svgBg));
+    }
+
+    // Initial draw + slider wiring
+    drawPanels(currentData);
+    if (window.WeaveControls) window.WeaveControls.mount(controls, chartEl, {
+      onScrub: v => { currentData = (controls.slices[v] || []); drawPanels(currentData); },
+      onMin:  (col, v) => { minState[col] = v; drawPanels(currentData); },
     });
 
     // ── SVG export ───────────────────────────────────────────────────────────

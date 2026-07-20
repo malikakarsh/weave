@@ -25,7 +25,7 @@ REFINE_SYSTEM = (
     "  which is the intended behaviour. Do NOT work around it by swapping columns or choosing another type.\n"
     "- 'chart_type' requirements:\n"
     "  scatter/bubble need numeric x AND y (bubble also a numeric z_column); histogram needs a numeric x;\n"
-    "  box_plot/violin/bar/line/area/pie need a numeric y; stacked_bar/stacked_area need a group_column;\n"
+    "  box_plot/violin/bar/line/area/pie need a numeric y; stacked_bar/stacked_area/bump need a group_column;\n"
     "  heatmap/network need two DIFFERENT categorical columns; radar needs 3+ numeric metric_columns;\n"
     "  symbol_map needs numeric longitude (x) and latitude (y).\n"
     "- CATEGORY REFERENCES (category_colors keys, filters values, group_filter values): use the user's LITERAL\n"
@@ -140,6 +140,14 @@ AXIS_MAPPING_SYSTEM = (
     "  (e.g. 'stacked bar', 'stacked bars', 'stacked column', 'stacked bar chart', 'stacked breakdown')\n"
     "  Requires group_column. x_column is a categorical String (or time-bucketed dates).\n"
     "  Use when comparing composition across discrete categories; prefer stacked_area for continuous time.\n"
+    "- 'bump': RANKING of series over an ordered period — one line per series, y-axis is the RANK\n"
+    "  (1 on top) so lines cross as positions change (e.g. 'bump chart', 'ranking over time', 'rank of\n"
+    "  teams by season', 'how positions changed', 'leaderboard over time').\n"
+    "  Requires group_column (the entities being ranked). x_column = the ordered period (Date or String\n"
+    "  season/round/year); y_column = the numeric measure the ranking is based on (points, sales, wins);\n"
+    "  the engine ranks the groups at each period. aggregation = how to combine that measure per period\n"
+    "  (usually 'sum', or 'max' for a standing). Use bump instead of line when the RELATIVE ORDER matters\n"
+    "  more than the raw values.\n"
     "- 'bar': x is an unordered string category (e.g. country, product, name)\n"
     "- 'histogram': frequency distribution of ONE numeric column, binned into ranges\n"
     "  (e.g. 'histogram of price', 'distribution of age', 'how are prices distributed', 'frequency of X')\n"
@@ -273,7 +281,7 @@ AXIS_MAPPING_SYSTEM = (
     "- x_label: a clean label for the x-axis (e.g. 'Year', 'Age', 'Country') — not the raw column name\n"
     "- y_label: a clean label for the y-axis (e.g. 'Total Revenue ($)', 'Average Price', 'Count') — include units if inferable\n\n"
     "Respond with ONLY valid JSON in this exact format, no other text:\n"
-    '{"chart_type": "line|area|stacked_area|stacked_bar|bar|histogram|box_plot|violin|radar|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
+    '{"chart_type": "line|area|stacked_area|stacked_bar|bump|bar|histogram|box_plot|violin|radar|pie|bubble|scatter|heatmap|network|symbol_map", "x_column": "<column name>", "y_column": "<column name>", '
     '"group_column": "<column name or null>", "group_filter": ["<value>", "..."], "metric_columns": null, '
     '"filters": null, "limit": null, '
     '"aggregation": "sum|mean|count|min|max", "top_n": <number or null>, "sort_order": "asc|desc|none", '

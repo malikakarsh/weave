@@ -101,6 +101,8 @@ class Transformer:
             return self._transform_histogram(rows, mapping)
         if mapping.chart_type in ("radar", "spider"):
             return self._transform_radar(rows, mapping)
+        if mapping.chart_type == "bump":
+            return self._transform_bump(rows, mapping)
         if mapping.label_column:
             return self._transform_labeled(rows, mapping)
         if mapping.group_column:
@@ -144,6 +146,10 @@ class Transformer:
         scrubs = []
         for c in mapping.controls:
             if c.kind not in ("scrub", "dropdown") or c.column not in cols:
+                continue
+            # A picker on a bump chart's GROUP column is degenerate — slicing by the
+            # ranked series leaves one entity that's trivially always rank 1. Drop it.
+            if mapping.chart_type == "bump" and c.column == mapping.group_column:
                 continue
             if c.column == x_col:
                 # windowing only makes sense for the ordered/stepped scrub slider
@@ -1088,4 +1094,50 @@ class Transformer:
             for grp in result:
                 grp["values"].sort(key=lambda pt: rank.get(pt["x"], 0))
 
+        return result
+
+    @staticmethod
+    def _natural_sorted(vals) -> list[str]:
+        """Sort period labels left→right: numerically if all numeric, chronologically
+        if all dates, else lexically."""
+        vals = list(vals)
+        nums = {v: _to_float(v) for v in vals}
+        if vals and all(n is not None for n in nums.values()):
+            return sorted(vals, key=lambda v: nums[v])
+        dts = {v: _parse_dt(v) for v in vals}
+        if vals and all(d is not None for d in dts.values()):
+            return sorted(vals, key=lambda v: dts[v])
+        return sorted(vals)
+
+    def _transform_bump(self, rows: list[dict], mapping: AxisMapping) -> list[dict]:
+        """Rankings over an ordered period. Aggregate the measure per (group, x) —
+        exactly the grouped-series shape — then, at each x, RANK the groups (rank 1 =
+        highest value by default) and attach that rank to each point. The template
+        plots rank on the y-axis (1 on top) so each series bumps up and down over x."""
+        grouped = self._transform_grouped(rows, mapping)   # [{group, values:[{x, y}]}]
+        x_order = self._natural_sorted({pt["x"] for g in grouped for pt in g["values"]})
+        pos = {x: i for i, x in enumerate(x_order)}
+
+        # The highest measure is rank 1 (top performer on top) — the standard bump
+        # convention. (sort_order drives the grouped x-ordering, not the ranking.)
+        for x in x_order:
+            present = []
+            for g in grouped:
+                y = next((p["y"] for p in g["values"] if p["x"] == x), None)
+                if y is not None:
+                    present.append((g["group"], y))
+            present.sort(key=lambda gy: gy[1], reverse=True)
+            rank_of = {grp: i + 1 for i, (grp, _) in enumerate(present)}
+            for g in grouped:
+                for p in g["values"]:
+                    if p["x"] == x and g["group"] in rank_of:
+                        p["rank"] = rank_of[g["group"]]
+
+        # Keep only ranked points, ordered left→right; drop any now-empty series.
+        result = []
+        for g in grouped:
+            vals = [p for p in sorted(g["values"], key=lambda p: pos.get(p["x"], 0))
+                    if "rank" in p]
+            if vals:
+                result.append({"group": g["group"], "values": vals})
         return result

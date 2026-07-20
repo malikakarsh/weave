@@ -93,7 +93,7 @@ DataLoader → LLMMapper → Transformer → Templater
 
 1. **DataLoader** — reads the CSV, auto-detects delimiter, skips title/banner and blank preamble rows to find the real header, drops empty trailing/interior columns, infers column types (Date, Float, String), and validates that the dataset has at least one numeric column. Numeric detection is format-tolerant — `$6.52`, `-1,200.00`, `(350.00)` accounting negatives, `85%`, and `-` placeholder gaps are all recognised. Date detection covers ISO, day/month/year and month/day/year with 4- or 2-digit years (`09/02/25`), dashed variants, and abbreviated-month forms (`Aug 19 2004`).
 
-2. **LLMMapper** — sends the schema and your prompt to Claude, which decides the chart type (line, area, bar, histogram, box_plot, violin, radar, pie, bubble, scatter, heatmap, network), picks the x/y/group/z/label columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns, and applies x_min/x_max bounds for time period filtering.
+2. **LLMMapper** — sends the schema and your prompt to Claude, which decides the chart type (line, area, bar, bump, histogram, box_plot, violin, radar, pie, bubble, scatter, heatmap, network), picks the x/y/group/z/label columns, chooses an aggregation function (sum/mean/count/min/max) based on intent words in the prompt, optionally limits to the top N groups by aggregated value, sets a time unit (year/month/day) when the prompt asks for period-level bucketing of date columns, and applies x_min/x_max bounds for time period filtering.
 
 3. **Transformer** — routes to one of nine transform modes based on the mapping:
    - **flat** — aggregates rows by x into `{x, y}` pairs (single series)
@@ -118,6 +118,7 @@ DataLoader → LLMMapper → Transformer → Templater
 | `area` | Volume or magnitude beneath a curve | x (date/numeric), y (numeric), optional group |
 | `stacked_area` | Cumulative composition over time | x (date), y (numeric), group (required) |
 | `stacked_bar` | Composition across discrete categories | x (string/bucketed date), y (numeric), group (required) |
+| `bump` | Ranking of series over an ordered period | x (period), y (numeric), group (required) |
 | `bar` | Comparing unordered categories | x (string), y (numeric), optional group |
 | `histogram` | Frequency distribution of one numeric column (auto-binned) | x (numeric), optional group |
 | `box_plot` | Distribution (median, quartiles, whiskers, outliers) per category | x (category), y (numeric), optional group |
@@ -434,7 +435,7 @@ backend/
 │   ├── palettes.py                # Named color palettes (HCL ramps + categorical schemes)
 │   ├── chart_requirements.py      # Per-chart-type dimension checks (validate + suggest alternative)
 │   ├── category_resolver.py       # Deterministic category-value resolution + ambiguity clarification
-│   ├── transformer.py             # Transform modes (flat/grouped/labeled/heatmap/network/box/violin/histogram/radar) + numeric filters + grain-aware measure collapse
+│   ├── transformer.py             # Transform modes (flat/grouped/labeled/heatmap/network/box/violin/histogram/radar/bump) + numeric filters + grain-aware measure collapse
 │   ├── templater.py               # HTML rendering
 │   └── templates/
 │       ├── line_chart.html        # D3.js line chart (single + multi-series)
@@ -450,6 +451,7 @@ backend/
 │       ├── symbol_map_chart.html   # D3.js symbol map (Natural Earth projection + world-atlas CDN)
 │       ├── stacked_area_chart.html # D3.js stacked area chart (composition over time)
 │       ├── stacked_bar_chart.html  # D3.js stacked bar chart (composition across categories)
+│       ├── bump_chart.html         # D3.js bump chart (rankings over an ordered period)
 │       ├── heatmap_chart.html     # D3.js heatmap (sequential color scale + legend)
 │       ├── network_chart.html     # D3.js force-directed network graph
 │       └── facet_chart.html       # D3.js small multiples (line/area/scatter; columns or rows)
@@ -495,7 +497,7 @@ Each case specifies a CSV, a prompt, and assertions on both the `AxisMapping` th
 
 | Category | What's tested |
 |---|---|
-| Chart type selection | line, area, stacked_area, stacked_bar, bar, histogram, box_plot, violin, radar, pie, bubble, scatter, heatmap, network, symbol_map, facet |
+| Chart type selection | line, area, stacked_area, stacked_bar, bump, bar, histogram, box_plot, violin, radar, pie, bubble, scatter, heatmap, network, symbol_map, facet |
 | Aggregation | sum, mean, count — triggered by intent words in the prompt |
 | Group / filter | multi-series grouping, single and multi-value group_filter |
 | Top N | top_n ranking by aggregated y value |

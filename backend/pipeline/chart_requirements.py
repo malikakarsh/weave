@@ -143,6 +143,7 @@ CHART_RULES: dict[str, list] = {
     **{ct: [r_numeric_value_y] for ct in _VALUE_CHARTS},
     "stacked_bar":  [r_numeric_value_y, r_stacking_group],
     "stacked_area": [r_numeric_value_y, r_stacking_group],
+    "bump":         [r_numeric_value_y, r_stacking_group],
     "scatter":      [r_numeric_xy],
     "bubble":       [r_numeric_xy, r_bubble_size],
     "histogram":    [r_numeric_x],
@@ -212,7 +213,7 @@ CHART_REQUIREMENTS_NOTE = (
     "- scatter/bubble: numeric x AND y (bubble also needs a numeric size column)\n"
     "- histogram: a numeric x_column to bin\n"
     "- box_plot/violin/bar/line/area/pie: a numeric y_column (the value)\n"
-    "- stacked_bar/stacked_area: a group_column to stack by\n"
+    "- stacked_bar/stacked_area/bump: a group_column (the series to stack / rank) and a numeric y\n"
     "- heatmap: two DIFFERENT categorical columns (matrix) OR two DIFFERENT numeric columns (density); not a mix\n"
     "- network: two DIFFERENT categorical entity columns (x_column != y_column)\n"
     "- radar/spider: 3+ numeric metric_columns (or long form: group_column + numeric y)\n"

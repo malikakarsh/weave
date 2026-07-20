@@ -71,6 +71,7 @@ const CHART_TYPES: [string, string, string][] = [
   ["area", "Volume/magnitude beneath a curve", "x (date/numeric), y (numeric), optional group"],
   ["stacked_area", "Cumulative composition over time", "x (date), y (numeric), group (required)"],
   ["stacked_bar", "Composition across categories", "x (string/bucketed date), y (numeric), group (required)"],
+  ["bump", "Ranking of series over an ordered period", "x (period), y (numeric), group (required)"],
   ["histogram", "Distribution of one numeric column (auto-binned)", "x (numeric), optional group"],
   ["box_plot", "Median, quartiles, whiskers, outliers per category", "x (category), y (numeric), optional group"],
   ["violin", "Distribution shape (KDE curve + inner box)", "x (category), y (numeric), optional group"],

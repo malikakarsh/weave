@@ -330,6 +330,7 @@ export default function DocsPage() {
             <li>Ask for multiple charts in one prompt — separate intents with &ldquo;and&rdquo;.</li>
             <li>Refinements stack: change the type, then the color, then the sort, one message at a time.</li>
             <li>Currency, thousands separators, percentages, and <Code>-</Code> placeholder cells in your CSV are parsed automatically.</li>
+            <li>Weave only charts <i>your data</i> — off-topic prompts (math, trivia, &ldquo;write me a poem&rdquo;) are declined with a note instead of producing a nonsense chart. Keep refine instructions to chart edits.</li>
           </ul>
 
           <div className={`mt-12 pt-6 border-t ${c.tr}`}>

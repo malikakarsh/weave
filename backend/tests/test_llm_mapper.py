@@ -264,3 +264,18 @@ class TestRefine:
         stub.response = "broken"
         with pytest.raises(ValueError, match="invalid JSON"):
             mapper.refine(self.BASE, [], "sort descending")
+
+    def test_off_topic_refine_is_rejected(self, stub, mapper):
+        # An off-topic / misuse instruction returns {"error": ...} (no mapping),
+        # which surfaces as a PromptRejected the API turns into the error banner.
+        from pipeline.decomposer import PromptRejected
+        stub.response = '{"error": "That is a math question, not a chart change."}'
+        with pytest.raises(PromptRejected, match="math question"):
+            mapper.refine(self.BASE, [], "tell me what is 2 + 2")
+
+    def test_error_key_alongside_mapping_is_not_a_rejection(self, stub, mapper):
+        # A real mapping always carries chart_type, so a stray "error" field can't
+        # be mistaken for a rejection.
+        stub.response = self._refined_response(sort_order="desc", error="ignored")
+        result = mapper.refine(self.BASE, [], "sort descending")
+        assert result.sort_order == "desc"

@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from models import AxisMapping, ChartConfig
 from pipeline.csv_validator import validate_csv
 from pipeline.data_loader import DataLoader
-from pipeline.decomposer import Decomposer
+from pipeline.decomposer import Decomposer, PromptRejected
 from pipeline.pipeline import Pipeline
 from pipeline.providers import get_provider
 from pipeline.category_resolver import ClarificationNeeded
@@ -778,6 +778,11 @@ async def generate_dashboard(
     except HTTPException:
         os.unlink(tmp_path)
         raise
+    except PromptRejected as e:
+        # Not an error — the prompt isn't a chartable request for this dataset.
+        # Surface the reason as a 400 (no charge: usage wasn't added).
+        os.unlink(tmp_path)
+        raise HTTPException(status_code=400, detail=e.reason)
     except Exception as e:
         os.unlink(tmp_path)
         logger.exception("Dashboard setup error")

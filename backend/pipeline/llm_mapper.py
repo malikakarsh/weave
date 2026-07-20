@@ -2,8 +2,14 @@ import json
 import re
 
 from models import AxisMapping, Schema
+from pipeline.decomposer import PromptRejected
 from pipeline.prompts import AXIS_MAPPING_SYSTEM, REFINE_SYSTEM
 from pipeline.providers import LLMProvider, AnthropicProvider
+
+_REFINE_REJECT_DEFAULT = (
+    "I can only refine the chart from your dataset. Ask for a chart change on its own "
+    "(e.g. \"show the top 10\", \"color by species\")."
+)
 
 # Token stems that mark a measure as a CUMULATIVE / running-total / standings value
 # rather than an additive fact. Summing such a column across the rows it repeats on
@@ -162,6 +168,12 @@ class LLMMapper:
             data = json.loads(raw)
         except json.JSONDecodeError as e:
             raise ValueError(f"LLM returned invalid JSON: {raw!r}") from e
+
+        # Validation verdict: the model returns {"error": "..."} (and no mapping) when
+        # the instruction isn't a legitimate refinement of this chart — off-topic or
+        # misuse. A real mapping always carries chart_type, so this can't collide.
+        if isinstance(data, dict) and data.get("error") and not data.get("chart_type"):
+            raise PromptRejected(str(data["error"]).strip() or _REFINE_REJECT_DEFAULT)
 
         for key in ("group_column", "group_filter", "top_n", "time_unit", "x_min", "x_max",
                     "z_column", "label_column", "facet_direction", "color", "category_colors", "group_labels", "controls",

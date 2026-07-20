@@ -41,6 +41,7 @@ const SECTIONS = [
   { id: "refining", title: "Refining charts" },
   { id: "chart-types", title: "Chart types" },
   { id: "faceting", title: "Faceting" },
+  { id: "controls", title: "Interactive controls" },
   { id: "voice", title: "Voice input" },
   { id: "accounts", title: "Accounts, threads & limits" },
   { id: "export", title: "Export & analyze" },
@@ -60,6 +61,7 @@ const REFINE_COMMANDS: [string, string, string][] = [
   ["Background", "white background · dark background", "Sets the chart canvas background"],
   ["Date bucketing", "by month · per year · daily", "Groups a date x-axis into buckets"],
   ["Time range", "from March to September · since 2010", "Filters the x-axis to a window"],
+  ["Add a control", "add a year slider · minimum wins filter · year dropdown", "Adds a live filter under the chart (see Interactive controls)"],
   ["Titles & labels", "title it Revenue by Region · label the y-axis Sales", "Edits chart text"],
 ];
 
@@ -280,6 +282,26 @@ export default function DocsPage() {
             <li><Code>facet by region</Code> / <Code>small multiples</Code> / <Code>one chart per …</Code> → side-by-side panels (wraps at 3).</li>
             <li><Code>one per row</Code> / <Code>stacked panels</Code> → vertical panels with a shared x-axis.</li>
             <li>Add <Code>free scale</Code> / <Code>independent axes</Code> to give each panel its own y-range.</li>
+          </ul>
+
+          <H id="controls">Interactive controls</H>
+          <p className="mb-3">
+            Ask for live controls and Weave adds sliders or dropdowns <i>under</i> the chart. Filtering
+            happens <b>entirely in your browser</b> — no server round-trip, no raw rows shipped — so it stays
+            instant no matter how large the dataset. Available on every chart type.
+          </p>
+          <ul className="list-disc pl-5 space-y-1.5">
+            <li><b>Value slider</b> — <Code>add a year slider</Code> steps through a column&rsquo;s values, showing one pre-computed slice at a time. The axes, legend, and colors stay fixed so only the marks move.</li>
+            <li><b>Dropdown</b> — <Code>add a year dropdown</Code> is the same one-value-at-a-time slicing with a <Code>&lt;select&gt;</Code> instead of a slider — better for unordered or many-valued categories. A slider and a dropdown can combine as two dimensions.</li>
+            <li><b>Threshold filters</b> — <Code>add a minimum wins filter</Code> / <Code>maximum price filter</Code> hide marks below or above a value; a min <i>and</i> a max on the same column make a range. Each filter targets the column it names — <Code>minimum sepal length</Code> filters the x-axis, not the y.</li>
+            <li><b>Date sliders</b> — a slider on a date column steps by period (year by default, or say <Code>by month</Code>). <Code>add a year and a month slider</Code> gives two independent sliders over one date column.</li>
+            <li><b>Time windowing</b> — a slider on a time <i>x-axis</i> of a line/area chart windows the axis to one period per step instead of collapsing it.</li>
+          </ul>
+          <p className={`mt-3 mb-2 text-sm ${c.muted}`}>On a <b>network graph</b>, the same phrasing means graph-specific things:</p>
+          <ul className="list-disc pl-5 space-y-1.5 text-sm">
+            <li><Code>add a minimum connections filter</Code> thresholds a node&rsquo;s number of connections (its degree), keeping the well-connected nodes <i>and</i> the neighbours they link to.</li>
+            <li><Code>add a points filter</Code> thresholds a numeric value on the entity that owns it (e.g. a team&rsquo;s points) — low-value nodes drop while the other side of the graph stays as context.</li>
+            <li>Remove any control by name, e.g. <Code>remove the connections filter</Code>.</li>
           </ul>
 
           <H id="voice">Voice input</H>

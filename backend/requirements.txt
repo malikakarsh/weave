@@ -10,7 +10,7 @@ python-dotenv>=1.0.0
 
 # LLM provider
 anthropic==0.105.2
-google-generativeai==0.8.6
+google-genai==2.6.0
 httpx==0.28.1
 
 # Auth (Google OAuth + JWT)

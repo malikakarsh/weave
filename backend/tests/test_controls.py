@@ -75,6 +75,114 @@ class TestControlPayload:
         assert mx["label"] == "Maximum Wins"
         assert mx["min"] == 0 and mx["max"] >= 9
 
+    def test_dropdown_control_slices_like_scrub(self):
+        # A dropdown is scrub slicing with a <select> UI — same slices, kind preserved.
+        p = _payload([ControlSpec(column="year", kind="dropdown")])
+        assert list(p["slices"].keys()) == ["1965", "1966", "1967"]
+        spec = next(c for c in p["controls"] if c["kind"] == "dropdown")
+        assert spec["values"] == ["1965", "1966", "1967"]
+
+    def test_default_skips_empty_slice(self):
+        # The newest bucket (2024) has rows but its measure is all-null and a filter
+        # drops them, so its slice transforms to empty — the default must fall back
+        # to the newest slice that actually has data (2023).
+        from models.spec import FilterSpec
+        rows = ([{"year": y, "team": t, "points": "25"}
+                 for y in ("2022", "2023") for t in ("A", "B")]
+                + [{"year": "2024", "team": t, "points": ""} for t in ("A", "B")])
+        m = AxisMapping(chart_type="bar", x_column="team", y_column="points",
+                        aggregation="sum", filters=[FilterSpec(column="points", min="0")],
+                        controls=[ControlSpec(column="year", kind="dropdown")])
+        p = Transformer().build_control_payload(rows, m)
+        assert p["default"] == "2023"                 # not the empty 2024
+        assert "2024" in p["slices"] and p["slices"]["2024"] == []   # still selectable
+
+    def test_network_min_is_a_degree_connections_filter(self):
+        # "minimum connections" on a network has no column — a threshold on a
+        # node-identity column (x/y) means node DEGREE. The control is labelled
+        # "Connections", bounded by the busiest node, and nodes carry their degree.
+        rows = [{"race": r, "team": t} for r in ["A", "B", "C"] for t in ["Ferrari", "RedBull"]]
+        rows.append({"race": "A", "team": "Sauber"})            # degree-1 node
+        m = AxisMapping(chart_type="network", x_column="race", y_column="team",
+                        controls=[ControlSpec(column="race", kind="min")])
+        p = Transformer().build_control_payload(rows, m)
+        c = p["controls"][0]
+        assert c["field"] == "degree"
+        assert c["label"] == "Minimum Connections"
+        assert c["max"] == 3                                    # Ferrari/RedBull hit 3 races
+        graph = Transformer().transform(rows, m)                # nodes carry their degree
+        degrees = {n["id"]: n["degree"] for n in graph["nodes"]}
+        assert degrees["Ferrari"] == 3 and degrees["Sauber"] == 1
+
+    def test_network_connections_uses_virtual_column(self):
+        # The normalizer rewrites a network degree filter borrowed onto an identity
+        # column into the stable virtual column 'connections', so it's referenceable
+        # by name (e.g. "remove the connections filter") and distinct from a real
+        # z-column threshold on the same graph.
+        from pipeline.llm_mapper import _normalize_network_connections
+        data = {"chart_type": "network", "x_column": "team", "y_column": "race",
+                "z_column": "points",
+                "controls": [{"column": "team", "kind": "min"},
+                             {"column": "points", "kind": "max"}]}
+        _normalize_network_connections(data)
+        cols = [(c["column"], c["kind"]) for c in data["controls"]]
+        assert cols == [("connections", "min"), ("points", "max")]
+
+    def test_network_virtual_connections_builds_degree_control(self):
+        rows = [{"team": t, "race": r} for r in ["A", "B", "C"] for t in ["Ferrari", "RedBull"]]
+        rows.append({"team": "Sauber", "race": "A"})
+        m = AxisMapping(chart_type="network", x_column="team", y_column="race",
+                        controls=[ControlSpec(column="connections", kind="min")])
+        p = Transformer().build_control_payload(rows, m)
+        c = p["controls"][0]
+        assert c["column"] == "connections" and c["field"] == "degree"
+        assert c["label"] == "Minimum Connections" and c["max"] == 3
+
+    def test_network_value_threshold_carries_owning_side(self):
+        # A network value threshold applies to only ONE side (the entity the measure
+        # describes = the source/x side), tagged so the client keeps the other side as
+        # context instead of hiding it under a mismatched size cutoff.
+        rows = [{"team": t, "race": r, "points": "50"}
+                for r in ["A", "B"] for t in ["RedBull", "Sauber"]]
+        m = AxisMapping(chart_type="network", x_column="team", y_column="race",
+                        x_label="Constructor", z_column="points",
+                        controls=[ControlSpec(column="points", kind="min")])
+        c = Transformer().build_control_payload(rows, m)["controls"][0]
+        assert c["field"] == "measure" and c["side"] == "Constructor"
+
+    def test_network_value_filter_adopts_weight_not_degree(self):
+        # A numeric VALUE threshold on a network (e.g. a points filter) must NOT be
+        # mistaken for a connections/degree filter. It filters node size, so the
+        # column is adopted as the graph weight and the control is a value measure.
+        from pipeline.llm_mapper import _normalize_network_connections
+        data = {"chart_type": "network", "x_column": "team", "y_column": "race",
+                "z_column": None,
+                "controls": [{"column": "points", "kind": "min"}]}
+        _normalize_network_connections(data)
+        assert data["z_column"] == "points"                # weighted so nodes carry it
+        assert data["controls"][0]["column"] == "points"   # NOT rewritten to connections
+        rows = [{"team": t, "race": r, "points": str(p)}
+                for r in ["A", "B"] for t, p in [("RedBull", 50), ("Sauber", 1)]]
+        m = AxisMapping(chart_type="network", x_column="team", y_column="race",
+                        z_column="points", controls=[ControlSpec(column="points", kind="min")])
+        c = Transformer().build_control_payload(rows, m)["controls"][0]
+        assert c["field"] == "measure" and c["label"] == "Minimum Points"
+
+    def test_dropdown_composes_with_scrub(self):
+        # a dropdown + a scrub on different columns compose into one composite slice key
+        rows = []
+        for team in ["A", "B"]:
+            for yr in ["2020", "2021"]:
+                rows.append({"team": team, "year": yr, "x": "c", "wins": "1"})
+        m = AxisMapping(chart_type="bar", x_column="x", y_column="wins", aggregation="count",
+                        controls=[ControlSpec(column="team", kind="dropdown"),
+                                  ControlSpec(column="year", kind="scrub")])
+        p = Transformer().build_control_payload(rows, m)
+        kinds = sorted(c["kind"] for c in p["controls"])
+        assert kinds == ["dropdown", "scrub"]
+        sep = p["scrub_sep"]
+        assert sep.join(["A", "2020"]) in p["slices"]
+
     def test_unknown_column_control_is_ignored(self):
         p = _payload([ControlSpec(column="nonexistent", kind="scrub")])
         assert p is None

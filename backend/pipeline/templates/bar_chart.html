@@ -236,7 +236,6 @@
     // slider swaps which slice is drawn; a min slider hides bars below the chosen
     // measure value. `raw` is the default slice, so the chart opens on a valid view.
     const controls = __CONTROLS__;
-    const minCtls  = controls ? controls.controls.filter(c => c.kind === "min") : [];
     const slices   = (controls && controls.slices) || {};
     const _hasSlices = controls && controls.slices && Object.keys(controls.slices).length > 0;
 
@@ -265,15 +264,12 @@
     const colorScale = key => resolveColor(key, _baseCS(key));
     const groupLabel = grp => (config.group_labels && config.group_labels[grp] != null) ? config.group_labels[grp] : grp;
 
-    // Threshold filter: drop marks whose aggregated measure is below the max min-slider.
+    // Threshold filter: defer to the shared runtime, which honours each control's
+    // `field` (x/y/z/measure), min AND max, and the "<kind>:<col>" state keys.
     function applyMins(data) {
-      if (!minCtls.length) return data;
-      const thr = Math.max(...minCtls.map(c => minState[c.column]));
-      if (dataIsGrouped(data)) {
-        return data.map(gp => ({ ...gp, values: gp.values.filter(v => (v.y ?? 0) >= thr) }))
-                   .filter(gp => gp.values.length);
-      }
-      return data.filter(d => (d.y ?? 0) >= thr);
+      return window.WeaveControls
+        ? window.WeaveControls.applyMins(data, controls, minState)
+        : data;
     }
 
     // ── Fixed layout from the union of all slices, so the frame doesn't jump ──

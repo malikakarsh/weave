@@ -36,6 +36,32 @@ def _ungroup_degenerate(data: dict) -> None:
             data["palette"] = "vibrant"
 
 
+def _normalize_network_connections(data: dict) -> None:
+    """Reconcile a network's threshold controls with what its nodes can carry.
+
+    A 'minimum connections' filter has no column — it filters node DEGREE. The LLM
+    borrows an identity (x/y) column for it, which makes the control indistinguishable
+    from a real value threshold and un-referenceable by name on a later 'remove the
+    connections filter'; rewrite it to a stable virtual column, 'connections'.
+
+    A numeric VALUE threshold (e.g. 'constructor result points filter') filters the
+    node's aggregated size, so the node must be weighted by that column — if the graph
+    is unweighted, adopt the filtered column as the z_column (node weight)."""
+    if data.get("chart_type") != "network":
+        return
+    ident = {data.get("x_column"), data.get("y_column")}
+    value_cols = []
+    for c in (data.get("controls") or []):
+        if not (isinstance(c, dict) and c.get("kind") in ("min", "max")):
+            continue
+        if c.get("column") in ident:
+            c["column"] = "connections"            # degree filter
+        elif c.get("column") != "connections":
+            value_cols.append(c["column"])         # a real value threshold
+    if value_cols and not data.get("z_column"):
+        data["z_column"] = value_cols[0]           # weight nodes so they carry the value
+
+
 class LLMMapper:
     def __init__(self, provider: LLMProvider | None = None):
         self._provider = provider or AnthropicProvider()
@@ -95,6 +121,7 @@ class LLMMapper:
 
         _prefer_terminal_agg(data)   # cumulative/standings column → max, not sum
         _ungroup_degenerate(data)    # group == x-axis → flat chart, per-category palette
+        _normalize_network_connections(data)   # network degree filter → 'connections'
         mapping = AxisMapping(**data)
         self._validate(mapping, [col.name for col in schema.columns])
         return mapping
@@ -150,6 +177,7 @@ class LLMMapper:
 
         _prefer_terminal_agg(data)   # cumulative/standings column → max, not sum
         _ungroup_degenerate(data)    # group == x-axis → flat chart, per-category palette
+        _normalize_network_connections(data)   # network degree filter → 'connections'
         return AxisMapping(**data)
 
     def _strip_fences(self, text: str) -> str:

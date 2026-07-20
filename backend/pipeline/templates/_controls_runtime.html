@@ -9,6 +9,13 @@
   .wc-label { color: #94a3b8; font-size: 13px; font-weight: 600; }
   .wc-val   { color: #e2e8f0; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .wc-item input[type="range"] { width: 100%; accent-color: #6366f1; cursor: pointer; }
+  .wc-select {
+    width: 100%; margin-top: 2px;
+    background: #1a1d27; color: #e2e8f0;
+    border: 1px solid #2d3148; border-radius: 6px;
+    padding: 7px 10px; font-size: 14px; cursor: pointer; outline: none;
+  }
+  .wc-select:focus { border-color: #6366f1; }
 </style>
 <script>
   // Shared runtime for interactive filter sliders. Injected once per chart. A chart
@@ -27,6 +34,7 @@
         field === "x" ? d.x
       : field === "z" ? d.z
       : field === "y" ? d.y
+      : field === "degree" ? (d.degree ?? null)   // network node connections
       : (d.y ?? d.count ?? d.z ?? d.value ?? d.size ?? null);   // "measure" fallback
 
     function passesThresholds(v, controls, state) {
@@ -54,53 +62,103 @@
         return data.filter(ok);
       }
       if (data && Array.isArray(data.nodes)) {
+        // A network filter has two thresholds kinds with different reach:
+        //  • DEGREE ("min connections") selects hubs; neighbours are exempt and get
+        //    pulled back as context so edges show (a bipartite graph would otherwise
+        //    lose every edge).
+        //  • VALUE (points/size) describes ONE entity — it applies only to that
+        //    side's nodes (control.side === node.group). The OTHER side is context:
+        //    never hidden by the value cutoff, kept when tied to a survivor.
+        // So a low-points constructor is hidden, but its races stay; a race whose
+        // constructors are all filtered out drops with them.
         const idOf = x => (x && typeof x === "object") ? x.id : x;
-        const keep = new Set(data.nodes.filter(ok).map(n => n.id));
-        return {
-          nodes: data.nodes.filter(n => keep.has(n.id)),
-          links: data.links.filter(l => keep.has(idOf(l.source)) && keep.has(idOf(l.target))),
-        };
+        const ctrls = (controls && controls.controls) || [];
+        const degCtrls = { controls: ctrls.filter(c =>
+          (c.kind === "min" || c.kind === "max") && (c.field || "") === "degree") };
+        const valCtrls = ctrls.filter(c =>
+          (c.kind === "min" || c.kind === "max") && (c.field || "") !== "degree");
+        const measureSide = (valCtrls.find(c => c.side) || {}).side;
+        // value thresholds that apply to THIS node (only its own side; context exempt)
+        const valFor = n => ({ controls: valCtrls.filter(c =>
+          !(measureSide && c.side && n.group !== c.side)) });
+
+        // Seeds: pass every degree threshold AND every value threshold that owns them.
+        // A context-side node is never a seed on its own (it rides in via a survivor).
+        const isSeed = n => passesThresholds(n, degCtrls, state)
+          && (measureSide ? n.group === measureSide : true)
+          && passesThresholds(n, valFor(n), state);
+        // Pull-back eligible: not a value-owning node that FAILS its own cutoff.
+        const contextOk = n => passesThresholds(n, valFor(n), state);
+
+        const seeds = new Set(data.nodes.filter(isSeed).map(n => n.id));
+        const keep = new Set(seeds);
+        const byId = new Map(data.nodes.map(n => [n.id, n]));
+        data.links.forEach(l => {
+          const s = idOf(l.source), t = idOf(l.target);
+          if (seeds.has(s) && contextOk(byId.get(t))) keep.add(t);
+          if (seeds.has(t) && contextOk(byId.get(s))) keep.add(s);
+        });
+        const links = data.links.filter(l => keep.has(idOf(l.source)) && keep.has(idOf(l.target)));
+        return { nodes: data.nodes.filter(n => keep.has(n.id)), links };
       }
       return data;
     }
 
-    // Build the slider panel under the chart and wire it to the chart's callbacks.
-    // Multiple scrub sliders (e.g. Year + Month) compose: the shown slice is keyed
-    // by the JOINED selection of every scrub dimension, so moving either slider
-    // calls onScrub with the composite key. Single-scrub keys are the plain value.
+    // Build the controls panel under the chart and wire it to the chart's callbacks.
+    // Value-picker controls compose: 'scrub' (a slider) and 'dropdown' (a <select>)
+    // both select one value per dimension, and the shown slice is keyed by the
+    // JOINED selection of every such dimension → onScrub(compositeKey). min/max are
+    // thresholds → onMin("<kind>:<col>", value).
     function mount(controls, chartEl, handlers) {
       if (!controls || !controls.controls.length) return;
       const sep = controls.scrub_sep || "\x1f";
-      const scrubs = controls.controls.filter(c => c.kind === "scrub");
-      const scrubVals = scrubs.map(c => c.default ?? c.values[c.values.length - 1]);
-      const compositeKey = () => scrubVals.join(sep);
+      const pickers = controls.controls.filter(c => c.kind === "scrub" || c.kind === "dropdown");
+      const pickVals = pickers.map(c => c.default ?? c.values[c.values.length - 1]);
+      const compositeKey = () => pickVals.join(sep);
 
       const panel = document.createElement("div");
       panel.className = "weave-controls";
-      let scrubIdx = 0;
+      let pickIdx = 0;
       controls.controls.forEach(c => {
         const item = document.createElement("div"); item.className = "wc-item";
         const head = document.createElement("div"); head.className = "wc-head";
         const lbl  = document.createElement("span"); lbl.className = "wc-label"; lbl.textContent = c.label;
         const val  = document.createElement("span"); val.className = "wc-val";
         head.append(lbl, val);
-        const input = document.createElement("input"); input.type = "range";
-        if (c.kind === "scrub") {
-          const i = scrubIdx++;
-          input.min = 0; input.max = c.values.length - 1; input.step = 1;
-          const di = Math.max(0, c.values.indexOf(scrubVals[i]));
-          input.value = di; val.textContent = c.values[di];
-          input.addEventListener("input", () => {
-            scrubVals[i] = c.values[+input.value];
-            val.textContent = scrubVals[i];
+
+        if (c.kind === "dropdown") {
+          const i = pickIdx++;
+          const select = document.createElement("select");
+          select.className = "wc-select";
+          c.values.forEach(v => {
+            const o = document.createElement("option"); o.value = v; o.textContent = v; select.append(o);
+          });
+          select.value = pickVals[i];
+          val.remove();                          // the <select> shows the value itself
+          select.addEventListener("change", () => {
+            pickVals[i] = select.value;
             handlers.onScrub(compositeKey());
           });
+          item.append(head, select);
+        } else if (c.kind === "scrub") {
+          const i = pickIdx++;
+          const input = document.createElement("input"); input.type = "range";
+          input.min = 0; input.max = c.values.length - 1; input.step = 1;
+          const di = Math.max(0, c.values.indexOf(pickVals[i]));
+          input.value = di; val.textContent = c.values[di];
+          input.addEventListener("input", () => {
+            pickVals[i] = c.values[+input.value];
+            val.textContent = pickVals[i];
+            handlers.onScrub(compositeKey());
+          });
+          item.append(head, input);
         } else {
           // min or max threshold. A max slider starts at the TOP (nothing hidden)
           // and drags down; a min slider starts at 0 and drags up. State key is
-          // "<kind>:<col>" so both can coexist on one measure.
+          // "<kind>:<col>" so both can coexist on one column.
           const isMax = c.kind === "max";
           const key = c.kind + ":" + c.column;
+          const input = document.createElement("input"); input.type = "range";
           input.min = c.min; input.max = c.max; input.step = c.step;
           input.value = isMax ? c.max : c.min;
           val.textContent = input.value;
@@ -108,8 +166,8 @@
             val.textContent = input.value;
             handlers.onMin(key, +input.value);
           });
+          item.append(head, input);
         }
-        item.append(head, input);
         panel.append(item);
       });
       chartEl.append(panel);

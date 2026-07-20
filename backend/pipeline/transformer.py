@@ -138,21 +138,27 @@ class Transformer:
         faceted = bool(mapping.facet_direction) and mapping.chart_type in ("line", "area", "scatter")
         windowable_chart = faceted or (
             not mapping.facet_direction and mapping.chart_type in ("line", "area"))
+        # 'scrub' (a slider) and 'dropdown' (a <select>) are the same slicing — one
+        # pre-built slice per value — differing only in the UI widget the client renders.
         window_x = False
         scrubs = []
         for c in mapping.controls:
-            if c.kind != "scrub" or c.column not in cols:
+            if c.kind not in ("scrub", "dropdown") or c.column not in cols:
                 continue
             if c.column == x_col:
-                if x_continuous and windowable_chart:
+                # windowing only makes sense for the ordered/stepped scrub slider
+                if c.kind == "scrub" and x_continuous and windowable_chart:
                     window_x = True
                     scrubs.append(c)
-                # else: degenerate x-scrub (categorical x, or a chart without
-                # windowing support) — drop it so the chart keeps its full axis
+                # else: degenerate x-scrub (categorical x, a dropdown, or a chart
+                # without windowing support) — drop it so the chart keeps its axis
             else:
                 scrubs.append(c)
         scrubs = scrubs[:2]
-        thresholds = [c for c in mapping.controls if c.kind in ("min", "max") and c.column in cols]
+        # 'connections' is a virtual column for a network degree filter — it has no
+        # source column but is still a valid threshold.
+        thresholds = [c for c in mapping.controls if c.kind in ("min", "max") and (
+            c.column in cols or (mapping.chart_type == "network" and c.column == "connections"))]
 
         specs: list[dict] = []
         slices: dict[str, object] = {}
@@ -195,7 +201,7 @@ class Transformer:
                         return r.get(col, "").strip() or None
                     label = c.label or _pretty_col(c.column)
                 key_fns.append(fn)
-                specs.append({"column": c.column, "kind": "scrub", "label": label})
+                specs.append({"column": c.column, "kind": c.kind, "label": label})
 
             # Bucket rows by the tuple of scrub keys; cap the combination count so a
             # pathological pairing can't explode the payload — drop the 2nd dimension.
@@ -234,10 +240,17 @@ class Transformer:
                 except Exception:
                     slices[SEP.join(ks)] = [] if base.chart_type not in ("network",) else {"nodes": [], "links": []}
 
-            # Default = the newest/highest EXISTING combination, so the chart never
-            # opens on an empty slice (e.g. a month with no data in the latest year).
+            # Default = the newest/highest combination whose SLICE actually has data,
+            # so the chart never opens empty. A bucket can have rows yet transform to
+            # nothing (e.g. the latest year's measure is all null and gets filtered),
+            # so pick by the rendered slice, not just the raw bucket.
+            def _slice_empty(sl) -> bool:
+                if isinstance(sl, dict):
+                    return not sl.get("nodes")
+                return not sl
             if buckets:
-                best = max(buckets, key=key_order)
+                non_empty = [ks for ks in buckets if not _slice_empty(slices.get(SEP.join(ks)))]
+                best = max(non_empty or list(buckets), key=key_order)
                 default = SEP.join(best)
                 for spec, k in zip(specs, best):
                     spec["default"] = k
@@ -250,20 +263,33 @@ class Transformer:
                                           "stacked_area", "pie")
         for c in thresholds:
             field = self._control_field(c, base)
-            # Bound: aggregated measures come from the payload; a raw coordinate
-            # (scatter x/y, bubble z, a map's size) comes from the source column.
-            if field == "measure" or (field == "y" and aggregating):
+            # Bound: node degree from the graph payload; aggregated measures from the
+            # transformed payload; a raw coordinate (scatter x/y, bubble z, a map's
+            # size) from the source column.
+            if field == "degree":
+                hi = self._degree_max(ref_data)
+            elif field == "measure" or (field == "y" and aggregating):
                 hi = self._measure_max(ref_data)
             else:
                 hi = self._column_max(rows, c.column)
             hi = hi if hi and hi > 0 else 1.0
             step = 1.0 if float(hi).is_integer() and hi <= 50 else round(hi / 20, 2) or 1.0
             prefix = "Maximum" if c.kind == "max" else "Minimum"
-            specs.append({
+            # A degree threshold has no column to name — it filters "connections".
+            default_label = f"{prefix} Connections" if field == "degree" \
+                else f"{prefix} {_pretty_col(c.column)}"
+            spec = {
                 "column": c.column, "kind": c.kind, "field": field,
-                "label": c.label or f"{prefix} {_pretty_col(c.column)}",
+                "label": c.label or default_label,
                 "min": 0, "max": math.ceil(hi), "step": step,
-            })
+            }
+            # A network VALUE threshold describes ONE entity (e.g. constructor points),
+            # so it applies only to that side's nodes — the source (x) side, matching
+            # node.group. The other side stays as context. Without this, the threshold
+            # would hide the whole opposite side whose derived sizes fall below it.
+            if base.chart_type == "network" and field == "measure":
+                spec["side"] = base.x_label or base.x_column
+            specs.append(spec)
 
         if not specs:
             return None
@@ -277,7 +303,16 @@ class Transformer:
         else 'measure' (the aggregated y / bin count / node value). This is what
         makes a 'minimum sepal length' slider filter the x column, not the y."""
         ct = mapping.chart_type
-        if ct in ("histogram", "network"):   # bins/nodes carry a count/value measure
+        if ct == "network":
+            # 'connections' (virtual) or a node-IDENTITY column (x/y source/target
+            # names) → node DEGREE ("minimum connections"). Any other column is a
+            # value threshold on the node's aggregated SIZE (its total edge weight) —
+            # the "measure" field reads d.size and bounds by the node-size max. The
+            # normalizer makes that filtered column the graph weight so nodes carry it.
+            if c.column == "connections" or c.column in (mapping.x_column, mapping.y_column):
+                return "degree"
+            return "measure"
+        if ct == "histogram":   # bins carry a count/value measure
             return "measure"
         if c.column == mapping.z_column:
             return "z"
@@ -294,6 +329,15 @@ class Transformer:
         if all(n is not None for n in nums.values()):
             return sorted(vals, key=lambda v: nums[v])
         return sorted(vals)
+
+    @staticmethod
+    def _degree_max(data) -> float:
+        """Largest node degree in a network payload, for a 'minimum connections'
+        slider's upper bound."""
+        if isinstance(data, dict):
+            return float(max((n.get("degree", 0) for n in data.get("nodes", [])),
+                             default=0))
+        return 0.0
 
     @staticmethod
     def _measure_max(data) -> float:
@@ -797,6 +841,16 @@ class Transformer:
             keep = set(sorted(degree, key=lambda n: degree[n], reverse=True)[:MAX_NODES])
             node_list = [n for n in node_list if n["id"] in keep]
             links = [l for l in links if l["source"] in keep and l["target"] in keep]
+
+        # Annotate each node with its degree (number of incident edges) so a
+        # "minimum connections" threshold can filter on graph topology — there's no
+        # column for it. Computed from the FINAL links, after any capping.
+        deg: dict[str, int] = {}
+        for l in links:
+            deg[l["source"]] = deg.get(l["source"], 0) + 1
+            deg[l["target"]] = deg.get(l["target"], 0) + 1
+        for n in node_list:
+            n["degree"] = deg.get(n["id"], 0)
 
         return {"nodes": node_list, "links": links}
 

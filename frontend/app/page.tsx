@@ -1315,8 +1315,12 @@ export default function Home() {
     body.append("file", file);
     body.append("prompt", p);
 
-    // Offset new session IDs so they don't collide with existing ones
-    const offset = sessions.length;
+    // Offset new session IDs past the highest existing one. Using sessions.length
+    // breaks after a delete (length < maxId+1) and reuses a live id → duplicate keys.
+    const offset = sessions.reduce((m, s) => {
+      const n = parseInt(s.id.slice("session-".length), 10);
+      return Number.isFinite(n) ? Math.max(m, n + 1) : m;
+    }, 0);
 
     try {
       const res = await fetch(`${API}/dashboard`, { method: "POST", body, credentials: "include" });

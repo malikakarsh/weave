@@ -6,6 +6,14 @@ Turn a CSV file and a plain-English prompt into an interactive D3.js chart — n
 python main.py data.csv "show me revenue over time" --open
 ```
 
+| | |
+|---|---|
+| ![](./images/1.png) | ![](./images/2.png) |
+| ![](./images/3.png) | ![](./images/4.png) |
+| ![](./images/10.png) | ![](./images/6.png) |
+| ![](./images/7.png) | ![](./images/8.png) |
+| ![](./images/9.png) | ![](./images/5.png) |
+
 ## Web UI
 
 A Next.js frontend and FastAPI backend are included for browser-based chart generation.
@@ -540,43 +548,28 @@ Results across 34 cases covering all chart types, aggregation, date filtering, f
 - Local models are faster per-token but load cold on each eval run; Haiku is faster end-to-end for short prompts
 - Eval cases were written against Claude's behavior — a model that makes a different but valid chart choice will still fail
 
+## Prompt-cache benchmark
+
+The provider-agnostic LLM layer marks the large, static system prompt as a cacheable block (`cache_control: ephemeral` on Anthropic; server-side cached content on Gemini). The instruction block is identical on every call, so after the first request it is stored server-side and read back at a fraction of the input cost, instead of being re-tokenised and re-processed each time.
+
+Measured against `claude-haiku-4-5` (the configured Anthropic model), 5 timed calls per mode after a warm-up call, using the real `AXIS_MAPPING_SYSTEM` prompt:
+
+| Metric (per call) | Uncached baseline | Cached | Change |
+|---|---|---|---|
+| Input tokens billed at full price | 4,278 | 118 | — |
+| Tokens served from cache | 0 | 4,160 | — |
+| Input cost | $0.004278 | $0.000534 | **−87.5%** (8.0× cheaper) |
+| Total cost (incl. 250 output tokens) | $0.005528 | $0.001784 | **−67.7%** |
+| Latency (median) | 1,535 ms | 1,476 ms | **−3.8% (~60 ms)** |
+
+**How it's calculated:**
+- **Method** — the same `(system, user)` request is sent twice: once with the system block marked cacheable (what the app does) and once with the flag stripped (baseline). Token usage comes straight from the API response `usage` object — `cache_read_input_tokens`, `cache_creation_input_tokens`, and full-price `input_tokens` — not an estimate. Latency is wall-clock around each `messages.create` call.
+- **Cost basis** — Haiku 4.5 list pricing of $1.00 / $5.00 per 1M input/output tokens, with cache reads billed at 0.1× input and cache writes at 1.25× (5-minute TTL). Per-call input cost = `full_price_in × $1.00 + cache_read × $0.10 + cache_write × $1.25`, all per 1M.
+- **Why cost drops more than latency** — the cache replaces ~4.2K re-processed prompt tokens with a 0.1×-priced read (the 8× input saving), but total latency is dominated by output generation (250 tokens here) and Haiku's already-fast prefill, so the wall-clock gain is a smaller ~60 ms. The win is cost-driven, with a modest latency benefit.
+
+**Note on the cache floor:** the system prompt measures **4,278 tokens**, just above Haiku's **4,096-token** minimum cacheable prefix. Trimming the prompt by more than ~4% would silently disable caching on Haiku (`cache_read` drops to 0 with no error), so the prompt should be kept above that floor.
+
 ## What's next
-
-**API + UI** ✓
-- ~~FastAPI backend — `POST /chart`, `GET /health`~~
-- ~~Frontend — file upload + prompt input + rendered chart in browser~~
-- ~~`POST /refine` — iterative chart refinement with conversation history~~
-- ~~Universal prompt bar — single input drives both generation and refinement~~
-- ~~Responsive hero landing page~~
-- ~~Multi-chart dashboard — `POST /dashboard` SSE endpoint; LLM decomposes one prompt into N focused sub-prompts, runs N pipelines in parallel via `asyncio.as_completed`, streams each chart to the browser as it finishes~~
-- ~~Per-chart session state — each chart has its own isolated conversation history, mapping, and refine bar; refinements in one chart never affect another~~
-- ~~"Add chart" button — append new charts to the dashboard at any time without clearing existing ones~~
-- ~~CSV validation — size limit (50 MB, generous enough for combined multi-CSV joins), encoding check, null-byte detection, parse verification, formula injection guard (formatted numbers, `-`/`+`/`.` placeholders, and signed-with-units values like `+1 Lap` / `-5.478` are not mistaken for formulas)~~
-- ~~Color refinement — `color` and `category_colors` fields in `AxisMapping`; overall color and per-category overrides via natural language~~
-- ~~Playground — sample dataset picker on landing page; backend serves CSVs via `GET /playground/csv/{id}`; reuses dashboard SSE pipeline; resets on own CSV upload~~
-- ~~Navbar cursor fix — pointer cursor on theme toggle and "← New" button~~
-- ~~Google OAuth login — FastAPI-owned flow (`api/auth.py`, Authlib): Google authenticates, backend mints its own httpOnly-cookie JWT; `/auth/login/google`, `/auth/google/callback`, `/auth/me`, `/auth/logout` + a `get_current_user` dependency; frontend `useAuth` hook + navbar sign-in/avatar. Stateless (JWT-carried identity) until the user table lands with persistence~~
-- Deployed with a live URL (Digital Ocean)
-
-**Test suite** ✓
-- ~~pytest unit tests — DataLoader (type detection, CSV loading, validation), Transformer (all six transform modes, sort, date bucketing, range filtering), LLMMapper (fence stripping, schema description, validate, map/refine with mocked provider)~~
-
-**Streaming** ✓
-- ~~SSE progress stream — `POST /chart/stream` and `POST /refine/stream` emit `loading → mapping → transforming → rendering → done` stage events; dashboard SSE emits per-chart `progress` events; frontend shows a 4-step progress bar and stage label in each pending card~~
-
-**Multi-CSV joins** ✓
-Uploading multiple CSVs (e.g. an F1 dataset split across races, results, drivers, constructors, standings) and visualising across them, via a join stage before the existing pipeline.
-
-Architecture (shipped, fully deterministic — no LLM in the join path):
-- ~~Load all CSVs into an in-memory SQLite database~~
-- ~~Auto-detect join candidates using **value-overlap sampling** gated by **key-name compatibility** (stem matching) — so `results.driverId`→`drivers.driverId` joins, but cross-entity collisions (`statusId`↔`raceId`), two bare `id` PKs, and same-named measures (`points`↔`points`) are rejected even when their integer ranges overlap~~
-- ~~**Composite-key detection** — tables sharing 2+ key columns whose combination is unique on one side join on all of them (`results ⋈ driver_standings ON raceId AND driverId`), a 1:1 lookup~~
-- ~~**Fan-out guard** — a table is only auto-joined when its own join key is unique on its side; a many-to-one detail table (season standings keyed on `raceId` alone) is left unjoined rather than exploding the fact grain~~
-- ~~Maximum-confidence spanning tree (Prim's) picks the base/fact table and connects the rest; the Combine dialog lets the user confirm the base table, toggle joins (composite ones badged), and see which tables couldn't be linked~~
-- ~~Executed result is a flat table that drops into the existing LLMMapper → Transformer → Templater pipeline unchanged~~
-
-**Deterministic grain-aware aggregation** ✓
-- ~~When a chart aggregates a measure, a coarse-grained column repeated across fine-grained rows (the BI "fan trap") is collapsed to one representative per group before aggregating — constant → the value, cumulative/monotonic → the terminal value, otherwise the requested aggregation. Applied to the network's node/edge sizing so a repeated season total or a cumulative running total (e.g. `wins`) is never multiplied by the number of underlying rows. Domain-agnostic, works on directly-uploaded denormalised CSVs too~~
 
 **Canvas / dashboard view**
 - Multiple charts on one page, each independently generated from its own CSV + prompt
@@ -588,19 +581,6 @@ Architecture (shipped, fully deterministic — no LLM in the join path):
 - Store generated HTML server-side (UUID key → blob storage or DB)
 - Serve at `GET /chart/{id}` — returns self-contained HTML
 - Give users an `<iframe src="https://weave.app/chart/{id}">` embed snippet; all interactivity (tooltips, edit panel, export) works client-side with no server dependency after load
-
-**Speech to text** ✓
-- ~~Microphone button on every prompt, add-chart, and refine bar — click to start/stop recording~~
-- ~~Browser-native `webkitSpeechRecognition` / `SpeechRecognition` API (zero backend changes, works in Chrome/Edge out of the box); transcript drops into the existing input so the rest of the flow is unchanged~~
-- ~~**⌥/Alt+Shift+V** keyboard shortcut toggles recording for the field in context (prompt on the landing page, the current chart's refine bar on the dashboard); **Enter** submits the transcript~~
-
-**Session persistence**
-- ~~Database foundation — Postgres (local: docker-compose, bind-mounted to `./.pgdata`), async SQLAlchemy 2.0 + asyncpg, Alembic migrations; `User` / `Thread` / `Chart` / `DailyUsage` models (`api/db_models.py`); the user is upserted from their Google profile on every login~~
-- ~~Roles + rate limiting — `User.role` (admin via `ADMIN_EMAILS`); per-user daily limit (`DAILY_REQUEST_LIMIT`, default 20) **metered per LLM call** in a `daily_usage` table (`api/usage.py`), admins exempt. Every LLM endpoint requires login and charges quota; a multi-chart dashboard is capped to the remaining quota and returns `429` when exhausted~~
-- ~~Thread persistence (backend) — a **thread** is one CSV-upload workspace (title + CSV + its charts, each keeping its refine history). User-scoped CRUD in `api/threads.py` (`POST/GET/GET{id}/PUT charts/PATCH/DELETE /threads`); ownership enforced (404 on someone else's thread)~~
-- ~~Frontend — thread sidebar (list past threads, new thread on CSV upload, click to restore full state incl. refine history), navbar usage indicator (`remaining/limit`, admin badge) that refreshes after each call, and login-gated generation. Charts auto-save (debounced) to the current thread; `app/threads.ts` is the API client, `app/useAuth.ts` exposes role + usage~~
-- ~~Charts persist server-side per user (Postgres), so they survive logout, browser close, and other devices — restored from the sidebar on next sign-in~~
-- ~~Return to the last page you were on across reloads — the CSV, charts, and current thread are restored from IndexedDB (not an auto-jump to the newest thread), so you land back exactly where you left off (or on the landing page if that's where you were)~~
 
 **Data storytelling**
 - Intelligent peer selection — when a user focuses on one entity, the LLM picks structurally similar peers based on scale, sector, and growth trajectory
